@@ -22,7 +22,8 @@
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:linux": "npm run build && electron-builder --linux",
     "test:shot": "npm run build && node scripts/start.cjs --shot",
-    "test:probe": "npm run build && node scripts/start.cjs --probe"
+    "test:probe": "npm run build && node scripts/start.cjs --probe",
+    "shortcut": "node scripts/shortcut.cjs"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",

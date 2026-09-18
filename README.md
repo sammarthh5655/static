@@ -22,6 +22,17 @@ npm start
 `npm start` runs the preload bundler first (`npm run build`) and then launches
 Electron. Use `npm run dev` for the same thing with `--dev` passed through.
 
+### Launching without a terminal
+
+`npm run shortcut` puts a **static** shortcut on the Desktop that launches the
+browser with no console window. It rebuilds the preloads first if they are
+stale, so the shortcut always runs current code — edit something in `src/` and
+just double-click it again.
+
+This runs the dev build (Electron plus `src/`), so the project folder has to
+stay where it is. For something you can move or install, package it properly
+with `npm run dist:win` — see below.
+
 Other scripts:
 
 | Command | What it does |

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `npm run shortcut` creates a desktop shortcut that launches the browser
+  without a terminal window, rebuilding stale preloads first so it always runs
+  current code. Windows (.lnk via a VBScript launcher), Linux (.desktop) and
+  macOS (.command).
+
 ## [0.1.0] - 2026-09-18
 
 Initial build: a working browser with tabs, omnibox, extensions and the full
