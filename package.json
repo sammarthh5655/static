@@ -1,0 +1,26 @@
+{
+  "name": "my-browser",
+  "version": "0.1.0",
+  "description": "A Chrome/Brave-like desktop web browser built on Electron with real Chrome Web Store extension support",
+  "main": "src/main/main.js",
+  "author": "sammarth025@gmail.com",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder -mwl",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-chrome-extensions": "^4.9.0",
+    "electron-chrome-web-store": "^0.13.0"
+  },
+  "devDependencies": {
+    "electron": "^44.4.2",
+    "electron-builder": "^26.15.3"
+  }
+}
