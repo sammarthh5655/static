@@ -1,0 +1,192 @@
+/* Browser chrome styling. Heights here MUST match CHROME_HEIGHT and
+   BOOKMARKS_BAR_HEIGHT in src/main/application.js, which positions the tab
+   view directly below this UI. */
+
+:root {
+  --bg: #1f1f1f;
+  --bg-strip: #171717;
+  --tab: #2a2a2a;
+  --tab-active: #3a3a3a;
+  --text: #e8e8e8;
+  --text-dim: #9a9a9a;
+  --field: #2c2c2c;
+  --border: #3d3d3d;
+  --accent: #6aa9ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+  cursor: default;
+}
+
+/* ---- tab strip (40px) ---------------------------------------------------- */
+.strip {
+  display: flex;
+  align-items: flex-end;
+  height: 40px;
+  padding: 6px 6px 0;
+  background: var(--bg-strip);
+  gap: 2px;
+}
+
+.drag { -webkit-app-region: drag; }
+.spacer { flex: 1; align-self: stretch; }
+
+.tabs { display: flex; align-items: flex-end; gap: 2px; overflow: hidden; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 56px;
+  max-width: 200px;
+  height: 34px;
+  padding: 0 8px;
+  border-radius: 8px 8px 0 0;
+  background: var(--tab);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tab.active { background: var(--tab-active); color: var(--text); }
+.tab.dragging { opacity: 0.5; }
+.tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tab .favicon { width: 16px; height: 16px; flex: none; border-radius: 3px; }
+
+/* Loading spinner replaces the favicon while a tab loads. */
+.tab .spinner {
+  width: 13px; height: 13px; flex: none;
+  border: 2px solid var(--text-dim);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.tab .close {
+  width: 18px; height: 18px; flex: none;
+  border: 0; border-radius: 50%;
+  background: transparent; color: inherit;
+  font-size: 14px; line-height: 1;
+  cursor: default;
+}
+.tab .close:hover { background: rgba(255,255,255,0.15); }
+
+/* ---- toolbar (48px) ------------------------------------------------------ */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 48px;
+  padding: 0 8px;
+  background: var(--bg);
+}
+
+.icon {
+  width: 30px; height: 30px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 50%;
+  background: transparent; color: var(--text);
+  font-size: 15px; cursor: default;
+}
+.icon:hover:not(:disabled) { background: rgba(255,255,255,0.1); }
+.icon:disabled { color: #5a5a5a; }
+.newtab { align-self: center; margin-bottom: 4px; }
+
+/* ---- omnibox ------------------------------------------------------------- */
+.omnibox {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 4px 0 10px;
+  border-radius: 16px;
+  background: var(--field);
+}
+.omnibox:focus-within { background: #333; box-shadow: 0 0 0 2px var(--accent); }
+
+.security { font-size: 12px; margin-right: 6px; color: var(--text-dim); }
+.security.secure { color: #6fce8f; }
+.security.insecure, .security.error { color: #e88; }
+
+#address {
+  flex: 1;
+  border: 0; outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+  cursor: text;
+}
+
+.star.on { color: #f5c542; }
+
+/* Suggestion dropdown. Rendered inside the chrome view, so it is clipped to
+   the chrome height; that is why CHROME_HEIGHT leaves room for ~8 rows. */
+.suggestions {
+  position: absolute;
+  top: 34px; left: 0; right: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #2a2a2a;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 10;
+}
+
+.suggestion {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px;
+  overflow: hidden; white-space: nowrap;
+}
+.suggestion.selected, .suggestion:hover { background: #3a3a3a; }
+.suggestion .kind { color: var(--text-dim); font-size: 11px; flex: none; }
+.suggestion .label { overflow: hidden; text-overflow: ellipsis; }
+.suggestion .url { color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- bookmarks bar (34px) ------------------------------------------------ */
+.bookmarks {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 8px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bookmark {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  max-width: 180px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bookmark:hover { background: rgba(255,255,255,0.1); }
+
+.empty { color: var(--text-dim); padding: 4px 8px; }
+
+/* ---- notice -------------------------------------------------------------- */
+.notice {
+  position: fixed;
+  left: 50%; bottom: 8px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: #3a3a3a;
+  border: 1px solid var(--border);
+}
+
+browser-action-list { display: flex; align-items: center; gap: 2px; }

@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Extensions</title>
+  <link rel="stylesheet" href="pages.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Extensions</h1>
+    <div class="toolbar">
+      <button id="unpacked">Load unpacked</button>
+      <button id="crx">Install .crx file</button>
+      <button id="store" class="primary">Open Chrome Web Store</button>
+    </div>
+    <div class="card"><div id="list"></div></div>
+    <p class="sub note">
+      Extensions run through electron-chrome-extensions, which reimplements the
+      Chrome extension APIs. Some newer MV3 APIs are unsupported &mdash; see the
+      README for the known gaps.
+    </p>
+  </div>
+  <script src="common.js"></script>
+  <script src="extensions.js"></script>
+</body>
+</html>

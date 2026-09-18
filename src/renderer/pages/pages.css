@@ -1,0 +1,111 @@
+/* Shared styling for every browser:// internal page. */
+
+:root {
+  --bg: #202124;
+  --panel: #292a2d;
+  --text: #e8eaed;
+  --text-dim: #9aa0a6;
+  --border: #3c4043;
+  --accent: #8ab4f8;
+  --danger: #f28b82;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 32px 24px 64px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.wrap { max-width: 860px; margin: 0 auto; }
+
+h1 { font-size: 22px; font-weight: 500; margin: 0 0 20px; }
+h2 { font-size: 15px; font-weight: 500; margin: 28px 0 10px; color: var(--text-dim); }
+
+a { color: var(--accent); }
+
+input[type=text], input[type=search], select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+input:focus, select:focus { border-color: var(--accent); }
+select { cursor: pointer; }
+
+button {
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { background: #35363a; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #202124; }
+button.danger { color: var(--danger); }
+button:disabled { opacity: 0.5; cursor: default; }
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.row:last-child { border-bottom: 0; }
+.row .grow { flex: 1; min-width: 0; }
+.row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .sub { color: var(--text-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.field { display: flex; align-items: center; gap: 16px; padding: 14px; border-bottom: 1px solid var(--border); }
+.field:last-child { border-bottom: 0; }
+.field label { flex: 1; }
+.field .control { width: 260px; }
+.field .hint { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+
+.empty { color: var(--text-dim); padding: 32px; text-align: center; }
+
+.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; }
+
+.checks { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+.checks label { display: flex; align-items: center; gap: 10px; }
+
+.tag {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.tag.on { color: #81c995; border-color: #81c995; }
+.tag.off { color: var(--text-dim); }
+
+/* Clickable row titles. A class rather than an inline style, because the CSP
+   on every internal page forbids inline styles (style-src 'self'). */
+.title.link { cursor: pointer; }
+.title.link:hover { text-decoration: underline; }
+
+.tag.gap { margin-left: 8px; }
+
+/* Right-aligned control cells in settings rows. */
+.control.right { text-align: right; }
+/* Checkboxes must not stretch to the .control width. */
+input[type=checkbox].toggle { width: auto; }
+.note { color: var(--text-dim); }

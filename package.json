@@ -1,26 +1,78 @@
 {
-  "name": "my-browser",
+  "name": "static",
+  "productName": "static",
   "version": "0.1.0",
-  "description": "A Chrome/Brave-like desktop web browser built on Electron with real Chrome Web Store extension support",
+  "description": "static - a modular desktop browser with real Chromium tabs and Chrome extensions",
   "main": "src/main/main.js",
   "author": "sammarth025@gmail.com",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder -mwl",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "build": "node scripts/build.cjs",
+    "prestart": "npm run build",
+    "start": "node scripts/start.cjs",
+    "dev": "npm start -- --dev",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node scripts/check.cjs",
+    "test:smoke": "npm run build && node scripts/start.cjs --smoke",
+    "test:store": "npm run build && node scripts/start.cjs --smoke-store",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:linux": "npm run build && electron-builder --linux",
+    "test:shot": "npm run build && node scripts/start.cjs --shot",
+    "test:probe": "npm run build && node scripts/start.cjs --probe"
   },
   "dependencies": {
-    "electron-chrome-extensions": "^4.9.0",
-    "electron-chrome-web-store": "^0.13.0"
+    "electron-chrome-extensions": "4.9.0",
+    "electron-chrome-web-store": "0.13.0"
   },
   "devDependencies": {
-    "electron": "^44.4.2",
-    "electron-builder": "^26.15.3"
+    "electron": "44.4.2",
+    "electron-builder": "26.15.3",
+    "esbuild": "^0.25.12"
+  },
+  "build": {
+    "appId": "dev.staticbrowser.desktop",
+    "productName": "static",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "build/**/*",
+      "package.json",
+      "README.md",
+      "CHANGELOG.md",
+      "LICENSE"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "maintainer": "static contributors"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
   }
 }

@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data: chrome-extension: crx:; connect-src 'none'">
+  <title>static</title>
+  <link rel="stylesheet" href="chrome.css">
+</head>
+<body>
+  <!-- Tab strip -->
+  <div class="strip">
+    <div class="tabs" id="tabs"></div>
+    <button class="icon newtab" id="newtab" title="New tab (Ctrl+T)">+</button>
+    <div class="spacer drag"></div>
+  </div>
+
+  <!-- Toolbar: navigation, omnibox, extension actions -->
+  <div class="toolbar">
+    <button class="icon" id="back" title="Back">&#8592;</button>
+    <button class="icon" id="forward" title="Forward">&#8594;</button>
+    <button class="icon" id="reload" title="Reload">&#8635;</button>
+    <button class="icon" id="home" title="Home">&#8962;</button>
+
+    <div class="omnibox" id="omnibox">
+      <span class="security" id="security"></span>
+      <input id="address" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Search Google or type a URL">
+      <button class="icon star" id="star" title="Bookmark this page">&#9734;</button>
+      <div class="suggestions" id="suggestions" hidden></div>
+    </div>
+
+    <!-- Populated by electron-chrome-extensions with real extension icons -->
+    <browser-action-list id="actions"></browser-action-list>
+    <button class="icon" id="menu" title="Menu">&#8942;</button>
+  </div>
+
+  <!-- Bookmarks bar -->
+  <div class="bookmarks" id="bookmarks" hidden></div>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <script src="chrome.js"></script>
+</body>
+</html>
