@@ -11,6 +11,7 @@ module.exports = {
     'downloads:reveal', 'downloads:cancel', 'downloads:clear',
     'settings:update', 'settings:clear-data',
     'newtab:notes',
+    'ai:ask', 'ai:cancel', 'ai:status',
   ],
   events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu'],
 };

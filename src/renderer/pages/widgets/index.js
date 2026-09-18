@@ -145,25 +145,17 @@ RENDERERS.notes = (ctx) => {
  */
 
 RENDERERS.assistant = (ctx) => {
-  const declared = ctx.catalog.widgets.find((w) => w.id === 'assistant') || {};
-  // A future settings field (declared as `credentialKey` in the registry)
-  // supplies this. Until it exists, the widget stays in its setup state.
-  const configured = !!ctx.credential(declared.credentialKey);
+  // AI is available when the build ships a key; the key itself is never in
+  // renderer context, so this only reports availability.
+  const configured = !!ctx.credential();
 
   if (!configured) {
-    const body = ctx.element('div', { class: 'assistant-setup' }, [
-      ctx.element('p', {
-        class: 'widget-empty',
-        text: 'Add an API key in Settings to ask questions from this page.',
-      }),
-      ctx.element('button', {
-        class: 'widget-action',
-        text: 'Open settings',
-        onclick: () => ctx.invoke('tabs:navigate', { input: 'browser://settings' }),
-      }),
-    ]);
+    const body = ctx.element('p', {
+      class: 'widget-empty',
+      text: 'AI is unavailable in this build.',
+    });
     return card('AI assistant', 'sparkle', body, ctx, [
-      ctx.element('span', { class: 'widget-tag', text: 'Not configured' }),
+      ctx.element('span', { class: 'widget-tag', text: 'Unavailable' }),
     ]);
   }
 

@@ -19,7 +19,20 @@
       <span class="searchbox-icon" id="search-icon"></span>
       <input id="query" type="text" spellcheck="false" autocomplete="off" autofocus
              placeholder="Search the web">
+      <span class="ai-badge" id="ai-badge" hidden>AI</span>
     </form>
+    <div class="search-hint" id="search-hint"></div>
+
+    <!-- Gemini answer panel. Hidden until the first AI answer. -->
+    <section class="ai-panel" id="ai-panel" hidden>
+      <header class="ai-panel-head">
+        <span class="ai-panel-title" id="ai-panel-title">Gemini</span>
+        <button class="ai-tool" id="ai-copy" title="Copy answer">Copy</button>
+        <button class="ai-tool" id="ai-close" title="Close">Close</button>
+      </header>
+      <div class="ai-answer" id="ai-answer"></div>
+      <div class="ai-followups" id="ai-followups"></div>
+    </section>
 
     <section class="most-visited" id="most-visited-section" hidden>
       <h2 class="section-title">Most visited</h2>

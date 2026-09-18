@@ -43,6 +43,7 @@ Other scripts:
 | `npm run test:smoke` | Boots the real app in Electron and drives it end-to-end |
 | `npm run test:probe` | Loads the chrome, menu overlay and every `browser://` page; fails on console errors |
 | `npm run test:appearance` | Theme, radius, motion, window controls and shortcuts |
+| `npm run test:ai` | AI mode switching and a real Gemini call |
 | `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
 | `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
 
@@ -89,6 +90,7 @@ until the binary is signed.
 src/
   main/                  Main process (Node side)
     main.js              Entry point: app lifecycle, single-instance lock
+    secure/keys.js       Baked-in API keys - GITIGNORED, see keys.example.js
     application.js       Owns the window, wires features, registers all IPC
     shortcuts.js         Keyboard accelerator table and matcher
     storage.js           Atomic JSON store used by every feature
@@ -109,6 +111,7 @@ src/
       common.js          Shared helpers for every internal page
       widgets/           New tab widget implementations
   features/              One folder per feature, each a self-contained module
+    ai/                  Gemini client - main process only, holds the API key
     tabs/                Tab lifecycle, WebContentsView management, navigation
     bookmarks/           Bookmark storage and toggling
     history/             Visit recording, search, omnibox suggestions
@@ -118,7 +121,7 @@ src/
   shared/                Code used by both main and renderer
     channels.js          The complete IPC contract - the security allowlist
     urls.js              URL vs search detection, scheme allowlist, security state
-    theme.js             Colours, radius, blur, motion, icon set - one source
+    theme.js             Colours, radius, blur, motion, fonts, icon set - one source
     widgets.js           New tab widget registry
 scripts/
   build.cjs              esbuild preload bundler
@@ -268,6 +271,25 @@ package, which is the single most common source of Electron build breakage.
 Writes are atomic (temp file + rename) and history writes are debounced so
 logging every visit doesn't hammer the disk. If history ever needs to grow past
 a few hundred thousand rows, that is the point to revisit this.
+
+---
+
+## AI and the Gemini key
+
+All AI features use Gemini. The key is baked into the build rather than being a
+user setting, and it lives in `src/main/secure/keys.js`, which is gitignored —
+copy `keys.example.js` to `keys.js` and fill it in to build. `GEMINI_API_KEY` in
+the environment overrides it for development.
+
+Every Gemini call is made from the main process. A renderer sends a prompt over
+IPC and receives text back; the key is never in renderer or page context, never
+in a URL, and is scrubbed from any error message before it is shown.
+
+**A key embedded in a desktop app is not secret.** The app ships to the user's
+disk, so anyone can extract it from the bundle or watch the network call —
+obfuscation only raises the effort. The protection that actually works is on
+Google's side: restrict the key and cap its quota in Google AI Studio so a leak
+is bounded rather than open-ended.
 
 ---
 

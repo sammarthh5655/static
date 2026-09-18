@@ -18,15 +18,134 @@ let mounted = [];
 
 /* ---- search --------------------------------------------------------------- */
 
-$('#search-icon').append(icon('search', { size: 17 }));
+/**
+ * The search box has two modes.
+ *
+ *   Search mode  Enter -> normal search or navigation (the omnibox pipeline)
+ *   AI mode      Enter -> the query goes to Gemini and the answer appears below
+ *
+ * Tab switches between them, Escape leaves AI mode. The mode is visible at a
+ * glance through the badge, the accent border and the hint line, because a
+ * text field that silently changes what Enter does would be a trap.
+ */
+let aiMode = false;
+let aiBusy = false;
+
+const queryInput = $('#query');
+
+function setMode(next) {
+  aiMode = next;
+  document.body.classList.toggle('ai-mode', aiMode);
+  $('#ai-badge').hidden = !aiMode;
+  queryInput.placeholder = aiMode ? 'Ask Gemini anything\u2026' : 'Search the web';
+  renderHint();
+}
+
+function renderHint() {
+  const hint = $('#search-hint');
+  if (!state.ai?.available) { hint.textContent = ''; return; }
+  if (aiBusy) { hint.textContent = 'Asking Gemini\u2026  Esc to cancel'; return; }
+  hint.textContent = aiMode
+    ? 'AI Mode active \u2014 Press Enter to ask Gemini  \u00b7  Tab or Esc for search'
+    : 'Press Tab for an AI answer';
+}
+
+function setSearchIcon() {
+  $('#search-icon').replaceChildren(icon(aiMode ? 'sparkle' : 'search', { size: 17 }));
+}
+
+setSearchIcon();
+renderHint();
+
+queryInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Tab' && !event.shiftKey) {
+    // Tab is the mode switch rather than a focus move: this field is the
+    // primary control on the page, so moving focus away is never what is
+    // wanted here.
+    if (!state.ai?.available) return;
+    event.preventDefault();
+    setMode(!aiMode);
+    setSearchIcon();
+    return;
+  }
+  if (event.key === 'Escape') {
+    if (aiBusy) { invoke('ai:cancel'); aiBusy = false; renderHint(); return; }
+    if (aiMode) { event.preventDefault(); setMode(false); setSearchIcon(); }
+  }
+});
 
 $('#search').addEventListener('submit', (event) => {
   event.preventDefault();
-  const value = $('#query').value.trim();
+  const value = queryInput.value.trim();
+  if (!value) return;
+  if (aiMode && state.ai?.available) return askGemini(value);
   // Routed through the omnibox pipeline in main so engine choice and the
   // URL-vs-search decision live in exactly one place.
-  if (value) invoke('tabs:navigate', { input: value });
+  invoke('tabs:navigate', { input: value });
 });
+
+/* ---- Gemini answers ------------------------------------------------------- */
+
+const SYSTEM_PROMPT = [
+  'You are the built-in assistant in a web browser.',
+  'Answer directly and concisely - usually two or three short paragraphs.',
+  'Use plain text with simple dashes for lists; no markdown headings or bold.',
+  'If you are unsure or the question needs current information you do not have,',
+  'say so plainly rather than guessing.',
+  'End with a line "FOLLOWUPS:" followed by up to three short follow-up',
+  'questions separated by " | ".',
+].join(' ');
+
+async function askGemini(prompt) {
+  aiBusy = true;
+  renderHint();
+  const panel = $('#ai-panel');
+  panel.hidden = false;
+  $('#ai-panel-title').textContent = 'Gemini';
+  $('#ai-answer').textContent = 'Thinking\u2026';
+  $('#ai-followups').replaceChildren();
+
+  const result = await invoke('ai:ask', { prompt, system: SYSTEM_PROMPT });
+  aiBusy = false;
+  renderHint();
+
+  if (!result) return;
+  if (!result.ok) {
+    $('#ai-answer').textContent = result.error || 'The assistant could not answer.';
+    return;
+  }
+
+  // Split the trailing FOLLOWUPS: line off the answer body.
+  const match = /\n?FOLLOWUPS:\s*(.+)$/is.exec(result.text);
+  const body = match ? result.text.slice(0, match.index).trim() : result.text.trim();
+  $('#ai-answer').textContent = body;
+  $('#ai-panel-title').textContent = 'Gemini \u00b7 ' + (result.model || '');
+
+  const followups = match
+    ? match[1].split('|').map((item) => item.trim()).filter(Boolean).slice(0, 3)
+    : [];
+  $('#ai-followups').replaceChildren(...followups.map((question) =>
+    element('button', {
+      class: 'ai-followup',
+      text: question,
+      onclick: () => { queryInput.value = question; askGemini(question); },
+    })));
+}
+
+$('#ai-copy').addEventListener('click', async () => {
+  const text = $('#ai-answer').textContent || '';
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    $('#ai-copy').textContent = 'Copied';
+    setTimeout(() => { $('#ai-copy').textContent = 'Copy'; }, 1400);
+  } catch {
+    $('#ai-copy').textContent = 'Copy failed';
+    setTimeout(() => { $('#ai-copy').textContent = 'Copy'; }, 1400);
+  }
+});
+
+$('#ai-close').addEventListener('click', () => { $('#ai-panel').hidden = true; });
 
 /* ---- widgets -------------------------------------------------------------- */
 
@@ -45,22 +164,35 @@ function widgetContext() {
     favicon,
     openUrl,
     /**
-     * Look up a stored credential by its dotted path, e.g. "ai.apiKey".
-     * No such field exists yet; the AI widget uses this to decide whether to
-     * show its setup state, and it starts working the moment one is added.
+     * Whether AI is available. The key itself is never here - it lives only in
+     * the main process - so this reports availability, not the credential.
      */
-    credential(path) {
-      if (!path) return null;
-      return path.split('.').reduce((value, key) => (value ? value[key] : null), state.settings);
+    credential() {
+      return state.ai?.available ? true : null;
     },
-    /**
-     * The single seam a future AI integration replaces. Kept here rather than
-     * inside the widget so the widget's layout code needs no changes.
-     */
-    async ask() {
-      throw new Error('No assistant provider is configured yet');
+    /** Ask Gemini. The prompt goes to main, which holds the key. */
+    async ask(prompt, options = {}) {
+      const result = await invoke('ai:ask', { prompt, ...options });
+      if (!result?.ok) throw new Error(result?.error || 'The assistant could not answer.');
+      return result.text;
     },
   };
+}
+
+/**
+ * Apply one widget's appearance overrides.
+ *
+ * Written as CSS custom properties scoped to the widget element, which is what
+ * lets two widgets look completely different while both still inherit anything
+ * the user has not overridden from the global theme.
+ */
+function applyWidgetStyle(node, id) {
+  const style = state.settings?.newTab?.widgetStyles?.[id];
+  if (!style) return;
+  const vars = window.theme.widgetVariables(style);
+  for (const [name, value] of Object.entries(vars)) node.style.setProperty(name, value);
+  if (style.align) node.style.textAlign = style.align;
+  if (style.span === 'full') node.classList.add('span-full');
 }
 
 function renderWidgets() {
@@ -76,6 +208,7 @@ function renderWidgets() {
     if (!render) continue; // declared but not implemented yet
     try {
       const node = render(ctx);
+      applyWidgetStyle(node, id);
       nodes.push(node);
       mounted.push(node);
     } catch (error) {
@@ -294,6 +427,7 @@ bgValue.addEventListener('keydown', (event) => { if (event.key === 'Enter') bgVa
 
 onState((next) => {
   state = next;
+  renderHint();
   renderBackground();
   renderMostVisited();
   renderWidgets();

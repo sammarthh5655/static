@@ -5,3 +5,6 @@ build/
 .test-output/
 *.log
 .DS_Store
+
+# Baked-in API keys. Never commit these - see keys.example.js.
+src/main/secure/keys.js

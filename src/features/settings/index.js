@@ -1,6 +1,7 @@
 const { JsonStore } = require('../../main/storage');
 const { resolveInput } = require('../../shared/urls');
-const { THEMES, SURFACE_STYLES, RADIUS } = require('../../shared/theme');
+const { THEMES, SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY,
+        ALIGNMENTS, WIDGET_SPANS, normalizeHex } = require('../../shared/theme');
 const { WIDGETS, BACKGROUNDS, DEFAULT_LAYOUT } = require('../../shared/widgets');
 
 const DEFAULTS = {
@@ -15,6 +16,11 @@ const DEFAULTS = {
   surfaceStyle: 'frosted',
   radius: 'rounded',
   animations: true,
+  font: 'system',
+  fontSize: 13,
+  density: 'comfortable',
+  accent: 'default',
+  accentCustom: '',
 
   // New tab page. `widgets` is an ordered list of widget ids - order here is
   // render order, so rearranging is just a reorder of this array.
@@ -23,6 +29,9 @@ const DEFAULTS = {
     showMostVisited: true,
     background: 'plain',
     backgroundValue: '',
+    // Per-widget appearance overrides, keyed by widget id. Anything absent
+    // falls through to the global theme - see theme.js#widgetVariables.
+    widgetStyles: {},
   },
 };
 
@@ -46,6 +55,11 @@ class Settings {
     if (!SURFACE_STYLES[next.surfaceStyle]) next.surfaceStyle = DEFAULTS.surfaceStyle;
     if (!RADIUS[next.radius]) next.radius = DEFAULTS.radius;
     if (typeof next.animations !== 'boolean') next.animations = DEFAULTS.animations;
+    if (!FONTS[next.font]) next.font = DEFAULTS.font;
+    if (!DENSITY[next.density]) next.density = DEFAULTS.density;
+    if (!ACCENTS[next.accent]) next.accent = DEFAULTS.accent;
+    next.fontSize = clampSize(next.fontSize, DEFAULTS.fontSize);
+    next.accentCustom = normalizeHex(next.accentCustom) || '';
     next.newTab = this.#normaliseNewTab(next.newTab);
     return next;
   }
@@ -64,6 +78,7 @@ class Settings {
       background: BACKGROUNDS[source.background] ? source.background : DEFAULTS.newTab.background,
       backgroundValue: typeof source.backgroundValue === 'string'
         ? source.backgroundValue.slice(0, 2048) : '',
+      widgetStyles: normaliseWidgetStyles(source.widgetStyles),
     };
   }
 
@@ -79,6 +94,11 @@ class Settings {
       else if (key === 'surfaceStyle' && SURFACE_STYLES[value]) next[key] = value;
       else if (key === 'radius' && RADIUS[value]) next[key] = value;
       else if (key === 'animations' && typeof value === 'boolean') next[key] = value;
+      else if (key === 'font' && FONTS[value]) next[key] = value;
+      else if (key === 'density' && DENSITY[value]) next[key] = value;
+      else if (key === 'accent' && ACCENTS[value]) next[key] = value;
+      else if (key === 'accentCustom') next[key] = normalizeHex(value) || '';
+      else if (key === 'fontSize') next[key] = clampSize(value, DEFAULTS.fontSize);
       else if (key === 'newTab') next[key] = this.#normaliseNewTab({ ...next.newTab, ...value });
       else throw new Error('Invalid setting: ' + key);
     }
@@ -86,6 +106,47 @@ class Settings {
     this.value = next;
     return next;
   }
+}
+
+/** Font sizes outside this range make the UI unusable. */
+function clampSize(value, fallback) {
+  const size = Number(value);
+  if (!Number.isFinite(size)) return fallback;
+  return Math.max(10, Math.min(22, Math.round(size * 2) / 2));
+}
+
+/**
+ * Validate per-widget style overrides.
+ *
+ * These come from an internal page, which is still web content, so every
+ * colour is parsed rather than trusted: an unparseable value is dropped, not
+ * written through to CSS.
+ */
+function normaliseWidgetStyles(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [id, style] of Object.entries(raw)) {
+    if (!WIDGETS[id] || !style || typeof style !== 'object') continue;
+    const clean = {};
+    for (const key of ['background', 'text', 'accent', 'border']) {
+      const hex = normalizeHex(style[key]);
+      if (hex) clean[key] = hex;
+    }
+    if (FONTS[style.font]) clean.font = style.font;
+    if (RADIUS[style.radius]) clean.radius = style.radius;
+    if (ALIGNMENTS[style.align]) clean.align = style.align;
+    if (WIDGET_SPANS[style.span]) clean.span = style.span;
+    if (style.fontSize !== undefined) {
+      const size = Number(style.fontSize);
+      if (Number.isFinite(size)) clean.fontSize = Math.max(10, Math.min(48, size));
+    }
+    if (style.opacity !== undefined) {
+      const opacity = Number(style.opacity);
+      if (Number.isFinite(opacity)) clean.opacity = Math.max(0.2, Math.min(1, opacity));
+    }
+    if (Object.keys(clean).length) out[id] = clean;
+  }
+  return out;
 }
 
 module.exports = { Settings, DEFAULTS };

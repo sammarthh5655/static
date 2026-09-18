@@ -430,3 +430,110 @@ body.newtab {
   .widgets { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(3, 1fr); }
 }
+
+/* ---- AI search mode ------------------------------------------------------ */
+
+/* The search field changes what Enter does in AI mode, so the mode has to be
+   unmistakable: accent border, badge, icon swap and a hint line. */
+body.ai-mode .searchbox input {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+body.ai-mode .searchbox-icon { color: var(--accent); }
+
+.ai-badge {
+  position: absolute;
+  right: 14px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+  animation: ai-badge-in var(--motion-base) var(--ease) both;
+}
+
+@keyframes ai-badge-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.search-hint {
+  margin-top: 9px;
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  transition: color var(--motion-base) var(--ease);
+}
+body.ai-mode .search-hint { color: var(--accent); }
+
+.ai-panel {
+  margin-top: 20px;
+  padding: 16px 18px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--menu-surface);
+  backdrop-filter: var(--menu-blur);
+  -webkit-backdrop-filter: var(--menu-blur);
+  box-shadow: var(--menu-shadow);
+  animation: ai-panel-in var(--motion-base) var(--ease) both;
+}
+
+@keyframes ai-panel-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ai-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ai-panel-title {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+}
+
+.ai-tool {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+}
+.ai-tool:hover { background: var(--surface-hover); color: var(--text); }
+
+/* pre-wrap: answers arrive as plain text with real newlines. */
+.ai-answer {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  color: var(--text);
+  user-select: text;
+}
+
+.ai-followups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+
+.ai-followup {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+}
+.ai-followup:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent); }
+
+/* A widget the user set to full width spans both grid columns. */
+.widget.span-full { grid-column: 1 / -1; }
+
+/* Per-widget opacity override (theme.js#widgetVariables). */
+.widget { opacity: var(--widget-opacity, 1); }

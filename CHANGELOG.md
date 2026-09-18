@@ -10,6 +10,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**AI (Gemini)**
+- Gemini client in the main process; the API key never crosses an IPC boundary
+  and is never present in renderer or page context
+- AI search box on the new tab page: Enter searches, Tab switches to AI Mode,
+  Enter then asks Gemini. Escape or Tab returns to search
+- AI Mode is signalled by an accent border, an animated AI badge, an icon swap
+  and a hint line, because a field that silently changes what Enter does is a
+  trap
+- Answer panel with copy button and follow-up suggestions
+- Uses `-latest` model aliases rather than pinned ids, since Google retires
+  specific versions; falls back to the lite model and backs off exponentially
+  when the preferred model reports high demand
+- The key is baked into the build and is not visible or editable in Settings,
+  by request. It lives in `src/main/secure/keys.js`, which is gitignored; see
+  `keys.example.js` for the security caveat on embedded keys
+
+**Full customisation**
+- Six font choices, adjustable base font size, and three density settings that
+  scale type and spacing together
+- Seven accent presets plus a custom hex accent, with the dim variant computed
+  from it
+- Per-widget overrides on the new tab page: background, text, accent and border
+  colour, font, font size, corner radius, alignment, opacity and column span.
+  Anything not overridden keeps following the global theme
+- Every colour from a page is parsed before use, so an unparseable value is
+  dropped rather than written through to CSS
+
 **Custom window chrome**
 - Frameless window with a title bar drawn entirely in the renderer
 - Custom minimize / maximize / close buttons themed to the app, with the

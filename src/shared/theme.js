@@ -161,6 +161,60 @@ const ICONS = {
   chevron_right: { outline: 'M9 6l6 6-6 6', fill: null },
 };
 
+/**
+ * Font choices. Only families that ship with the OS, so nothing is fetched at
+ * runtime and there is no flash of unstyled text.
+ */
+const FONTS = {
+  system: {
+    id: 'system', name: 'System',
+    stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  },
+  inter: {
+    id: 'inter', name: 'Inter / Helvetica',
+    stack: 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif',
+  },
+  grotesk: {
+    id: 'grotesk', name: 'Grotesk',
+    stack: '"Segoe UI Variable Display", "Segoe UI", Verdana, sans-serif',
+  },
+  serif: {
+    id: 'serif', name: 'Serif',
+    stack: 'Georgia, "Times New Roman", "Noto Serif", serif',
+  },
+  rounded: {
+    id: 'rounded', name: 'Rounded',
+    stack: '"SF Pro Rounded", "Segoe UI", "Nunito", system-ui, sans-serif',
+  },
+  mono: {
+    id: 'mono', name: 'Monospace',
+    stack: '"Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", monospace',
+  },
+};
+
+/**
+ * Accent presets. The accent drives focus rings, selected states and the AI
+ * badge, so it is the one colour a user is most likely to want to change.
+ * `custom` reads a hex value from settings instead of this table.
+ */
+const ACCENTS = {
+  default: { id: 'default', name: 'Theme default', value: null },
+  blue: { id: 'blue', name: 'Blue', value: '#5b8def' },
+  violet: { id: 'violet', name: 'Violet', value: '#8c7cf0' },
+  emerald: { id: 'emerald', name: 'Emerald', value: '#3fb984' },
+  amber: { id: 'amber', name: 'Amber', value: '#e0a248' },
+  rose: { id: 'rose', name: 'Rose', value: '#e56b8a' },
+  cyan: { id: 'cyan', name: 'Cyan', value: '#38b2c4' },
+  custom: { id: 'custom', name: 'Custom\u2026', value: null, custom: true },
+};
+
+/** UI density: scales font size and spacing together. */
+const DENSITY = {
+  compact: { id: 'compact', name: 'Compact', scale: 0.92 },
+  comfortable: { id: 'comfortable', name: 'Comfortable', scale: 1 },
+  spacious: { id: 'spacious', name: 'Spacious', scale: 1.1 },
+};
+
 /** Motion timings. `enabled: false` in settings collapses these to zero. */
 const MOTION = {
   fast: 120,
@@ -185,6 +239,27 @@ function cssVariables(appearance = {}) {
   vars['--radius'] = radius.value + 'px';
   vars['--radius-sm'] = Math.max(2, Math.round(radius.value * 0.6)) + 'px';
   vars['--radius-lg'] = Math.round(radius.value * 1.6) + 'px';
+
+  // Typography and density. One scale drives both the base font size and the
+  // spacing unit, so "compact" tightens the whole UI coherently.
+  const font = FONTS[appearance.font] || FONTS.system;
+  const density = DENSITY[appearance.density] || DENSITY.comfortable;
+  const baseSize = Number(appearance.fontSize) || 13;
+  vars['--font'] = font.stack;
+  vars['--font-mono'] = FONTS.mono.stack;
+  vars['--font-size'] = (baseSize * density.scale).toFixed(2) + 'px';
+  vars['--density'] = String(density.scale);
+  vars['--space'] = (4 * density.scale).toFixed(2) + 'px';
+
+  // Accent override. `custom` takes a hex from settings; anything invalid
+  // falls through to the theme's own accent rather than producing broken CSS.
+  const accentChoice = ACCENTS[appearance.accent] ? appearance.accent : 'default';
+  let accent = ACCENTS[accentChoice].value;
+  if (accentChoice === 'custom') accent = normalizeHex(appearance.accentCustom);
+  if (accent) {
+    vars['--accent'] = accent;
+    vars['--accent-dim'] = mixHex(accent, theme.tokens.bg, 0.62);
+  }
 
   vars['--motion-fast'] = (motionOn ? MOTION.fast : 0) + 'ms';
   vars['--motion-base'] = (motionOn ? MOTION.base : 0) + 'ms';
@@ -211,6 +286,76 @@ function cssVariables(appearance = {}) {
   return vars;
 }
 
+/** #rgb or #rrggbb -> #rrggbb, or null when it is not a usable colour. */
+function normalizeHex(value) {
+  const text = String(value || '').trim();
+  const short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(text);
+  if (short) return '#' + short[1] + short[1] + short[2] + short[2] + short[3] + short[3];
+  const full = /^#?([0-9a-f]{6})$/i.exec(text);
+  return full ? '#' + full[1].toLowerCase() : null;
+}
+
+/** Blend `hex` toward `toward` by `amount` (0 = hex, 1 = toward). */
+function mixHex(hex, toward, amount) {
+  const a = normalizeHex(hex);
+  const b = normalizeHex(toward);
+  if (!a || !b) return a || b || '#888888';
+  const channel = (start, end) => {
+    const value = Math.round(parseInt(start, 16) * (1 - amount) + parseInt(end, 16) * amount);
+    return Math.max(0, Math.min(255, value)).toString(16).padStart(2, '0');
+  };
+  return '#' +
+    channel(a.slice(1, 3), b.slice(1, 3)) +
+    channel(a.slice(3, 5), b.slice(3, 5)) +
+    channel(a.slice(5, 7), b.slice(5, 7));
+}
+
+/**
+ * Per-widget appearance overrides.
+ *
+ * Every widget on the new tab page can override colour, font, size, alignment
+ * and how many grid columns it spans. Anything the user has not set falls
+ * through to the global theme, so an untouched widget always tracks the theme.
+ *
+ * Returned as CSS custom properties scoped to one widget element rather than
+ * :root, which is what lets two widgets look different at the same time.
+ *
+ * @param {object} config one entry from settings.newTab.widgetStyles
+ */
+function widgetVariables(config = {}) {
+  const vars = {};
+  const background = normalizeHex(config.background);
+  const text = normalizeHex(config.text);
+  const accent = normalizeHex(config.accent);
+  const border = normalizeHex(config.border);
+
+  if (background) vars['--surface'] = background;
+  if (text) vars['--text'] = text;
+  if (accent) vars['--accent'] = accent;
+  if (border) vars['--border-soft'] = border;
+
+  if (FONTS[config.font]) vars['--font'] = FONTS[config.font].stack;
+  if (config.fontSize) vars['--font-size'] = Number(config.fontSize).toFixed(2) + 'px';
+  if (RADIUS[config.radius]) vars['--radius-lg'] = RADIUS[config.radius].value * 1.6 + 'px';
+  if (config.opacity !== undefined && config.opacity !== null) {
+    vars['--widget-opacity'] = String(Math.max(0.2, Math.min(1, Number(config.opacity) || 1)));
+  }
+  return vars;
+}
+
+/** Text alignment options for a widget. */
+const ALIGNMENTS = {
+  left: { id: 'left', name: 'Left' },
+  center: { id: 'center', name: 'Centre' },
+  right: { id: 'right', name: 'Right' },
+};
+
+/** How many columns of the new tab grid a widget occupies. */
+const WIDGET_SPANS = {
+  half: { id: 'half', name: 'Half width', columns: 1 },
+  full: { id: 'full', name: 'Full width', columns: 2 },
+};
+
 /** Serialise `cssVariables` into a `:root { ... }` rule. */
 function cssText(appearance) {
   const vars = cssVariables(appearance);
@@ -218,7 +363,10 @@ function cssText(appearance) {
   return ':root {\n' + body + '\n}';
 }
 
-const shared = { THEMES, SURFACE_STYLES, RADIUS, ICONS, MOTION, cssVariables, cssText };
+const shared = {
+  THEMES, SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY, ALIGNMENTS, WIDGET_SPANS,
+  ICONS, MOTION, cssVariables, cssText, widgetVariables, normalizeHex, mixHex,
+};
 
 // Usable from both `require` (main) and a plain <script> tag (renderers).
 if (typeof module !== 'undefined' && module.exports) module.exports = shared;

@@ -12,6 +12,7 @@ const { History } = require('../features/history');
 const { Downloads } = require('../features/downloads');
 const { Extensions } = require('../features/extensions');
 const { Tabs, NEW_TAB } = require('../features/tabs');
+const gemini = require('../features/ai/gemini');
 
 /**
  * Chrome geometry. These MUST match the heights in renderer/chrome.css,
@@ -56,6 +57,8 @@ class BrowserApplication {
     // listening are held here and replayed (see the menu:open handler).
     this.overlayReady = false;
     this.pendingMenu = null;
+    // Aborts the in-flight Gemini request when a new one starts.
+    this.aiController = null;
   }
 
   async start() {
@@ -284,6 +287,7 @@ class BrowserApplication {
       },
       // Widget + background catalogues, so the new tab customiser and the
       // settings page never hardcode a list that could drift from the registry.
+      ai: { available: gemini.hasKey() },
       catalog: {
         widgets: Object.values(WIDGETS),
         backgrounds: Object.values(BACKGROUNDS),
@@ -444,6 +448,40 @@ class BrowserApplication {
         return next;
       },
       'settings:clear-data': (_sender, payload) => this.#clearData(payload),
+
+      // ---- AI -------------------------------------------------------------
+      // The Gemini key lives only in main (features/ai/gemini.js). A renderer
+      // sends a prompt and receives text; the key never crosses this boundary
+      // and is never readable from page context.
+      'ai:status': () => ({ available: gemini.hasKey() }),
+
+      'ai:ask': async (_sender, payload) => {
+        const prompt = String(payload?.prompt || '').trim();
+        if (!prompt) throw new Error('Ask a question first.');
+
+        // One in-flight request at a time; a new ask cancels the previous.
+        this.aiController?.abort();
+        this.aiController = new AbortController();
+
+        try {
+          const result = await gemini.generate({
+            prompt,
+            system: payload?.system,
+            context: payload?.context,
+            model: payload?.model,
+            signal: this.aiController.signal,
+          });
+          return { ok: true, text: result.text, model: result.model };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      },
+
+      'ai:cancel': () => {
+        this.aiController?.abort();
+        this.aiController = null;
+        return true;
+      },
 
       // Scratchpad widget contents. Kept in its own small store rather than in
       // settings, so a long note never bloats the settings file.
