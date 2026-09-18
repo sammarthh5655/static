@@ -17,10 +17,87 @@ if (!bridge) throw new Error('Browser bridge unavailable on this page');
 
 const invoke = (channel, payload) => bridge.invoke(channel, payload);
 
-/** Subscribe to pushed app state; calls back immediately with current state. */
+/**
+ * Subscribe to pushed app state; calls back immediately with current state.
+ * Theme variables are applied before every callback, so a page never paints
+ * one frame with the previous theme after the user changes it.
+ */
 function onState(callback) {
-  bridge.on('app:state', callback);
-  invoke('app:state').then(callback).catch(() => {});
+  const wrapped = (state) => {
+    if (state?.settings) applyTheme(state.settings);
+    callback(state);
+  };
+  bridge.on('app:state', wrapped);
+  invoke('app:state').then(wrapped).catch((error) => console.error('app:state', error));
+}
+
+/**
+ * Write the theme's CSS variables onto :root.
+ *
+ * Uses style.setProperty rather than injecting a <style> block, because the
+ * CSP on these pages forbids inline stylesheets.
+ */
+let appliedTheme = '';
+function applyTheme(settings) {
+  if (!window.theme) return;
+  const key = [settings.theme, settings.surfaceStyle, settings.radius, settings.animations].join('|');
+  if (key === appliedTheme) return;
+  appliedTheme = key;
+  for (const [name, value] of Object.entries(window.theme.cssVariables(settings))) {
+    document.documentElement.style.setProperty(name, value);
+  }
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Build an icon from the shared icon set. Outline unless `filled`. */
+function icon(name, { filled = false, size = 16 } = {}) {
+  const spec = window.theme?.ICONS?.[name];
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('icon-svg');
+  if (!spec) return svg;
+  const path = document.createElementNS(SVG_NS, 'path');
+  const useFill = filled && spec.fill;
+  path.setAttribute('d', useFill ? spec.fill : spec.outline);
+  path.setAttribute('fill', useFill ? 'currentColor' : 'none');
+  path.setAttribute('stroke', useFill ? 'none' : 'currentColor');
+  path.setAttribute('stroke-width', '1.7');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+
+/**
+ * A site's real favicon, via Google's favicon service.
+ *
+ * Falls back to a letter avatar when the request fails, so a site with no
+ * icon still renders something aligned with the others.
+ */
+function favicon(url, size = 20) {
+  const wrap = document.createElement('span');
+  wrap.className = 'favicon-slot';
+  let host = '';
+  try { host = new URL(url).hostname; } catch { /* leave blank */ }
+
+  const img = document.createElement('img');
+  img.className = 'favicon-img';
+  img.width = size;
+  img.height = size;
+  img.loading = 'lazy';
+  img.src = 'https://www.google.com/s2/favicons?sz=64&domain=' + encodeURIComponent(host);
+  img.addEventListener('error', () => {
+    const letter = document.createElement('span');
+    letter.className = 'favicon-letter';
+    letter.textContent = (host.replace(/^www\./, '').charAt(0) || '?').toUpperCase();
+    img.replaceWith(letter);
+  });
+  wrap.append(img);
+  return wrap;
 }
 
 const $ = (selector) => document.querySelector(selector);
@@ -64,5 +141,5 @@ function openUrl(url, event) {
   return invoke('tabs:navigate', { input: url });
 }
 
-  window.page = { invoke, onState, $, element, timeAgo, formatBytes, openUrl };
+  window.page = { invoke, onState, $, element, timeAgo, formatBytes, openUrl, icon, favicon, applyTheme };
 })();

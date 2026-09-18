@@ -2,37 +2,55 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <!-- style-src allows 'unsafe-inline' ONLY because <browser-action-list>,
+       from electron-chrome-extensions, styles itself with inline styles and we
+       do not control that code. script-src stays locked to 'self', which is the
+       directive that actually matters here: this page has no remote origins,
+       loads no user content, and renders nothing from the network. The
+       browser:// pages keep the strict style-src 'self'. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data: chrome-extension: crx:; connect-src 'none'">
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: http: data: chrome-extension: crx:; connect-src 'none'">
   <title>static</title>
   <link rel="stylesheet" href="chrome.css">
 </head>
 <body>
+  <!-- Custom title bar. The whole bar is a drag region except the buttons,
+       which opt out with -webkit-app-region: no-drag (see chrome.css). -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-left" id="titlebar-left">
+      <button class="menu-trigger" id="app-menu" title="Menu (F10)"></button>
+    </div>
+    <div class="titlebar-drag" id="titlebar-drag">
+      <span class="titlebar-title" id="window-title">static</span>
+    </div>
+    <div class="window-controls" id="window-controls"></div>
+  </div>
+
   <!-- Tab strip -->
   <div class="strip">
     <div class="tabs" id="tabs"></div>
-    <button class="icon newtab" id="newtab" title="New tab (Ctrl+T)">+</button>
-    <div class="spacer drag"></div>
+    <button class="icon-btn newtab" id="newtab" title="New tab"></button>
+    <div class="strip-drag"></div>
   </div>
 
   <!-- Toolbar: navigation, omnibox, extension actions -->
   <div class="toolbar">
-    <button class="icon" id="back" title="Back">&#8592;</button>
-    <button class="icon" id="forward" title="Forward">&#8594;</button>
-    <button class="icon" id="reload" title="Reload">&#8635;</button>
-    <button class="icon" id="home" title="Home">&#8962;</button>
+    <button class="icon-btn" id="back" title="Back"></button>
+    <button class="icon-btn" id="forward" title="Forward"></button>
+    <button class="icon-btn" id="reload" title="Reload"></button>
+    <button class="icon-btn" id="home" title="Home"></button>
 
     <div class="omnibox" id="omnibox">
       <span class="security" id="security"></span>
       <input id="address" type="text" spellcheck="false" autocomplete="off"
              placeholder="Search Google or type a URL">
-      <button class="icon star" id="star" title="Bookmark this page">&#9734;</button>
+      <button class="icon-btn star" id="star" title="Bookmark this page"></button>
       <div class="suggestions" id="suggestions" hidden></div>
     </div>
 
     <!-- Populated by electron-chrome-extensions with real extension icons -->
     <browser-action-list id="actions"></browser-action-list>
-    <button class="icon" id="menu" title="Menu">&#8942;</button>
+    <button class="icon-btn" id="overflow" title="Menu"></button>
   </div>
 
   <!-- Bookmarks bar -->
@@ -40,6 +58,8 @@
 
   <div class="notice" id="notice" hidden></div>
 
+  <script src="../shared/theme.js"></script>
+  <script src="ui.js"></script>
   <script src="chrome.js"></script>
 </body>
 </html>

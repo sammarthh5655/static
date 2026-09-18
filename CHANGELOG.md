@@ -9,6 +9,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+
+**Custom window chrome**
+- Frameless window with a title bar drawn entirely in the renderer
+- Custom minimize / maximize / close buttons themed to the app, with the
+  maximise glyph swapping to a restore glyph when the window is maximised
+- Correct drag regions: the bar and the empty tab-strip area drag the window,
+  every control opts out, and double-clicking the bar maximises
+
+**Custom menu system (no native menus anywhere)**
+- Every menu is DOM built in the renderer; `Menu.setApplicationMenu(null)`
+  removes the default menu Electron would otherwise install
+- Main menu grouped under LIBRARY / BROWSER headings with subtle dividers and
+  the real accelerator right-aligned on each item
+- Right-click menus for tabs and bookmarks
+- Menus render in a dedicated transparent overlay view spanning the window, so
+  they are never clipped by the chrome strip and float over page content
+- Keyboard shortcuts moved to `before-input-event` interception in main, so
+  they still fire while a web page has focus - verified against a live page
+
+**Design system**
+- `src/shared/theme.js` is the single source for colours, radius, blur, motion
+  and the icon set; the chrome, the menu overlay and every internal page build
+  their CSS variables from it
+- Three themes (Dark, Light, Midnight)
+- Menu background selectable: frosted glass, flat solid, or soft shadow
+- Corner radius from one variable, four presets, applied to buttons, menus,
+  tabs, dialogs and the title bar
+- One outline icon set, filled on hover/active, with no layout shift
+- Menu and panel motion at 170ms, subtle fade and slide, no bounce; a single
+  setting collapses every duration to zero
+
+**New tab page**
+- Minimal by default: search box plus two widgets
+- Customiser panel: add, remove and drag-reorder widgets, toggle the
+  most-visited section, and pick a background (plain, gradient, image URL)
+- Most-visited tiles show real site favicons, with a letter avatar only as the
+  fallback when an icon fails to load
+- Widget registry in `src/shared/widgets.js`: declare a widget there, implement
+  it in `renderer/pages/widgets/`, and it appears in the customiser with no
+  other changes
+- An AI assistant widget is declared as the extension point for a future
+  Gemini integration. It renders a setup state until a key exists, and the
+  provider call is a single seam (`ctx.ask`) - nothing is hardcoded to a
+  provider yet
+
+**Settings**
+- New Appearance section: theme, menu background, corner radius, animations
+- New tab section: most-visited toggle and a shortcut to the customiser
+
+### Fixed
+- Menus opened before the overlay view finished loading were silently dropped.
+  Requests are now held and replayed once the overlay reports ready.
+- Menus intermittently stayed invisible: the overlay was detached from the view
+  tree while idle, and a view that is not composited does not run CSS
+  transitions or animations, so the menu froze on its first frame. The overlay
+  now stays attached and is shrunk to a 1x1 corner when idle instead.
+- The new tab customiser panel could stay parked off-screen, because the slide
+  transition had no recorded start state when the panel was unhidden in the
+  same frame.
+- `src/shared/theme.js` and `src/shared/widgets.js` are wrapped in IIFEs: both
+  are loaded as classic scripts on the new tab page, and their top-level
+  `const shared` declarations collided.
+
+### Added (earlier this round)
 - `npm run shortcut` creates a desktop shortcut that launches the browser
   without a terminal window, rebuilding stale preloads first so it always runs
   current code. Windows (.lnk via a VBScript launcher), Linux (.desktop) and

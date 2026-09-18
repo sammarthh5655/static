@@ -41,7 +41,8 @@ Other scripts:
 | `npm run build` | Bundle the preload scripts into `build/` |
 | `npm test` | Unit tests for URL/omnibox parsing (plain Node, no Electron) |
 | `npm run test:smoke` | Boots the real app in Electron and drives it end-to-end |
-| `npm run test:probe` | Loads every `browser://` page and fails on console errors |
+| `npm run test:probe` | Loads the chrome, menu overlay and every `browser://` page; fails on console errors |
+| `npm run test:appearance` | Theme, radius, motion, window controls and shortcuts |
 | `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
 | `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
 
@@ -89,12 +90,15 @@ src/
   main/                  Main process (Node side)
     main.js              Entry point: app lifecycle, single-instance lock
     application.js       Owns the window, wires features, registers all IPC
+    shortcuts.js         Keyboard accelerator table and matcher
     storage.js           Atomic JSON store used by every feature
   preload/               Context-isolated bridges (bundled into build/)
     chrome.js            For the browser UI - exposes the IPC whitelist
     tab.js               For tab content - exposes IPC ONLY on browser:// pages
   renderer/              The browser UI itself
-    index.html/.css/.js  Tab strip, toolbar, omnibox, bookmarks bar
+    index.html/.css/.js  Title bar, tab strip, toolbar, omnibox, bookmarks bar
+    ui.js                Icon builder and the custom menu system
+    overlay.html/.css/.js  Transparent full-window view that draws menus
     pages/               Built-in browser:// pages
       newtab.*           New tab page: search box + most-visited grid
       history.*          Searchable history with per-entry delete
@@ -103,6 +107,7 @@ src/
       extensions.*       Extension manager (enable/disable/remove/load)
       settings.*         Settings, including clear-browsing-data
       common.js          Shared helpers for every internal page
+      widgets/           New tab widget implementations
   features/              One folder per feature, each a self-contained module
     tabs/                Tab lifecycle, WebContentsView management, navigation
     bookmarks/           Bookmark storage and toggling
@@ -113,6 +118,8 @@ src/
   shared/                Code used by both main and renderer
     channels.js          The complete IPC contract - the security allowlist
     urls.js              URL vs search detection, scheme allowlist, security state
+    theme.js             Colours, radius, blur, motion, icon set - one source
+    widgets.js           New tab widget registry
 scripts/
   build.cjs              esbuild preload bundler
   start.cjs              Launcher (strips ELECTRON_RUN_AS_NODE)
@@ -120,6 +127,9 @@ scripts/
 tests/
   urls.test.cjs          Unit tests for omnibox parsing
   smoke.cjs              End-to-end test, runs inside Electron
+  probe.cjs              Renders every surface, fails on console errors
+  appearance.cjs         Theme, motion, window controls, shortcuts
+  screenshot.cjs         Writes PNGs of the UI to .test-output/
 ```
 
 ### Where to make changes
@@ -133,9 +143,46 @@ tests/
 - **Changing the UI chrome** → `src/renderer/`. The renderer is a pure render
   of the state object pushed from main on `app:state`; it holds no browser
   state of its own.
-- **Changing chrome height** → `CHROME_HEIGHT` / `BOOKMARKS_BAR_HEIGHT` in
-  `application.js` must stay in sync with the heights in `renderer/chrome.css`,
-  because main positions the tab view directly below the chrome.
+- **Changing chrome height** → `TITLEBAR_HEIGHT` / `TABSTRIP_HEIGHT` /
+  `TOOLBAR_HEIGHT` / `BOOKMARKS_BAR_HEIGHT` in `application.js` must stay in
+  sync with the heights in `renderer/chrome.css`, because main positions the
+  tab view directly below the chrome.
+- **Adding a keyboard shortcut** → add it to `ACCELERATORS` in
+  `main/shortcuts.js` and handle its id in `application.js#dispatch`. Menus
+  read their accelerator labels from the same table, so the two cannot drift.
+- **Adding a new tab widget** → declare it in `shared/widgets.js`, implement it
+  in `renderer/pages/widgets/index.js`. It appears in the customiser
+  automatically.
+- **Changing colours, radius, blur or motion** → `shared/theme.js` only. Every
+  surface builds its CSS variables from it; a hardcoded value in a stylesheet
+  will survive theme switching and look wrong.
+
+### Window composition
+
+```
+BaseWindow.contentView
+  +- chrome view    the title bar, tab strip, toolbar and bookmarks bar
+  +- active tab     positioned directly below the chrome
+  +- menu overlay   transparent, spans the window, always the topmost child
+```
+
+The menu overlay exists because menus are taller than the chrome strip and
+would be clipped if drawn inside it. It stays attached permanently — a view
+that is detached is not composited, and a view that is not composited does not
+run CSS animations, which left menus frozen and invisible. It is shrunk to a
+1×1 corner while idle so clicks pass through to whatever is underneath.
+
+### Menus and keyboard shortcuts
+
+There is no native `Menu` anywhere in this app, and `main.js` explicitly clears
+the default one Electron installs. That also removes Electron's accelerator
+system, so shortcuts are intercepted in main via `before-input-event`, which
+fires before a key reaches page content. This is why `Ctrl+T` still works while
+focus is inside a web page, and why a page cannot swallow a browser shortcut.
+
+Menu descriptions cross an IPC boundary to reach the overlay, so items carry a
+`{ channel, payload }` action rather than a callback — functions do not
+survive that trip.
 
 ---
 

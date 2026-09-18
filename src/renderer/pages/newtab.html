@@ -3,22 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:">
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' https: http: data:; connect-src 'none'">
   <title>New tab</title>
   <link rel="stylesheet" href="pages.css">
   <link rel="stylesheet" href="newtab.css">
 </head>
 <body class="newtab">
-  <div class="hero">
+  <div class="backdrop" id="backdrop"></div>
+
+  <button class="customize-btn" id="customize" title="Customize this page"></button>
+
+  <main class="hero">
     <div class="brand">static</div>
     <form class="searchbox" id="search">
+      <span class="searchbox-icon" id="search-icon"></span>
       <input id="query" type="text" spellcheck="false" autocomplete="off" autofocus
              placeholder="Search the web">
     </form>
-    <h2 class="shortcuts-title">Most visited</h2>
-    <div class="shortcuts" id="shortcuts"></div>
-  </div>
+
+    <section class="most-visited" id="most-visited-section" hidden>
+      <h2 class="section-title">Most visited</h2>
+      <div class="tiles" id="tiles"></div>
+    </section>
+
+    <div class="widgets" id="widgets"></div>
+  </main>
+
+  <!-- Customiser panel. Slides in from the right; same surface treatment as
+       the chrome menus so the frosted/solid/shadow setting applies here too. -->
+  <aside class="panel" id="panel" hidden>
+    <header class="panel-head">
+      <span class="panel-title">Customize</span>
+      <button class="panel-close" id="panel-close" title="Close"></button>
+    </header>
+    <div class="panel-body">
+      <h3 class="panel-section">Widgets</h3>
+      <p class="panel-hint">Drag to reorder.</p>
+      <div class="widget-list" id="widget-list"></div>
+
+      <h3 class="panel-section">Sections</h3>
+      <label class="panel-toggle">
+        <input type="checkbox" id="toggle-most-visited">
+        <span>Show most visited</span>
+      </label>
+
+      <h3 class="panel-section">Background</h3>
+      <div class="panel-choices" id="background-choices"></div>
+      <input type="text" id="background-value" class="panel-input" hidden
+             placeholder="https://example.com/image.jpg" spellcheck="false">
+    </div>
+  </aside>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="../../shared/widgets.js"></script>
   <script src="common.js"></script>
+  <script src="widgets/index.js"></script>
   <script src="newtab.js"></script>
 </body>
 </html>

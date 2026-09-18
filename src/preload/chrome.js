@@ -3,7 +3,11 @@ const { injectBrowserAction } = require('electron-chrome-extensions/browser-acti
 const { requests, events } = require('../shared/channels');
 // This bundle belongs only to our local chrome WebContentsView, never web tabs.
 // Main validates sender identity AND its top-level URL on every application IPC.
-if (location.protocol === 'file:' && location.pathname.endsWith('/renderer/index.html')) {
+// Both the chrome and the transparent menu overlay use this preload. Main
+// validates the sender URL independently on every call, so listing them here
+// is the first of two checks, not the only one.
+const TRUSTED = ['/renderer/index.html', '/renderer/overlay.html'];
+if (location.protocol === 'file:' && TRUSTED.some(p => location.pathname.endsWith(p))) {
   contextBridge.exposeInMainWorld('browser', Object.freeze({
     invoke(channel, payload) {
       if (!requests.includes(channel)) return Promise.reject(new Error('Unknown browser operation'));
@@ -18,5 +22,6 @@ if (location.protocol === 'file:' && location.pathname.endsWith('/renderer/index
     platform: process.platform,
   }));
   // The upstream helper exposes only its browser-action interface, not ipcRenderer.
-  injectBrowserAction();
+  // Extension action buttons belong in the toolbar only, not the overlay.
+  if (location.pathname.endsWith('/renderer/index.html')) injectBrowserAction();
 }

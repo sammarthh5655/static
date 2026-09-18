@@ -1,0 +1,222 @@
+'use strict';
+
+/**
+ * Shared UI primitives for the browser chrome: icons and the custom menu
+ * system. No native Electron Menu is used anywhere in this app, so everything
+ * here is ordinary DOM that we style and position ourselves.
+ *
+ * Loaded as a classic script, so the whole file is an IIFE that publishes a
+ * single `window.ui` - see the note in renderer/pages/common.js about why.
+ */
+(function () {
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * Build an icon. Outline by default; `filled` swaps in the solid variant where
+ * one exists. Both variants share a 24x24 viewBox, so swapping on hover never
+ * shifts layout.
+ */
+function icon(name, { filled = false, size = 18 } = {}) {
+  const spec = window.theme.ICONS[name];
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('icon-svg');
+  if (!spec) return svg;
+
+  const path = document.createElementNS(SVG_NS, 'path');
+  const useFill = filled && spec.fill;
+  path.setAttribute('d', useFill ? spec.fill : spec.outline);
+  path.setAttribute('fill', useFill ? 'currentColor' : 'none');
+  path.setAttribute('stroke', useFill ? 'none' : 'currentColor');
+  path.setAttribute('stroke-width', '1.7');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+
+/**
+ * A button with an icon that fills on hover/active. Both variants are rendered
+ * and CSS toggles between them, so there is no work on the hover event itself.
+ */
+function iconButton(name, { title, onClick, className = '', size = 18 } = {}) {
+  const button = document.createElement('button');
+  button.className = ('icon-btn ' + className).trim();
+  if (title) button.title = title;
+  button.type = 'button';
+  button.append(icon(name, { size }), icon(name, { size, filled: true }));
+  button.firstChild.classList.add('icon-outline');
+  button.lastChild.classList.add('icon-filled');
+  if (onClick) button.addEventListener('click', onClick);
+  return button;
+}
+
+/* ---- menus ---------------------------------------------------------------
+ * One menu is open at a time. The open menu is tracked here rather than in
+ * each caller so that opening a second menu, clicking away, pressing Escape
+ * or resizing all close the first one through the same path.
+ */
+
+let openMenu = null;
+
+/**
+ * @typedef {object} MenuItem
+ * @property {string}  [label]     item text; omit for a separator
+ * @property {boolean} [separator] render a divider instead of an item
+ * @property {string}  [icon]      icon name from the theme icon set
+ * @property {string}  [shortcut]  right-aligned accelerator text
+ * @property {boolean} [checked]   show a check mark
+ * @property {boolean} [disabled]
+ * @property {string}  [danger]    style as a destructive action
+ * @property {Function}[onSelect]
+ */
+
+/**
+ * Open a menu anchored to a rectangle (usually a button's bounding box).
+ *
+ * `align` picks which corner of the anchor the menu hangs from. The menu is
+ * then clamped to the viewport, because the chrome view is only as tall as the
+ * browser chrome - a menu that overflows it would be clipped, not scrolled.
+ */
+function menu(items, { anchor, align = 'left', onClose } = {}) {
+  closeMenu();
+  // Drop any menu still playing its close animation, so only one .menu node
+  // is ever in the document.
+  document.querySelectorAll('.menu.closing').forEach((node) => node.remove());
+
+  const root = document.createElement('div');
+  root.className = 'menu';
+  root.setAttribute('role', 'menu');
+
+  for (const item of items) {
+    if (!item || item.separator) {
+      const divider = document.createElement('div');
+      divider.className = 'menu-divider';
+      root.append(divider);
+      continue;
+    }
+    if (item.heading) {
+      const heading = document.createElement('div');
+      heading.className = 'menu-heading';
+      heading.textContent = item.heading;
+      root.append(heading);
+      continue;
+    }
+
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = 'menu-item' + (item.danger ? ' danger' : '') + (item.checked ? ' checked' : '');
+    node.setAttribute('role', 'menuitem');
+    if (item.disabled) node.disabled = true;
+
+    const glyph = document.createElement('span');
+    glyph.className = 'menu-icon';
+    if (item.checked) glyph.append(icon('check', { size: 15 }));
+    else if (item.icon) {
+      glyph.append(icon(item.icon, { size: 16 }), icon(item.icon, { size: 16, filled: true }));
+      glyph.firstChild.classList.add('icon-outline');
+      glyph.lastChild.classList.add('icon-filled');
+    }
+    node.append(glyph);
+
+    const label = document.createElement('span');
+    label.className = 'menu-label';
+    label.textContent = item.label;
+    node.append(label);
+
+    if (item.shortcut) {
+      const accel = document.createElement('span');
+      accel.className = 'menu-shortcut';
+      accel.textContent = item.shortcut;
+      node.append(accel);
+    }
+
+    if (!item.disabled) {
+      node.addEventListener('click', () => {
+        closeMenu();
+        item.onSelect?.();
+      });
+    }
+    root.append(node);
+  }
+
+  document.body.append(root);
+
+  // Position after insertion so the menu has real dimensions to clamp against.
+  const box = root.getBoundingClientRect();
+  const margin = 8;
+  let left = align === 'right' ? anchor.right - box.width : anchor.left;
+  let top = anchor.bottom + 4;
+  left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
+  if (top + box.height > window.innerHeight - margin) {
+    // Flip above the anchor when there is no room below.
+    top = Math.max(margin, anchor.top - box.height - 4);
+  }
+  root.style.left = Math.round(left) + 'px';
+  root.style.top = Math.round(top) + 'px';
+
+  // No class toggle is needed to open: the .menu rule runs its open animation
+  // on insertion, and `animation-fill-mode: both` guarantees it settles on the
+  // final frame even if the view was not composited while it played.
+  root.classList.add('open');
+
+  openMenu = { root, onClose };
+  return root;
+}
+
+function closeMenu() {
+  if (!openMenu) return;
+  const { root, onClose } = openMenu;
+  openMenu = null;
+
+  // Mark it closing so it is no longer the "current" menu for anything that
+  // queries the DOM - the node lingers for the duration of its close
+  // animation, and without this a query for '.menu' could return this one
+  // instead of a menu opened immediately afterwards.
+  root.classList.add('closing');
+  root.classList.remove('open');
+  root.setAttribute('aria-hidden', 'true');
+  onClose?.();
+
+  // Remove once the close animation has played; the duration comes from the
+  // theme and is 0ms when the user has turned animations off.
+  const ms = parseInt(getComputedStyle(document.documentElement)
+    .getPropertyValue('--motion-base'), 10) || 0;
+  setTimeout(() => root.remove(), ms + 20);
+}
+
+function menuIsOpen() { return !!openMenu; }
+
+/** Anchor helper: the bounding box of an element. */
+function anchorOf(element) {
+  return element.getBoundingClientRect();
+}
+
+/** Anchor helper: a zero-size box at the pointer, for context menus. */
+function anchorAt(x, y) {
+  return { left: x, right: x, top: y, bottom: y, width: 0, height: 0 };
+}
+
+// Global dismissal. Pointerdown rather than click so the menu closes before a
+// click lands on whatever is underneath it.
+document.addEventListener('pointerdown', (event) => {
+  if (openMenu && !openMenu.root.contains(event.target)) closeMenu();
+}, true);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && openMenu) {
+    event.preventDefault();
+    closeMenu();
+  }
+});
+
+window.addEventListener('resize', closeMenu);
+window.addEventListener('blur', closeMenu);
+
+window.ui = { icon, iconButton, menu, closeMenu, menuIsOpen, anchorOf, anchorAt };
+
+})();

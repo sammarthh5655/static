@@ -7,22 +7,29 @@
  * It holds no browser state of its own; every action round-trips through IPC
  * and comes back as a new state. The one exception is transient input state
  * (what the user is typing, which suggestion is highlighted) held in `local`.
+ *
+ * Every menu here is custom DOM from renderer/ui.js - there is no native
+ * Electron Menu anywhere in this application.
  */
 
 const $ = (id) => document.getElementById(id);
 const el = {
+  titlebar: $('titlebar'), appMenu: $('app-menu'), windowControls: $('window-controls'),
+  windowTitle: $('window-title'),
   tabs: $('tabs'), newtab: $('newtab'),
   back: $('back'), forward: $('forward'), reload: $('reload'), home: $('home'),
   address: $('address'), security: $('security'), star: $('star'),
   suggestions: $('suggestions'), bookmarks: $('bookmarks'),
-  menu: $('menu'), notice: $('notice'),
+  overflow: $('overflow'), notice: $('notice'),
 };
 
-let state = { tabs: [], active: {}, bookmarks: [], settings: {}, downloads: [] };
+let state = { tabs: [], active: {}, bookmarks: [], settings: {}, downloads: [], window: {} };
 
-/** Transient UI state that must survive a re-render. */
+/** id -> { display } for every shortcut, fetched once at startup. */
+let shortcuts = new Map();
+
 const local = {
-  typing: false,      // true while the user edits the address bar
+  typing: false,
   suggestions: [],
   selected: -1,
   dragId: null,
@@ -32,9 +39,185 @@ const invoke = (channel, payload) => window.browser.invoke(channel, payload).cat
   console.error(channel, error);
 });
 
+const accel = (id) => shortcuts.get(id)?.display || '';
+const act = (action) => invoke('ui:action', { action });
+
+/* ---- theme ---------------------------------------------------------------
+ * Applied via style.setProperty rather than a <style> block, because the CSP
+ * on this page forbids inline stylesheets.
+ */
+
+let appliedTheme = '';
+
+function applyTheme(settings) {
+  const key = [settings.theme, settings.surfaceStyle, settings.radius, settings.animations].join('|');
+  if (key === appliedTheme) return;
+  appliedTheme = key;
+  const vars = window.theme.cssVariables(settings);
+  for (const [name, value] of Object.entries(vars)) {
+    document.documentElement.style.setProperty(name, value);
+  }
+}
+
+/* ---- static chrome (built once) ------------------------------------------ */
+
+function buildChrome() {
+  const { icon, iconButton } = window.ui;
+
+  const setIcon = (button, name) => {
+    button.append(icon(name), icon(name, { filled: true }));
+    button.firstChild.classList.add('icon-outline');
+    button.lastChild.classList.add('icon-filled');
+  };
+
+  setIcon(el.back, 'back');
+  setIcon(el.forward, 'forward');
+  setIcon(el.reload, 'reload');
+  setIcon(el.home, 'home');
+  setIcon(el.star, 'star');
+  setIcon(el.newtab, 'plus');
+  setIcon(el.overflow, 'menu');
+  el.appMenu.append(icon('menu', { size: 16 }));
+
+  // Window controls: our own glyphs, themed to the app.
+  for (const [name, action, title, cls] of [
+    ['window_minimize', 'minimize', 'Minimize', ''],
+    ['window_maximize', 'maximize', 'Maximize', 'maximize'],
+    ['window_close', 'close', 'Close', 'close'],
+  ]) {
+    const button = document.createElement('button');
+    button.className = ('window-btn ' + cls).trim();
+    button.type = 'button';
+    button.title = title;
+    button.dataset.control = action;
+    button.append(icon(name, { size: 15 }));
+    button.addEventListener('click', () => invoke('window:control', { action }));
+    el.windowControls.append(button);
+  }
+}
+
+/** Swap the maximise glyph for a restore glyph when the window is maximised. */
+function renderWindowControls() {
+  const button = el.windowControls.querySelector('[data-control="maximize"]');
+  if (!button) return;
+  const maximized = !!state.window?.maximized;
+  button.replaceChildren(window.ui.icon(maximized ? 'window_restore' : 'window_maximize', { size: 15 }));
+  button.title = maximized ? 'Restore' : 'Maximize';
+}
+
+/* ---- menus ---------------------------------------------------------------
+ * Grouped logically with dividers, each item showing its real accelerator.
+ */
+
+/**
+ * Menu item actions are sent to the overlay as data, not callbacks: the
+ * description crosses an IPC boundary, and functions do not survive that. Each
+ * item therefore names the channel and payload to invoke when chosen.
+ */
+const action = (channel, payload = {}) => ({ channel, payload });
+const doAction = (id) => action('ui:action', { action: id });
+
+function mainMenuItems() {
+  const s = state.settings || {};
+  return [
+    { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
+    { separator: true },
+    { heading: 'Library' },
+    { label: 'Bookmarks', icon: 'bookmark', shortcut: accel('open:bookmarks'), action: doAction('open:bookmarks') },
+    { label: 'History', icon: 'clock', shortcut: accel('open:history'), action: doAction('open:history') },
+    { label: 'Downloads', icon: 'download', shortcut: accel('open:downloads'), action: doAction('open:downloads') },
+    { separator: true },
+    { heading: 'Browser' },
+    { label: 'Extensions', icon: 'puzzle', shortcut: accel('open:extensions'), action: doAction('open:extensions') },
+    { label: 'Settings', icon: 'gear', shortcut: accel('open:settings'), action: doAction('open:settings') },
+    { separator: true },
+    {
+      label: 'Show bookmarks bar',
+      icon: 'bookmark',
+      checked: !!s.bookmarksBar,
+      action: action('settings:update', { bookmarksBar: !s.bookmarksBar }),
+    },
+    { label: 'Developer tools', icon: 'gear', shortcut: accel('window:devtools'), action: doAction('window:devtools') },
+  ];
+}
+
+/** Anchors are sent as plain numbers; a DOMRect does not survive IPC. */
+function anchorRect(element) {
+  const box = element.getBoundingClientRect();
+  return {
+    left: box.left, right: box.right, top: box.top, bottom: box.bottom,
+    width: box.width, height: box.height,
+  };
+}
+
+let menuOpenFor = null;
+
+/** Ask the overlay to draw a menu anchored to a trigger button. */
+function toggleMenu(trigger, items, align = 'left') {
+  if (menuOpenFor === trigger) {
+    closeOverlayMenu();
+    return;
+  }
+  closeOverlayMenu();
+  menuOpenFor = trigger;
+  trigger.classList.add('active');
+  invoke('menu:open', { items, anchor: anchorRect(trigger), align });
+}
+
+/** Open a menu at the pointer, for context menus. */
+function contextMenu(items, event) {
+  event.preventDefault();
+  closeOverlayMenu();
+  const point = {
+    left: event.clientX, right: event.clientX,
+    top: event.clientY, bottom: event.clientY,
+    width: 0, height: 0,
+  };
+  invoke('menu:open', { items, anchor: point, align: 'left' });
+}
+
+function closeOverlayMenu() {
+  if (menuOpenFor) {
+    menuOpenFor.classList.remove('active');
+    menuOpenFor = null;
+  }
+}
+
+// The overlay owns dismissal (click-away, Escape), so clear the trigger's
+// active styling whenever focus leaves this view.
+window.addEventListener('blur', closeOverlayMenu);
+
+/** Right-click menu for a tab. */
+function tabContextMenu(tab, event) {
+  contextMenu([
+    { label: 'Reload', icon: 'reload', action: doAction('page:reload') },
+    { label: 'Duplicate', icon: 'plus', action: action('tabs:new', { url: tab.url }) },
+    { separator: true },
+    { label: 'Bookmark', icon: 'star', action: action('bookmarks:toggle', { url: tab.url, title: tab.title }) },
+    { separator: true },
+    {
+      label: 'Close tab', icon: 'close', danger: true, shortcut: accel('tab:close'),
+      action: action('tabs:close', { id: tab.id }),
+    },
+  ], event);
+}
+
+/** Right-click menu for a bookmark. */
+function bookmarkContextMenu(item, event) {
+  contextMenu([
+    { label: 'Open', icon: 'forward', action: action('tabs:navigate', { input: item.url }) },
+    { label: 'Open in new tab', icon: 'plus', action: action('tabs:new', { url: item.url }) },
+    { separator: true },
+    { label: 'Remove', icon: 'trash', danger: true, action: action('bookmarks:remove', { id: item.id }) },
+  ], event);
+}
+
 /* ---- rendering ----------------------------------------------------------- */
 
 function render() {
+  applyTheme(state.settings || {});
+  document.body.classList.toggle('mac', state.platform === 'darwin');
+  renderWindowControls();
   renderTabs();
   renderToolbar();
   renderBookmarks();
@@ -42,6 +225,9 @@ function render() {
 }
 
 function renderTabs() {
+  const active = state.tabs.find(t => t.active);
+  el.windowTitle.textContent = active?.title ? active.title + ' — static' : 'static';
+
   el.tabs.replaceChildren(...state.tabs.map((tab) => {
     const node = document.createElement('div');
     node.className = 'tab' + (tab.active ? ' active' : '');
@@ -49,17 +235,18 @@ function renderTabs() {
     node.dataset.id = tab.id;
     node.title = tab.title || '';
 
-    // Spinner while loading, favicon once loaded, blank square as fallback.
     if (tab.loading) {
       const spinner = document.createElement('div');
       spinner.className = 'spinner';
       node.append(spinner);
+    } else if (tab.favicon) {
+      const img = document.createElement('img');
+      img.className = 'favicon';
+      img.src = tab.favicon;
+      img.onerror = () => img.replaceWith(window.ui.icon('search', { size: 14 }));
+      node.append(img);
     } else {
-      const icon = document.createElement('img');
-      icon.className = 'favicon';
-      icon.src = tab.favicon || '';
-      icon.onerror = () => { icon.style.visibility = 'hidden'; };
-      node.append(icon);
+      node.append(window.ui.icon('search', { size: 14 }));
     }
 
     const title = document.createElement('span');
@@ -69,8 +256,9 @@ function renderTabs() {
 
     const close = document.createElement('button');
     close.className = 'close';
-    close.textContent = '×';
+    close.type = 'button';
     close.title = 'Close tab';
+    close.append(window.ui.icon('close', { size: 13 }));
     close.addEventListener('click', (event) => {
       event.stopPropagation();
       invoke('tabs:close', { id: tab.id });
@@ -79,8 +267,9 @@ function renderTabs() {
 
     node.addEventListener('click', () => invoke('tabs:select', { id: tab.id }));
     node.addEventListener('auxclick', (event) => {
-      if (event.button === 1) invoke('tabs:close', { id: tab.id }); // middle-click
+      if (event.button === 1) invoke('tabs:close', { id: tab.id });
     });
+    node.addEventListener('contextmenu', (event) => tabContextMenu(tab, event));
     return node;
   }));
 }
@@ -89,18 +278,18 @@ function renderToolbar() {
   const active = state.active || {};
   el.back.disabled = !active.canGoBack;
   el.forward.disabled = !active.canGoForward;
-  el.reload.textContent = active.loading ? '×' : '↻';
-  el.reload.title = active.loading ? 'Stop' : 'Reload';
 
-  // Never clobber what the user is typing.
+  // Reload doubles as Stop while a page is loading.
+  const loading = !!active.loading;
+  el.reload.replaceChildren(window.ui.icon(loading ? 'close' : 'reload'));
+  el.reload.title = loading ? 'Stop' : 'Reload (' + accel('page:reload') + ')';
+
   if (!local.typing && document.activeElement !== el.address) {
     el.address.value = displayUrl(active.url);
   }
 
-  // Internal/extension pages get a neutral glyph, not the star - the star is
-  // the bookmark control and must not appear twice in the omnibox.
-  const marks = { secure: '🔒', insecure: '⚠', error: '⚠', internal: '⚙', extension: '🧩' };
-  el.security.textContent = marks[active.security] || '';
+  const marks = { secure: 'lock', insecure: 'warn', error: 'warn', internal: 'gear', extension: 'puzzle' };
+  el.security.replaceChildren(window.ui.icon(marks[active.security] || 'search', { size: 14 }));
   el.security.className = 'security ' + (active.security || '');
   el.security.title = {
     secure: 'Connection is secure (HTTPS)',
@@ -111,14 +300,13 @@ function renderToolbar() {
   }[active.security] || '';
 
   el.star.classList.toggle('on', !!state.bookmarked);
-  el.star.textContent = state.bookmarked ? '★' : '☆';
-  el.star.title = state.bookmarked ? 'Remove bookmark' : 'Bookmark this page (Ctrl+D)';
+  el.star.title = (state.bookmarked ? 'Remove bookmark' : 'Bookmark this page') +
+    ' (' + accel('bookmarks:toggle') + ')';
 
   const engine = state.settings?.searchEngine === 'brave' ? 'Brave Search' : 'Google';
   el.address.placeholder = `Search ${engine} or type a URL`;
 }
 
-/** browser://newtab reads as an empty bar, like Chrome's. */
 function displayUrl(url) {
   if (!url || url === 'browser://newtab' || url === 'about:blank') return '';
   return url;
@@ -140,14 +328,31 @@ function renderBookmarks() {
   el.bookmarks.replaceChildren(...state.bookmarks.map((item) => {
     const node = document.createElement('div');
     node.className = 'bookmark';
-    node.textContent = item.title || item.url;
     node.title = item.url;
+
+    const img = document.createElement('img');
+    img.src = faviconFor(item.url);
+    img.onerror = () => img.classList.add('hidden');
+    node.append(img);
+
+    const label = document.createElement('span');
+    label.textContent = item.title || item.url;
+    node.append(label);
+
     node.addEventListener('click', () => invoke('tabs:navigate', { input: item.url }));
     node.addEventListener('auxclick', (event) => {
       if (event.button === 1) invoke('tabs:new', { url: item.url, background: true });
     });
+    node.addEventListener('contextmenu', (event) => bookmarkContextMenu(item, event));
     return node;
   }));
+}
+
+/** Google's favicon service: the site's real icon without us fetching it. */
+function faviconFor(url) {
+  try {
+    return 'https://www.google.com/s2/favicons?sz=32&domain=' + new URL(url).hostname;
+  } catch { return ''; }
 }
 
 function renderNotice() {
@@ -169,7 +374,9 @@ function renderSuggestions() {
 
     const kind = document.createElement('span');
     kind.className = 'kind';
-    kind.textContent = item.source === 'bookmark' ? '★' : item.source === 'search' ? '🔍' : '↺';
+    kind.append(window.ui.icon(
+      item.source === 'bookmark' ? 'star' : item.source === 'search' ? 'search' : 'clock',
+      { size: 14 }));
     node.append(kind);
 
     const label = document.createElement('span');
@@ -185,7 +392,7 @@ function renderSuggestions() {
     }
 
     node.addEventListener('mousedown', (event) => {
-      event.preventDefault(); // keep focus so blur doesn't close first
+      event.preventDefault();
       commit(item.url || item.query);
     });
     return node;
@@ -201,7 +408,6 @@ async function updateSuggestions() {
     return;
   }
   const results = (await invoke('omnibox:suggest', { query })) || [];
-  // Always offer the raw query as a search, the way Chrome does.
   const engine = state.settings?.searchEngine === 'brave' ? 'Brave Search' : 'Google';
   local.suggestions = [
     { source: 'search', title: `${query} — search ${engine}`, query },
@@ -228,14 +434,18 @@ function commit(input) {
 
 /* ---- events -------------------------------------------------------------- */
 
-el.newtab.addEventListener('click', () => invoke('tabs:new', {}));
-el.back.addEventListener('click', () => invoke('navigation:back'));
-el.forward.addEventListener('click', () => invoke('navigation:forward'));
-el.home.addEventListener('click', () => invoke('navigation:home'));
-el.reload.addEventListener('click', () =>
-  invoke(state.active?.loading ? 'navigation:stop' : 'navigation:reload'));
-el.star.addEventListener('click', () => invoke('bookmarks:toggle', {}));
-el.menu.addEventListener('click', () => invoke('ui:menu'));
+el.newtab.addEventListener('click', () => act('tab:new'));
+el.back.addEventListener('click', () => act('page:back'));
+el.forward.addEventListener('click', () => act('page:forward'));
+el.home.addEventListener('click', () => act('page:home'));
+el.reload.addEventListener('click', () => act(state.active?.loading ? 'page:stop' : 'page:reload'));
+el.star.addEventListener('click', () => act('bookmarks:toggle'));
+
+el.appMenu.addEventListener('click', () => toggleMenu(el.appMenu, mainMenuItems(), 'left'));
+el.overflow.addEventListener('click', () => toggleMenu(el.overflow, mainMenuItems(), 'right'));
+
+// Double-clicking the drag region maximises, matching platform convention.
+$('titlebar-drag').addEventListener('dblclick', () => invoke('window:control', { action: 'maximize' }));
 
 el.address.addEventListener('input', () => { local.typing = true; updateSuggestions(); });
 el.address.addEventListener('focus', () => el.address.select());
@@ -263,8 +473,8 @@ el.address.addEventListener('keydown', (event) => {
   }
 });
 
-/* Drag to reorder tabs. We compute the drop index from the midpoint of each
-   tab so the insertion point matches where the cursor visually sits. */
+/* Drag to reorder tabs. The drop index comes from the midpoint of each tab so
+   the insertion point matches where the cursor visually sits. */
 el.tabs.addEventListener('dragstart', (event) => {
   const tab = event.target.closest('.tab');
   if (!tab) return;
@@ -297,20 +507,26 @@ el.tabs.addEventListener('dragend', () => {
   el.tabs.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
 });
 
-/* Keyboard shortcuts that must work while the chrome has focus. The same
-   accelerators are registered in the application menu so they also fire when
-   a tab holds focus. */
-window.addEventListener('keydown', (event) => {
-  const mod = window.browser.platform === 'darwin' ? event.metaKey : event.ctrlKey;
-  if (mod && event.key.toLowerCase() === 'l') { event.preventDefault(); el.address.focus(); }
-  else if (mod && event.key.toLowerCase() === 't') { event.preventDefault(); invoke('tabs:new', {}); }
-  else if (mod && event.key.toLowerCase() === 'w') { event.preventDefault(); invoke('tabs:close', {}); }
-  else if (mod && event.key.toLowerCase() === 'd') { event.preventDefault(); invoke('bookmarks:toggle', {}); }
-  else if (event.ctrlKey && event.key === 'Tab') { event.preventDefault(); }
+// Suppress the default context menu everywhere we have not built our own.
+document.addEventListener('contextmenu', (event) => {
+  if (event.target.closest('#address')) return; // keep text editing menu
+  if (event.target.closest('.tab') || event.target.closest('.bookmark')) return;
+  event.preventDefault();
 });
+
+// Ctrl+L and friends are handled in main via before-input-event, so the only
+// key work left here is menu dismissal, which ui.js already owns.
 
 window.browser.on('app:state', (payload) => { state = payload; render(); });
 window.browser.on('ui:focus-address', () => { el.address.focus(); el.address.select(); });
+window.browser.on('ui:open-menu', () => toggleMenu(el.appMenu, mainMenuItems(), 'left'));
 
-// Ask for the current state once the renderer is live.
-invoke('app:state').then((payload) => { if (payload) { state = payload; render(); } });
+buildChrome();
+
+// Shortcut table first, so menus render their accelerators on the first paint.
+invoke('ui:shortcuts').then((list) => {
+  shortcuts = new Map((list || []).map((entry) => [entry.id, entry]));
+  return invoke('app:state');
+}).then((payload) => {
+  if (payload) { state = payload; render(); }
+});

@@ -53,9 +53,61 @@
     <h2>Appearance</h2>
     <div class="card">
       <div class="field">
+        <div>
+          <label for="theme">Theme</label>
+          <div class="hint">Colours for the whole browser, menus included.</div>
+        </div>
+        <div class="control"><select id="theme"></select></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="surfaceStyle">Menu background</label>
+          <div class="hint">How menus and dropdowns are drawn over the page.</div>
+        </div>
+        <div class="control"><select id="surfaceStyle"></select></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="radius">Corner radius</label>
+          <div class="hint">Applies to buttons, menus, tabs and dialogs.</div>
+        </div>
+        <div class="control"><select id="radius"></select></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="animations">Animations</label>
+          <div class="hint">Fade and slide when menus open.</div>
+        </div>
+        <div class="control right">
+          <input id="animations" type="checkbox" class="toggle">
+        </div>
+      </div>
+      <div class="field">
         <label for="bookmarksBar">Show bookmarks bar</label>
         <div class="control right">
           <input id="bookmarksBar" type="checkbox" class="toggle">
+        </div>
+      </div>
+    </div>
+
+    <h2>New tab page</h2>
+    <div class="card">
+      <div class="field">
+        <div>
+          <label>Customize widgets and background</label>
+          <div class="hint">Open a new tab and use the button in its top-right corner.</div>
+        </div>
+        <div class="control right">
+          <button id="open-newtab">Open new tab</button>
+        </div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="showMostVisited">Show most visited</label>
+          <div class="hint">The tile grid under the search box.</div>
+        </div>
+        <div class="control right">
+          <input id="showMostVisited" type="checkbox" class="toggle">
         </div>
       </div>
     </div>
@@ -89,6 +141,7 @@
       </div>
     </div>
   </div>
+  <script src="../../shared/theme.js"></script>
   <script src="common.js"></script>
   <script src="settings.js"></script>
 </body>

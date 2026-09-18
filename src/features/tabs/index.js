@@ -18,12 +18,13 @@ const NEW_TAB = 'browser://newtab';
  *   `webPreferences` below are the security boundary for ALL untrusted content.
  */
 class Tabs {
-  constructor({ window, session, preload, onChange, onNavigate, extensions, getEngine }) {
+  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, extensions, getEngine }) {
     this.window = window;
     this.session = session;
     this.preload = preload;
     this.onChange = onChange;       // re-render the chrome
     this.onNavigate = onNavigate;   // record history
+    this.onTabCreated = onTabCreated; // attach keyboard shortcut interception
     this.extensions = extensions;   // electron-chrome-extensions instance
     this.getEngine = getEngine;     // () => 'google' | 'brave'
     this.tabs = new Map();          // id -> tab record
@@ -101,6 +102,7 @@ class Tabs {
     this.order.splice(at, 0, id);
 
     this.#wire(tab);
+    this.onTabCreated?.(view.webContents);
 
     // Register with the extension system so chrome.tabs.* sees this tab and
     // browser action popups resolve against the right webContents.

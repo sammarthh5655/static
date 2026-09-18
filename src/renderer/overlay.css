@@ -1,0 +1,10 @@
+/* Menu overlay.
+ *
+ * This view covers the entire window and floats above both the chrome and the
+ * active tab, so a menu can be taller than the chrome strip without being
+ * clipped. The page itself must stay fully transparent - only the menu draws.
+ */
+html, body.overlay {
+  background: transparent;
+  overflow: hidden;
+}
