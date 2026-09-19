@@ -79,7 +79,10 @@ async function run(browser) {
 
     const panel = await wc.executeJavaScript(`(async () => {
       const t = document.getElementById('tools');
-      document.getElementById('tools-trigger').click();
+      // The floating trigger was removed for being intrusive; the panel now
+      // opens with Ctrl/Cmd+K, matching the command bar elsewhere.
+      document.dispatchEvent(new KeyboardEvent('keydown',
+        { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));
       await new Promise(r => setTimeout(r, 500));
       const opened = !t.hidden;
       const items = document.querySelectorAll('.tool-item').length;
@@ -87,7 +90,9 @@ async function run(browser) {
       await new Promise(r => setTimeout(r, 900));
       return { opened, items, closed: t.hidden };
     })()`, true);
-    check('tools panel opens', panel.opened && panel.items >= 8, panel.items + ' tools');
+    check('tools panel opens on Ctrl+K', panel.opened && panel.items >= 8, panel.items + ' tools');
+    check('no floating trigger on the page',
+      await wc.executeJavaScript('!document.getElementById("tools-trigger")'));
     check('tools panel closes', panel.closed);
 
     check('no console errors', errors.length === 0, errors.join(' | '));

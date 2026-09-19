@@ -58,73 +58,63 @@ const YOUTUBE = `
   var stripAds = function(data){
     if (!data || typeof data !== 'object') return data;
     try {
-      // Covers pre-roll, mid-roll AND post-roll: every entry here is an ad
-      // slot, whatever its AD_PLACEMENT_KIND.
-      if (data.adPlacements && data.adPlacements.length) {
-        data.adPlacements = [];
-        mark('youtube-placements');
-      }
-      if (data.playerAds && data.playerAds.length) { data.playerAds = []; mark('youtube-playerads'); }
-      if (data.adSlots && data.adSlots.length) { data.adSlots = []; mark('youtube-adslots'); }
-      // Removes the "ads will begin shortly" interstitial.
-      if (data.playerConfig && data.playerConfig.audioConfig) {
-        delete data.playerConfig.audioConfig.enablePerFormatLoudness;
-      }
-      if (data.streamingData) {
-        // Server-stitched ad segments; dropping them leaves the real video.
-        delete data.streamingData.serverAbrStreamingUrl;
-      }
+      if (data.adPlacements && data.adPlacements.length) { data.adPlacements = []; mark('placements'); }
+      if (data.playerAds && data.playerAds.length) { data.playerAds = []; mark('playerads'); }
+      if (data.adSlots && data.adSlots.length) { data.adSlots = []; mark('adslots'); }
+      if (data.adBreakHeartbeatParams) { delete data.adBreakHeartbeatParams; }
     } catch (e) {}
     return data;
   };
 
-  // 1. The player response baked into the initial HTML.
+  // The initial page load is already clean: features/shields/htmlfilter.js
+  // strips the embedded player response before the renderer parses it, which
+  // is the only way to get ahead of a top-level \`var\` declaration.
   //
-  // YouTube reassigns this property with a plain value later in its own
-  // startup, which REPLACES an accessor defined here. Testing showed exactly
-  // that: the accessor was gone by the time the page settled. So the getter
-  // strips on every read as well as on write, which keeps working however
-  // many times the property is redefined.
+  // What remains for this scriptlet is the SPA case: clicking from one video
+  // to the next fetches a fresh player response without a page load, and that
+  // response never passes through the HTML filter.
+
+  // XHR is the path the player actually uses for those fetches.
   try {
-    var stored;
-    var define = function(){
-      try {
-        Object.defineProperty(window, 'ytInitialPlayerResponse', {
-          configurable: true,
-          get: function(){ return stripAds(stored); },
-          set: function(value){ stored = stripAds(value); },
-        });
-      } catch (e) {}
+    var XHR = window.XMLHttpRequest;
+    var origOpen = XHR.prototype.open;
+    var origSend = XHR.prototype.send;
+
+    XHR.prototype.open = function(method, url){
+      this.__staticUrl = String(url || '');
+      return origOpen.apply(this, arguments);
     };
-    define();
-    // Re-assert periodically during page startup, in case the property was
-    // redefined out from under us. Stops once the page is settled, so this is
-    // not a permanent timer.
-    var reasserts = 0;
-    var guard = setInterval(function(){
-      var descriptor = Object.getOwnPropertyDescriptor(window, 'ytInitialPlayerResponse');
-      if (descriptor && !descriptor.get) {
-        // It was overwritten with a plain value - clean that value and
-        // reinstate the accessor.
-        stored = stripAds(descriptor.value);
-        define();
+
+    XHR.prototype.send = function(){
+      var xhr = this;
+      if (xhr.__staticUrl && xhr.__staticUrl.indexOf('/youtubei/v1/player') !== -1) {
+        xhr.addEventListener('readystatechange', function(){
+          if (xhr.readyState !== 4) return;
+          try {
+            var cleaned = JSON.stringify(stripAds(JSON.parse(xhr.responseText)));
+            Object.defineProperty(xhr, 'responseText', {
+              configurable: true, get: function(){ return cleaned; },
+            });
+            Object.defineProperty(xhr, 'response', {
+              configurable: true, get: function(){ return cleaned; },
+            });
+          } catch (e) {}
+        }, false);
       }
-      if (++reasserts > 40) clearInterval(guard);
-    }, 250);
-    window.addEventListener('pagehide', function(){ clearInterval(guard); });
+      return origSend.apply(this, arguments);
+    };
   } catch (e) {}
 
-  // 2. Player responses fetched for subsequent videos.
+  // And fetch, for the paths that use it.
   try {
     var origFetch = window.fetch;
-    window.fetch = function(input, init){
+    window.fetch = function(input){
       var url = (typeof input === 'string') ? input : (input && input.url) || '';
       var promise = origFetch.apply(this, arguments);
       if (url.indexOf('/youtubei/v1/player') === -1) return promise;
       return promise.then(function(response){
         return response.clone().json().then(function(data){
-          var cleaned = stripAds(data);
-          return new Response(JSON.stringify(cleaned), {
+          return new Response(JSON.stringify(stripAds(data)), {
             status: response.status,
             statusText: response.statusText,
             headers: response.headers,
@@ -134,23 +124,24 @@ const YOUTUBE = `
     };
   } catch (e) {}
 
-  // 3. Belt and braces: if an ad does start, skip it.
-  // Only touches the ad player, never the normal one.
+  // Last resort: if an ad does start despite the above, click its skip button.
+  //
+  // This DELIBERATELY does not seek or change playback rate. An earlier
+  // version did, and with the HTML filter in place it fought the player on
+  // ad-free videos - one never started at all and another took five seconds.
+  // Clicking a button that only exists during an ad cannot affect normal
+  // playback, so this is the version that is safe to leave running.
   try {
-    var skip = function(){
-      var button = document.querySelector('.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern');
-      if (button) { button.click(); mark('youtube-skip'); return; }
-      var showing = document.querySelector('.ad-showing');
-      if (showing) {
-        var video = document.querySelector('video');
-        // Seeking an ad to its end ends it without touching the real video.
-        if (video && video.duration && isFinite(video.duration)) {
-          video.currentTime = video.duration;
-          mark('youtube-seek');
-        }
-      }
+    var tidy = function(){
+      var player = document.getElementById('movie_player');
+      if (!player) return;
+      if (!player.classList.contains('ad-showing') &&
+          !player.classList.contains('ad-interrupting')) return;
+      var skip = document.querySelector(
+        '.ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot button');
+      if (skip) { try { skip.click(); mark('skip'); } catch (e) {} }
     };
-    var timer = setInterval(skip, 500);
+    var timer = setInterval(tidy, 500);
     window.addEventListener('pagehide', function(){ clearInterval(timer); });
   } catch (e) {}
 `;

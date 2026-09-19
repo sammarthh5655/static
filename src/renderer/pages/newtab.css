@@ -377,32 +377,9 @@ button.util-card:hover {
 
 /* ---- AI tools panel -------------------------------------------------------- */
 
-.tools-trigger {
-  position: fixed;
-  right: 20px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 38px; height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  color: var(--text-dim);
-  cursor: pointer;
-  z-index: 8;
-  transition: background var(--motion-fast) var(--ease),
-              color var(--motion-fast) var(--ease),
-              border-color var(--motion-fast) var(--ease);
-}
-.tools-trigger:hover {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 18%, transparent);
-}
+/* The floating AI-tools button was removed: it hovered over the page at all
+   times and got in the way of a homepage whose whole point is calm. The panel
+   now opens with Ctrl/Cmd+K, matching the command bar everywhere else. */
 
 .tools {
   position: fixed;
@@ -513,5 +490,4 @@ button.util-card:hover {
 @media (max-width: 640px) {
   .stage { padding-top: 12vh; }
   .utility { grid-template-columns: 1fr; }
-  .tools-trigger { top: auto; bottom: 20px; transform: none; }
 }

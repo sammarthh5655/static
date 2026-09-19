@@ -7,7 +7,19 @@ class JsonStore {
     this.fallback = fallback;
     this.data = structuredClone(fallback);
     if (fs.existsSync(this.file)) {
-      try { this.data = JSON.parse(fs.readFileSync(this.file, 'utf8').replace(/^\uFEFF/, '')); }
+      try {
+        const saved = JSON.parse(fs.readFileSync(this.file, 'utf8').replace(/^\uFEFF/, ''));
+        // MERGE over the defaults rather than replacing them. Replacing meant
+        // any setting added after a profile was created stayed permanently
+        // undefined for existing users: a feature would ship, read its own new
+        // flag as undefined, and silently do nothing. That is exactly how
+        // `blockVideoAds` ended up disabled on every existing profile.
+        // Arrays are taken wholesale, because a saved empty list must stay
+        // empty rather than being refilled from the defaults.
+        this.data = (isPlainObject(saved) && isPlainObject(fallback))
+          ? mergeDefaults(structuredClone(fallback), saved)
+          : saved;
+      }
       catch (error) {
         // Preserve malformed files so recovery never silently destroys user data.
         fs.copyFileSync(this.file, this.file + '.corrupt-' + Date.now());
@@ -25,4 +37,22 @@ class JsonStore {
     return data;
   }
 }
-module.exports = { JsonStore };
+/** Only plain objects are merged; arrays and class instances are not. */
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Overlay `saved` onto `target`, recursing into nested plain objects so a key
+ * newly added inside a nested settings group is picked up too.
+ */
+function mergeDefaults(target, saved) {
+  for (const [key, value] of Object.entries(saved)) {
+    target[key] = (isPlainObject(value) && isPlainObject(target[key]))
+      ? mergeDefaults(target[key], value)
+      : value;
+  }
+  return target;
+}
+
+module.exports = { JsonStore, mergeDefaults };

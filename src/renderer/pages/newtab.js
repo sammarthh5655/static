@@ -339,24 +339,31 @@ function renderTools() {
   $('#tools-body').replaceChildren(...nodes);
 }
 
-$('#tools-trigger').addEventListener('click', () => toggleTools());
 $('#tools-close').addEventListener('click', () => toggleTools(false));
 
+// No floating button: it sat over the page permanently and got in the way.
+// The panel opens on Ctrl/Cmd+K, which is the same key the command bar uses
+// everywhere else in the browser, so there is one thing to remember.
 document.addEventListener('keydown', (event) => {
+  const mod = window.page.platform === 'darwin' ? event.metaKey : event.ctrlKey;
+  if (mod && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    toggleTools();
+    return;
+  }
   if (event.key === 'Escape' && toolsOpen) toggleTools(false);
 });
 
 // Clicking the page closes the panel, but clicking inside it must not.
 document.addEventListener('pointerdown', (event) => {
   if (!toolsOpen) return;
-  if (tools.contains(event.target) || $('#tools-trigger').contains(event.target)) return;
+  if (tools.contains(event.target)) return;
   toggleTools(false);
 }, true);
 
 /* ---- init ------------------------------------------------------------------ */
 
 $('#mark-glyph').append(icon('sparkle', { size: 30 }));
-$('#tools-trigger').append(icon('grid', { size: 16 }));
 setMode(false);
 
 onState((next) => {

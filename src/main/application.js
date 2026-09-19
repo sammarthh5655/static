@@ -21,6 +21,7 @@ const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
+const htmlFilter = require('../features/shields/htmlfilter');
 const { MODES } = require('../shared/modes');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -101,6 +102,18 @@ class BrowserApplication {
     this.#hardenSession();
     this.#installRequestFilter();
     this.#installCookiePolicy();
+
+    // Response-body filtering for YouTube. This has to happen before the
+    // renderer parses the document: the ad payload is embedded in the HTML as
+    // a `var` declaration, which no in-page script can get ahead of.
+    htmlFilter.install(
+      this.session,
+      () => this.shields.config.enabled && this.shields.config.blockVideoAds,
+      (count) => {
+        this.shields.store.data.totalBlocked =
+          (this.shields.config.totalBlocked || 0) + count;
+      },
+    );
     this.ensureWindow();
     this.#registerIpc();
 
