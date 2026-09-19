@@ -98,6 +98,26 @@ async function run(browser) {
     await shotWindow('menu-light');
     browser.settings.update({ theme: 'dark', surfaceStyle: 'frosted', radius: 'rounded' });
 
+    // AI page, with a real conversation in it.
+    const aiTab = browser.tabs.create({ url: 'browser://ai' });
+    browser.tabs.select(aiTab);
+    const aiWc = browser.tabs.tabs.get(aiTab).view.webContents;
+    for (let i = 0; i < 40 && aiWc.isLoading(); i++) await wait(200);
+    await wait(900);
+    await aiWc.executeJavaScript(`(async () => {
+      const i = document.getElementById('input');
+      i.value = 'In two sentences, what makes a good web browser?';
+      document.getElementById('composer').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+      for (let n=0;n<80;n++){
+        await new Promise(r=>setTimeout(r,500));
+        if (document.querySelectorAll('.turn.model:not(.pending)').length) return true;
+        if (document.querySelector('.turn.error')) return true;
+      }
+      return false;
+    })()`, true);
+    await wait(700);
+    await shotView(aiWc, 'ai-page');
+
     console.log('Wrote screenshots to ' + out);
     app.exit(0);
   } catch (error) {

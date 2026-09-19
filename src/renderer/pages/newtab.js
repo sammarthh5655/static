@@ -96,7 +96,10 @@ const SYSTEM_PROMPT = [
   'questions separated by " | ".',
 ].join(' ');
 
+let lastQuestion = '';
+
 async function askGemini(prompt) {
+  lastQuestion = prompt;
   aiBusy = true;
   renderHint();
   const panel = $('#ai-panel');
@@ -146,6 +149,14 @@ $('#ai-copy').addEventListener('click', async () => {
 });
 
 $('#ai-close').addEventListener('click', () => { $('#ai-panel').hidden = true; });
+
+// Carry the question into the full AI page, where it becomes a saved
+// conversation with history rather than a one-shot answer.
+$('#ai-open').addEventListener('click', async () => {
+  const question = lastQuestion;
+  await invoke('tabs:navigate', { input: 'browser://ai' });
+  if (question) invoke('chat:send', { prompt: question, system: SYSTEM_PROMPT });
+});
 
 /* ---- widgets -------------------------------------------------------------- */
 

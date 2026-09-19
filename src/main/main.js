@@ -3,7 +3,7 @@ const path = require('node:path');
 app.setName('static');
 
 // Test modes run against a throwaway profile so they never touch real user data.
-const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai'];
+const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage'];
 const testFlag = !app.isPackaged && process.argv.find(arg => TEST_FLAGS.includes(arg));
 if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
 
@@ -33,6 +33,7 @@ else {
     await browser.start();
     if (testFlag === '--shot') await require('../../tests/screenshot.cjs').run(browser);
     else if (testFlag === '--probe') await require('../../tests/probe.cjs').run(browser);
+    else if (testFlag === '--aipage') await require('../../tests/aipage.cjs').run(browser);
     else if (testFlag === '--ai') await require('../../tests/ai.cjs').run(browser);
     else if (testFlag === '--appearance') await require('../../tests/appearance.cjs').run(browser);
     else if (testFlag) await require('../../tests/smoke.cjs').run(browser);

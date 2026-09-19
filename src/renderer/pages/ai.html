@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>AI</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="ai.css">
+</head>
+<body class="ai-page">
+  <!-- Conversation list -->
+  <aside class="chat-sidebar" id="sidebar">
+    <div class="chat-sidebar-head">
+      <button class="chat-new" id="new-chat">New chat</button>
+    </div>
+    <div class="chat-search-row">
+      <input id="chat-search" type="search" placeholder="Search chats" autocomplete="off">
+    </div>
+    <div class="chat-list" id="chat-list"></div>
+    <div class="chat-sidebar-foot">
+      <button class="chat-clear" id="clear-chats">Clear history</button>
+    </div>
+  </aside>
+
+  <!-- Transcript -->
+  <main class="chat-main">
+    <header class="chat-header">
+      <button class="chat-toggle" id="toggle-sidebar" title="Toggle chat list"></button>
+      <h1 class="chat-title" id="chat-title">New chat</h1>
+      <span class="chat-model" id="chat-model"></span>
+      <button class="chat-tool" id="pin-chat" title="Pin this chat">Pin</button>
+      <button class="chat-tool" id="rename-chat" title="Rename">Rename</button>
+      <button class="chat-tool danger" id="delete-chat" title="Delete this chat">Delete</button>
+    </header>
+
+    <div class="chat-scroll" id="scroll">
+      <div class="chat-turns" id="turns"></div>
+
+      <!-- Shown only on an empty conversation -->
+      <div class="chat-empty" id="empty">
+        <div class="chat-empty-mark" id="empty-mark"></div>
+        <h2>Ask Gemini</h2>
+        <p>Answers appear here and every conversation is saved on this device.</p>
+        <div class="chat-suggestions" id="suggestions"></div>
+      </div>
+    </div>
+
+    <form class="chat-composer" id="composer">
+      <textarea id="input" rows="1" placeholder="Ask anything&#8230;" spellcheck="false"></textarea>
+      <button type="submit" class="chat-send" id="send" title="Send (Enter)"></button>
+      <button type="button" class="chat-stop" id="stop" title="Stop" hidden>Stop</button>
+    </form>
+    <div class="chat-foot" id="foot">Enter to send &#183; Shift+Enter for a new line</div>
+  </main>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="common.js"></script>
+  <script src="ai.js"></script>
+</body>
+</html>

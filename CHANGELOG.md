@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**AI page (browser://ai)**
+- A dedicated AI page with a conversation sidebar, transcript and composer
+- Chat history persists in the main process, so a transcript survives closing
+  the tab; conversations are searchable, renameable, pinnable and deletable
+- Multi-turn: prior turns are sent with each question, so the assistant
+  remembers what was said earlier in the conversation
+- Chats title themselves from the first question
+- Copy and retry on any answer; Enter sends, Shift+Enter newlines, Esc cancels
+- "Open in AI" carries a new-tab answer into a saved conversation
+- Reachable from the menu, Ctrl+Shift+G, or browser://ai
+- Pinned chats survive "clear history" - losing a kept chat to a misclick is
+  worse than leaving a few behind
+
 **AI (Gemini)**
 - Gemini client in the main process; the API key never crosses an IPC boundary
   and is never present in renderer or page context
@@ -19,9 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and a hint line, because a field that silently changes what Enter does is a
   trap
 - Answer panel with copy button and follow-up suggestions
-- Uses `-latest` model aliases rather than pinned ids, since Google retires
-  specific versions; falls back to the lite model and backs off exponentially
-  when the preferred model reports high demand
+- Walks a chain of verified models when one fails. Google retires ids faster
+  than expected (gemini-2.0-flash, 2.5-flash and 2.5-flash-lite are all already
+  "no longer available" against this key), and on the free tier each model has
+  its OWN daily quota - so a single fallback is not enough, because that one
+  can be exhausted too. Quota and retirement skip to the next model
+  immediately; overload retries the same one with exponential backoff first
 - The key is baked into the build and is not visible or editable in Settings,
   by request. It lives in `src/main/secure/keys.js`, which is gitignored; see
   `keys.example.js` for the security caveat on embedded keys

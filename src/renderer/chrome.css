@@ -292,12 +292,23 @@ body.mac .titlebar { padding-left: 78px; }
 
   /* Subtle fade + slide, never bouncy. Duration comes from the theme and
      collapses to 0ms when the user disables animations.
-     Driven by an ANIMATION rather than a transition: the overlay view is only
-     attached at the moment a menu opens, and a view that was not composited
-     does not run transitions - the style would stay stuck at the start values.
-     An animation with `both` fill always ends on its final frame. */
+
+     IMPORTANT: the visible state must NOT depend on the animation running.
+     The overlay is shrunk to a 1x1 corner while idle, and a view with no real
+     area may not tick animations at all - so a menu whose only path to
+     opacity 1 was a keyframe would occasionally stay invisible. The base rule
+     is therefore the FINAL state, and the animation only plays the entrance
+     on top of it. `backwards` fill supplies the start frame without ever
+     leaving the element stuck there. */
   opacity: 1;
-  animation: menu-in var(--motion-base) var(--ease) both;
+  transform: translateY(0) scale(1);
+  /* NO fill mode. `backwards`/`both` would hold the element on the animation's
+     FIRST frame (opacity 0) whenever the animation is not actually ticking -
+     and the overlay view is shrunk to 1x1 while idle, which is exactly when a
+     compositor may not run it. With no fill, an animation that never advances
+     simply leaves the base rule above in force, so the menu is visible either
+     way and the entrance is a bonus rather than a prerequisite. */
+  animation: menu-in var(--motion-base) var(--ease);
 }
 
 @keyframes menu-in {
@@ -305,8 +316,26 @@ body.mac .titlebar { padding-left: 78px; }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Closing plays the same motion in reverse. */
-.menu.closing { animation: menu-out var(--motion-base) var(--ease) both; }
+/* Closing plays the same motion in reverse.
+   A closing menu drops the `.menu` class (see ui.js#closeMenu) and keeps only
+   `.menu-ghost`, so it can never be mistaken for the current menu while it
+   animates out - this rule therefore has to restate the surface styling. */
+.menu-ghost {
+  position: fixed;
+  z-index: 100;
+  min-width: 216px;
+  max-width: 320px;
+  padding: 5px;
+  background: var(--menu-surface);
+  backdrop-filter: var(--menu-blur);
+  -webkit-backdrop-filter: var(--menu-blur);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--menu-shadow);
+  pointer-events: none;
+  opacity: 0;
+  animation: menu-out var(--motion-base) var(--ease);
+}
 
 @keyframes menu-out {
   from { opacity: 1; transform: translateY(0) scale(1); }

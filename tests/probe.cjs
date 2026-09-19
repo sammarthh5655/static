@@ -69,8 +69,13 @@ async function run(browser) {
       const node = document.querySelector('.menu');
       if (!node) return { rendered: false };
       const box = node.getBoundingClientRect();
+      // Report whether the open animation has actually settled, rather than
+      // the instantaneous opacity: sampling mid-flight reads ~0.99 and looks
+      // like a failure when the menu is fine.
+      const settled = node.getAnimations().every((a) => a.playState === 'finished');
       return {
         rendered: true,
+        settled,
         fits: box.bottom <= innerHeight && box.right <= innerWidth && box.left >= 0,
         opacity: getComputedStyle(node).opacity,
         items: node.querySelectorAll('.menu-item').length,
@@ -85,9 +90,13 @@ async function run(browser) {
     for (let attempt = 0; attempt < 25; attempt++) {
       menu = await readMenu();
       if (menu.rendered && menu.opacity === '1') break;
-      if (!menu.rendered && attempt > 0 && attempt % 6 === 0) {
+      // Re-issue every few polls while nothing has rendered. The very first
+      // click can land before the chrome has bound its handler or before the
+      // overlay is listening, and a dropped request is indistinguishable from
+      // a broken menu.
+      if (!menu.rendered && attempt > 0 && attempt % 3 === 0) {
         await browser.chrome.webContents.executeJavaScript(
-          "document.getElementById('app-menu').click()");
+          "document.getElementById('app-menu')?.click()").catch(() => {});
       }
       await wait(120);
     }

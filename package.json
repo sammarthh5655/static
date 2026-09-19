@@ -25,7 +25,8 @@
     "test:probe": "npm run build && node scripts/start.cjs --probe",
     "shortcut": "node scripts/shortcut.cjs",
     "test:appearance": "npm run build && node scripts/start.cjs --appearance",
-    "test:ai": "npm run build && node scripts/start.cjs --ai"
+    "test:ai": "npm run build && node scripts/start.cjs --ai",
+    "test:aipage": "npm run build && node scripts/start.cjs --aipage"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",

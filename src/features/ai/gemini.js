@@ -15,20 +15,46 @@ const { net } = require('electron');
 const ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
- * Default model.
+ * Models.
  *
- * The `-latest` alias rather than a pinned version on purpose: Google retires
- * specific model ids (a pinned gemini-2.0-flash already 404s with "no longer
- * available"), and a browser feature should not break because a model rotated.
- * Flash is the right speed/quality trade-off for interactive answers.
+ * Verified against the key this build ships with - all three answer plain,
+ * system-instruction and page-context prompts.
+ *
+ * A note on pinning: Google retires specific ids, and it does so faster than
+ * you would expect - gemini-2.0-flash, gemini-2.5-flash and gemini-2.5-flash-lite
+ * all already return "no longer available" against this key. Every entry below
+ * was verified to answer before being listed, and the chain deliberately mixes
+ * `-latest` aliases (which survive a rotation) with current pinned ids (which
+ * have their own separate quota). A retired id in the chain is not fatal - the
+ * loop simply moves on - but it wastes a round trip, so keep this list honest.
+ *
+ * Image models (gemini-*-flash-image, nano-banana-*) are NOT usable here: they
+ * generate pictures, and they carry a much tighter free-tier quota that 429s
+ * almost immediately on text prompts.
  */
-const DEFAULT_MODEL = 'gemini-flash-latest';
+const DEFAULT_MODEL = 'gemini-3-flash-preview';
 
 /** Used where answer quality matters more than latency (summaries, legal). */
 const QUALITY_MODEL = 'gemini-pro-latest';
 
-/** Tried when the default model is overloaded - smaller, less contended. */
-const FALLBACK_MODEL = 'gemini-flash-lite-latest';
+/**
+ * Tried in order when the model above fails with an overload or a quota error.
+ *
+ * On the free tier each model has its OWN daily quota, so "exceeded your
+ * current quota" on one model says nothing about the next - falling back to a
+ * single alternative is not enough, because that one can be exhausted too.
+ * Walking a chain of distinct model families is what actually keeps answering.
+ */
+const FALLBACK_MODELS = [
+  'gemini-flash-latest',
+  'gemini-3.5-flash',
+  'gemini-3.6-flash',
+  'gemini-flash-lite-latest',
+  'gemini-3.1-flash-lite',
+];
+
+/** First fallback, kept as a named export for tests and callers. */
+const FALLBACK_MODEL = FALLBACK_MODELS[0];
 
 /** Hard ceiling on a prompt, so a huge page selection cannot be sent whole. */
 const MAX_PROMPT_CHARS = 60000;
@@ -75,34 +101,44 @@ const RETRYABLE = new Set([429, 500, 502, 503, 504]);
  * feature feel broken when it is merely busy.
  */
 async function generate(options = {}) {
-  const attempts = options.retries ?? 4;
+  // An explicit model means the caller wants that one specifically; only the
+  // default path walks the fallback chain.
+  const chain = options.model
+    ? [options.model]
+    : [DEFAULT_MODEL, ...FALLBACK_MODELS];
+
   let lastError;
-  for (let attempt = 0; attempt <= attempts; attempt++) {
-    try {
-      return await generateOnce(options);
-    } catch (error) {
-      lastError = error;
-      if (!error.retryable || attempt === attempts || options.signal?.aborted) break;
+  for (const model of chain) {
+    // Retry the SAME model briefly before moving on: overload is usually a
+    // short burst, whereas a quota error is good for the rest of the day.
+    const attempts = options.retries ?? 2;
+    for (let attempt = 0; attempt <= attempts; attempt++) {
+      try {
+        return await generateOnce({ ...options, model });
+      } catch (error) {
+        lastError = error;
+        if (options.signal?.aborted) throw error;
+        // Quota is exhausted until the window resets - retrying the same model
+        // just burns time, so move to the next one immediately.
+        if (error.quota) break;
+        // A retired model will never answer; move to the next one rather than
+        // failing the whole request.
+        if (error.retired) break;
+        if (!error.retryable) throw error;
+        if (attempt === attempts) break;
 
-      // Exponential backoff with jitter: 0.6s, 1.2s, 2.4s, 4.8s. Flash models
-      // return "experiencing high demand" in bursts, and a couple of quick
-      // retries is not enough to ride one out - without this the user sees a
-      // failure for something that would have succeeded a moment later.
-      const base = 600 * Math.pow(2, attempt);
-      const delay = base + Math.random() * 300;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-
-      // Fall back to the lite model once the preferred one keeps refusing;
-      // a fast answer from a smaller model beats an error message.
-      if (attempt >= 1 && !options.model) {
-        options = { ...options, model: FALLBACK_MODEL };
+        // Exponential backoff with jitter: ~0.6s then ~1.2s. Flash models
+        // return "experiencing high demand" in bursts, and answering a moment
+        // later beats showing the user an error.
+        const delay = 600 * Math.pow(2, attempt) + Math.random() * 300;
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
   throw lastError;
 }
 
-function generateOnce({ prompt, system, context, model = DEFAULT_MODEL, temperature = 0.4, signal } = {}) {
+function generateOnce({ prompt, system, context, history, model = DEFAULT_MODEL, temperature = 0.4, signal } = {}) {
   const key = apiKey();
   if (!key) {
     return Promise.reject(new Error('AI is unavailable: no Gemini key is configured in this build.'));
@@ -120,12 +156,23 @@ function generateOnce({ prompt, system, context, model = DEFAULT_MODEL, temperat
   }
   parts.push({ text: String(prompt).slice(0, MAX_PROMPT_CHARS) });
 
+  // Prior turns, so the AI page can hold a real conversation rather than
+  // answering every question cold. The API expects 'model' for assistant
+  // turns, not 'assistant'.
+  const contents = [];
+  for (const turn of Array.isArray(history) ? history : []) {
+    const role = turn.role === 'model' ? 'model' : 'user';
+    const text = String(turn.text || '').slice(0, MAX_PROMPT_CHARS);
+    if (text) contents.push({ role, parts: [{ text }] });
+  }
+  contents.push({ role: 'user', parts });
+
   const body = {
-    contents: [{ role: 'user', parts }],
+    contents,
     generationConfig: {
       temperature,
       topP: 0.95,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 8192,
     },
   };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
@@ -163,6 +210,13 @@ function generateOnce({ prompt, system, context, model = DEFAULT_MODEL, temperat
           // Overload is reported as 429/503 and is worth retrying; a bad
           // request or a revoked key is not.
           error.retryable = RETRYABLE.has(response.statusCode);
+          // A 429 covers BOTH "slow down" and "daily quota gone", and only the
+          // message distinguishes them. Quota means skip to the next model
+          // rather than waiting out a window that will not reopen today.
+          error.quota = /quota|billing|exceeded/i.test(message);
+          // Google retires ids on its own schedule; treat that as "try the
+          // next model", not as a hard failure.
+          error.retired = /no longer available|not found|is not supported/i.test(message);
           return reject(error);
         }
 
@@ -203,4 +257,4 @@ function scrubKey(message) {
   return message;
 }
 
-module.exports = { generate, hasKey, DEFAULT_MODEL, QUALITY_MODEL, FALLBACK_MODEL };
+module.exports = { generate, hasKey, DEFAULT_MODEL, QUALITY_MODEL, FALLBACK_MODEL, FALLBACK_MODELS };

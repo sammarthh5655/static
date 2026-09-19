@@ -121,6 +121,7 @@ function mainMenuItems() {
   const s = state.settings || {};
   return [
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
+    { label: 'AI chat', icon: 'sparkle', shortcut: accel('open:ai'), action: doAction('open:ai') },
     { separator: true },
     { heading: 'Library' },
     { label: 'Bookmarks', icon: 'bookmark', shortcut: accel('open:bookmarks'), action: doAction('open:bookmarks') },

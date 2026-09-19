@@ -84,9 +84,9 @@ let openMenu = null;
  */
 function menu(items, { anchor, align = 'left', onClose } = {}) {
   closeMenu();
-  // Drop any menu still playing its close animation, so only one .menu node
-  // is ever in the document.
-  document.querySelectorAll('.menu.closing').forEach((node) => node.remove());
+  // Drop any menu still playing its close animation, so only one menu node is
+  // ever in the document.
+  document.querySelectorAll('.menu-ghost').forEach((node) => node.remove());
 
   const root = document.createElement('div');
   root.className = 'menu';
@@ -173,12 +173,15 @@ function closeMenu() {
   const { root, onClose } = openMenu;
   openMenu = null;
 
-  // Mark it closing so it is no longer the "current" menu for anything that
-  // queries the DOM - the node lingers for the duration of its close
-  // animation, and without this a query for '.menu' could return this one
-  // instead of a menu opened immediately afterwards.
-  root.classList.add('closing');
-  root.classList.remove('open');
+  // Drop the `menu` class straight away so a closing node can never be picked
+  // up as the current menu by anything querying the DOM. It keeps `menu-ghost`
+  // purely to play the exit animation, and is removed once that is done.
+  //
+  // This matters because the exit animation uses `both` fill, which pins the
+  // element at opacity 0 - if that node were still matched as `.menu`, it
+  // would look exactly like a menu that failed to open.
+  root.classList.remove('menu', 'open');
+  root.classList.add('menu-ghost');
   root.setAttribute('aria-hidden', 'true');
   onClose?.();
 

@@ -13,6 +13,7 @@ const { Downloads } = require('../features/downloads');
 const { Extensions } = require('../features/extensions');
 const { Tabs, NEW_TAB } = require('../features/tabs');
 const gemini = require('../features/ai/gemini');
+const { Chats } = require('../features/ai/chats');
 
 /**
  * Chrome geometry. These MUST match the heights in renderer/chrome.css,
@@ -67,6 +68,7 @@ class BrowserApplication {
     this.history = new History(this.dir);
     this.downloads = new Downloads(this.dir, this.session, () => this.push());
     this.notes = new JsonStore(this.dir, 'notes', { text: '' });
+    this.chats = new Chats(this.dir);
 
     this.#hardenSession();
     this.ensureWindow();
@@ -483,6 +485,79 @@ class BrowserApplication {
         return true;
       },
 
+      // ---- chat history ----------------------------------------------------
+      // Backs browser://ai. Conversations live in main so the transcript
+      // survives the tab being closed, and so the Gemini call that continues a
+      // conversation can read prior turns without the renderer resending them.
+      'chat:list': () => this.chats.list(),
+      'chat:get': (_sender, payload) => this.chats.get(payload?.id),
+      'chat:new': () => {
+        const chat = this.chats.create(Date.now());
+        ipcBroadcastChats(this);
+        return chat;
+      },
+      'chat:rename': (_sender, payload) => {
+        this.chats.rename(payload?.id, payload?.title);
+        ipcBroadcastChats(this);
+        return { ok: true };
+      },
+      'chat:pin': (_sender, payload) => {
+        this.chats.setPinned(payload?.id, payload?.pinned);
+        ipcBroadcastChats(this);
+        return { ok: true };
+      },
+      'chat:delete': (_sender, payload) => {
+        this.chats.remove(payload?.id);
+        ipcBroadcastChats(this);
+        return { ok: true };
+      },
+      'chat:clear': () => {
+        this.chats.clear();
+        ipcBroadcastChats(this);
+        return { ok: true };
+      },
+
+      /**
+       * Send a message in a conversation and store both turns.
+       *
+       * The user's turn is written BEFORE the request so a failed or cancelled
+       * answer still leaves the question in the transcript - losing what you
+       * typed because the network blipped would be worse than an error row.
+       */
+      'chat:send': async (_sender, payload) => {
+        const prompt = String(payload?.prompt || '').trim();
+        if (!prompt) throw new Error('Type a message first.');
+
+        let chatId = payload?.id;
+        if (!chatId || !this.chats.get(chatId)) chatId = this.chats.create(Date.now()).id;
+
+        const history = this.chats.contextTurns(chatId);
+        this.chats.addTurn(chatId, { role: 'user', text: prompt, now: Date.now() });
+        ipcBroadcastChats(this);
+
+        this.aiController?.abort();
+        this.aiController = new AbortController();
+
+        try {
+          const result = await gemini.generate({
+            prompt,
+            history,
+            system: payload?.system,
+            context: payload?.context,
+            model: payload?.model,
+            signal: this.aiController.signal,
+          });
+          this.chats.addTurn(chatId, {
+            role: 'model', text: result.text, model: result.model, now: Date.now(),
+          });
+          ipcBroadcastChats(this);
+          return { ok: true, id: chatId, text: result.text, model: result.model };
+        } catch (error) {
+          ipcBroadcastChats(this);
+          return { ok: false, id: chatId, error: error.message };
+        }
+      },
+
       // Scratchpad widget contents. Kept in its own small store rather than in
       // settings, so a long note never bloats the settings file.
       'newtab:notes': (_sender, payload) => {
@@ -592,6 +667,7 @@ class BrowserApplication {
       case 'open:history': open('browser://history'); break;
       case 'open:downloads': open('browser://downloads'); break;
       case 'open:settings': open('browser://settings'); break;
+      case 'open:ai': open('browser://ai'); break;
       case 'open:extensions': open('browser://extensions'); break;
 
       case 'window:devtools': {
@@ -657,6 +733,15 @@ class BrowserApplication {
   flush() {
     this.history.flush();
     this.downloads.flush();
+    this.chats.flush();
+  }
+}
+
+/** Tell every open internal page that the chat list changed. */
+function ipcBroadcastChats(app) {
+  for (const tab of app.tabs?.tabs.values() || []) {
+    const wc = tab.view.webContents;
+    if (!wc.isDestroyed() && tab.state.internalUrl) wc.send('chat:changed');
   }
 }
 

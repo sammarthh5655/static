@@ -12,6 +12,8 @@ module.exports = {
     'settings:update', 'settings:clear-data',
     'newtab:notes',
     'ai:ask', 'ai:cancel', 'ai:status',
+    'chat:list', 'chat:get', 'chat:new', 'chat:send',
+    'chat:rename', 'chat:pin', 'chat:delete', 'chat:clear',
   ],
-  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu'],
+  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'chat:changed'],
 };

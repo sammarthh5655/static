@@ -44,6 +44,7 @@ Other scripts:
 | `npm run test:probe` | Loads the chrome, menu overlay and every `browser://` page; fails on console errors |
 | `npm run test:appearance` | Theme, radius, motion, window controls and shortcuts |
 | `npm run test:ai` | AI mode switching and a real Gemini call |
+| `npm run test:aipage` | The AI page: transcript, history, multi-turn memory |
 | `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
 | `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
 
@@ -108,10 +109,11 @@ src/
       downloads.*        Download manager
       extensions.*       Extension manager (enable/disable/remove/load)
       settings.*         Settings, including clear-browsing-data
+      ai.*               AI page: chat sidebar, transcript, composer
       common.js          Shared helpers for every internal page
       widgets/           New tab widget implementations
   features/              One folder per feature, each a self-contained module
-    ai/                  Gemini client - main process only, holds the API key
+    ai/                  Gemini client + chat history - main process only
     tabs/                Tab lifecycle, WebContentsView management, navigation
     bookmarks/           Bookmark storage and toggling
     history/             Visit recording, search, omnibox suggestions
