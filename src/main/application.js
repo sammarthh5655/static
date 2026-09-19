@@ -18,6 +18,7 @@ const { Resources } = require('../features/resources');
 const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
+const { Shields } = require('../features/shields');
 const { MODES } = require('../shared/modes');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -85,6 +86,7 @@ class BrowserApplication {
     this.focus = new Focus(this.dir, { onChange: () => this.push() });
     this.notes = new Notes(this.dir, { onChange: () => this.push() });
     this.safety = new Safety(this.dir, { onChange: () => this.push() });
+    this.shields = new Shields(this.dir, { onChange: () => this.push() });
     // Resources needs the tab manager, which ensureWindow() creates, so it is
     // constructed with lazy accessors rather than direct references.
     this.resources = new Resources(this.dir, {
@@ -95,6 +97,7 @@ class BrowserApplication {
 
     this.#hardenSession();
     this.#installRequestFilter();
+    this.#installCookiePolicy();
     this.ensureWindow();
     this.#registerIpc();
 
@@ -120,6 +123,13 @@ class BrowserApplication {
     });
     this.tabs.extensions = this.extensions;
 
+    // Filter lists refresh in the background: a first run should not wait on
+    // a network fetch, and a failure must not stop the browser starting.
+    setTimeout(() => {
+      this.shields.refresh().catch((error) =>
+        console.error('shields: refresh failed', error.message));
+    }, 4000);
+
     try {
       await this.extensions.start();
     } catch (error) {
@@ -137,22 +147,108 @@ class BrowserApplication {
    * is to stop someone opening a distracting SITE, not to break the web.
    */
   #installRequestFilter() {
+    // ONE listener for both Focus and Shields. Electron keeps only the last
+    // onBeforeRequest registration, so two would silently disable the first.
     this.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] },
       (details, callback) => {
-        if (details.resourceType !== 'mainFrame') return callback({});
-        if (!this.focus.shouldBlock(details.url)) return callback({});
-        this.focus.recordHit();
-        // Redirect rather than cancel: a cancelled load shows Chromium's own
-        // error page, which explains nothing about why it was stopped.
-        const target = 'browser://focus?blocked=' + encodeURIComponent(details.url);
-        callback({ redirectURL: target });
+        // Focus blocking first: it is a deliberate user choice and outranks
+        // everything else.
+        if (details.resourceType === 'mainFrame' && this.focus.shouldBlock(details.url)) {
+          this.focus.recordHit();
+          // Redirect rather than cancel: a cancelled load shows Chromium's own
+          // error page, which explains nothing about why it was stopped.
+          return callback({
+            redirectURL: 'browser://focus?blocked=' + encodeURIComponent(details.url),
+          });
+        }
+
+        const verdict = this.shields.inspect({
+          url: details.url,
+          docHost: this.#hostForRequest(details),
+          resourceType: details.resourceType,
+          tabId: this.#tabIdForWebContents(details.webContentsId),
+        });
+        if (verdict?.block) return callback({ cancel: true });
+        if (verdict?.redirect) return callback({ redirectURL: verdict.redirect });
+        return callback({});
       });
+  }
+
+  /**
+   * Which page is making this request?
+   *
+   * Shields needs the DOCUMENT's host, not the request's, to decide
+   * first-versus-third party and to apply per-site rules.
+   */
+  #hostForRequest(details) {
+    // A top-level navigation is its own document.
+    if (details.resourceType === 'mainFrame') {
+      try { return new URL(details.url).hostname; } catch { return ''; }
+    }
+    const tab = this.#tabByWebContentsId(details.webContentsId);
+    const pageUrl = tab?.state?.url || details.referrer || '';
+    try { return new URL(pageUrl).hostname; } catch { return ''; }
+  }
+
+  #tabByWebContentsId(id) {
+    if (id === undefined) return null;
+    for (const tab of this.tabs?.tabs.values() || []) {
+      if (tab.view.webContents.id === id) return tab;
+    }
+    return null;
+  }
+
+  #tabIdForWebContents(id) {
+    return this.#tabByWebContentsId(id)?.id ?? null;
   }
 
   /**
    * Session-wide security policy applied to ALL web content.
    * Permissions default to denied; only a small explicit set may even prompt.
    */
+  /**
+   * Third-party cookie blocking.
+   *
+   * Electron has no single switch for this, so it is enforced by stripping
+   * Cookie headers on cross-site requests and dropping Set-Cookie on the
+   * responses. Applied at the session level so it covers every tab.
+   */
+  #installCookiePolicy() {
+    const isThirdParty = (details) => {
+      if (details.resourceType === 'mainFrame') return false;
+      try {
+        const requestHost = new URL(details.url).hostname;
+        const tab = this.#tabByWebContentsId(details.webContentsId);
+        const pageUrl = tab?.state?.url || details.referrer || '';
+        if (!pageUrl) return false;
+        const pageHost = new URL(pageUrl).hostname;
+        const base = (host) => host.split('.').slice(-2).join('.');
+        return base(requestHost) !== base(pageHost);
+      } catch { return false; }
+    };
+
+    this.session.webRequest.onBeforeSendHeaders((details, callback) => {
+      if (!this.shields.config.blockThirdPartyCookies || !isThirdParty(details)) {
+        return callback({ requestHeaders: details.requestHeaders });
+      }
+      const headers = { ...details.requestHeaders };
+      delete headers.Cookie;
+      delete headers.cookie;
+      callback({ requestHeaders: headers });
+    });
+
+    this.session.webRequest.onHeadersReceived((details, callback) => {
+      if (!this.shields.config.blockThirdPartyCookies || !isThirdParty(details)) {
+        return callback({ responseHeaders: details.responseHeaders });
+      }
+      const headers = { ...details.responseHeaders };
+      for (const key of Object.keys(headers)) {
+        if (key.toLowerCase() === 'set-cookie') delete headers[key];
+      }
+      callback({ responseHeaders: headers });
+    });
+  }
+
   #hardenSession() {
     const ALLOWED_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write', 'pointerLock']);
     this.session.setPermissionRequestHandler((contents, permission, callback) => {
@@ -845,6 +941,18 @@ class BrowserApplication {
         }
       },
 
+      // ---- shields ---------------------------------------------------------
+      'shields:state': () => this.shields.state(),
+      'shields:update': (_sender, payload) => this.shields.update(payload),
+      'shields:site': (_sender, payload) => {
+        this.shields.setSiteEnabled(payload?.host, !!payload?.enabled);
+        // Reload so the change takes effect on what is already on screen.
+        this.tabs.navigateActive('reload');
+        return { ok: true };
+      },
+      'shields:report': () => this.shields.tabReport(this.tabs?.activeId),
+      'shields:refresh': () => this.shields.refresh({ force: true }),
+
       // ---- dashboard -------------------------------------------------------
       /** Live per-mode state for the dashboard cards and sidebar badges. */
       'modes:state': () => this.modeSummary(),
@@ -1084,6 +1192,14 @@ class BrowserApplication {
           ? `${(resources.totalMemoryMb / 1024).toFixed(1)} GB across ${resources.tabCount} tabs`
           : 'Not measured yet',
       },
+      shields: {
+        active: !!this.shields.config.enabled,
+        badge: this.shields.config.totalBlocked
+          ? compactCount(this.shields.config.totalBlocked) : null,
+        summary: this.shields.config.enabled
+          ? `${compactCount(this.shields.config.totalBlocked || 0)} blocked · ${compactCount(this.shields.engine.count)} rules`
+          : 'Shields are off',
+      },
       safety: {
         active: safety.enabled,
         badge: safety.blockedCount ? String(safety.blockedCount) : null,
@@ -1106,8 +1222,17 @@ class BrowserApplication {
     this.focus.flush();
     this.notes.flush();
     this.safety.flush();
+    this.shields.flush();
     this.resources.flush();
   }
+}
+
+/** 12000 -> "12k", so a badge stays narrow. */
+function compactCount(value) {
+  const n = Number(value) || 0;
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k';
+  return String(n);
 }
 
 /** Tell every open internal page that the chat list changed. */

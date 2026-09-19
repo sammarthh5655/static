@@ -83,6 +83,15 @@ const MODES = {
     group: 'system',
     order: 7,
   },
+  shields: {
+    id: 'shields',
+    name: 'Shields',
+    tagline: 'Block ads and trackers',
+    icon: 'lock',
+    page: 'browser://shields',
+    group: 'system',
+    order: 8,
+  },
   safety: {
     id: 'safety',
     name: 'Safety',
@@ -90,7 +99,7 @@ const MODES = {
     icon: 'lock',
     page: 'browser://safety',
     group: 'system',
-    order: 8,
+    order: 9,
   },
 };
 

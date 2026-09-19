@@ -380,3 +380,31 @@
 
 .compare-verdict { white-space: pre-wrap; line-height: 1.7; font-size: 13px; user-select: text; }
 .compare-error { color: var(--danger); font-size: 12.5px; margin: 0; }
+
+/* ---- shields --------------------------------------------------------------- */
+
+.blocked-list { display: flex; flex-direction: column; gap: 1px; margin-top: 4px; }
+
+.blocked-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.blocked-row:last-child { border-bottom: 0; }
+
+.blocked-host {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.blocked-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
