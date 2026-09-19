@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Redesigned the new tab page.** It was a widget grid; it is now a calm,
+  spacious page with a mark, one large search box, five actions, a thin row of
+  round site icons and three small utility cards. Everything advanced moved
+  behind a floating AI tools panel, so the page you see a hundred times a day
+  asks nothing of you.
+- New **Eclipse** theme, now the default: deep black with a midnight-blue lift,
+  cyan primary and violet secondary. Kept low-saturation on purpose - saturated
+  accents on black are what make an interface look cheap.
+- The ambient glow is built from the accent with `color-mix`, so it follows
+  whichever theme is active instead of being hardcoded to one palette.
+- Every theme gained an `accent-alt` token.
+- Frequent sites are hidden entirely on a fresh profile rather than showing
+  placeholder circles, and their favicons are clipped to circles so square
+  white-ground icons stop reading as tiles.
+
 ### Added
 
 **Control centre**

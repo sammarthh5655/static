@@ -12,7 +12,7 @@ const DEFAULTS = {
 
   // Appearance. Every one of these feeds shared/theme.js#cssVariables, which
   // is the only place that turns them into actual CSS.
-  theme: 'dark',
+  theme: 'eclipse',
   surfaceStyle: 'frosted',
   radius: 'rounded',
   animations: true,

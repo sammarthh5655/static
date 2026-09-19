@@ -9,69 +9,63 @@
   <link rel="stylesheet" href="newtab.css">
 </head>
 <body class="newtab">
-  <div class="backdrop" id="backdrop"></div>
+  <!-- Ambient wash. Two soft radial pools rather than an image, so it costs
+       nothing to paint and never competes with the text for attention. -->
+  <div class="ambient"></div>
 
-  <button class="customize-btn" id="customize" title="Customize this page"></button>
+  <main class="stage">
+    <header class="mark">
+      <div class="mark-glyph" id="mark-glyph"></div>
+      <h1 class="wordmark">static</h1>
+    </header>
 
-  <main class="hero">
-    <div class="brand">static</div>
-    <form class="searchbox" id="search">
-      <span class="searchbox-icon" id="search-icon"></span>
+    <!-- The search box is the one thing this page is for. -->
+    <form class="search" id="search" autocomplete="off">
+      <span class="search-icon" id="search-icon"></span>
       <input id="query" type="text" spellcheck="false" autocomplete="off" autofocus
-             placeholder="Search the web">
-      <span class="ai-badge" id="ai-badge" hidden>AI</span>
+             placeholder="Search the web or press Tab for AI">
+      <span class="search-badge" id="search-badge" hidden>AI</span>
     </form>
-    <div class="search-hint" id="search-hint"></div>
 
-    <!-- Gemini answer panel. Hidden until the first AI answer. -->
-    <section class="ai-panel" id="ai-panel" hidden>
-      <header class="ai-panel-head">
-        <span class="ai-panel-title" id="ai-panel-title">Gemini</span>
-        <button class="ai-tool" id="ai-open" title="Continue in the AI page">Open in AI</button>
-        <button class="ai-tool" id="ai-copy" title="Copy answer">Copy</button>
-        <button class="ai-tool" id="ai-close" title="Close">Close</button>
+    <p class="keyhint" id="keyhint"></p>
+
+    <!-- Only present once something has been asked. -->
+    <section class="answer" id="answer" hidden>
+      <header class="answer-head">
+        <span class="answer-label" id="answer-label">Gemini</span>
+        <button class="answer-tool" id="answer-open">Open in AI</button>
+        <button class="answer-tool" id="answer-copy">Copy</button>
+        <button class="answer-tool" id="answer-close">Close</button>
       </header>
-      <div class="ai-answer" id="ai-answer"></div>
-      <div class="ai-followups" id="ai-followups"></div>
+      <div class="answer-text" id="answer-text"></div>
     </section>
 
-    <section class="most-visited" id="most-visited-section" hidden>
-      <h2 class="section-title">Most visited</h2>
-      <div class="tiles" id="tiles"></div>
+    <!-- Five actions, no more. -->
+    <nav class="actions" id="actions"></nav>
+
+    <!-- Small round icons, no cards. -->
+    <section class="frequent" id="frequent" hidden>
+      <div class="frequent-row" id="frequent-row"></div>
     </section>
 
-    <div class="widgets" id="widgets"></div>
+    <!-- One compact utility row. -->
+    <section class="utility" id="utility"></section>
   </main>
 
-  <!-- Customiser panel. Slides in from the right; same surface treatment as
-       the chrome menus so the frosted/solid/shadow setting applies here too. -->
-  <aside class="panel" id="panel" hidden>
-    <header class="panel-head">
-      <span class="panel-title">Customize</span>
-      <button class="panel-close" id="panel-close" title="Close"></button>
+  <!-- Everything advanced lives behind this, not on the page. -->
+  <button class="tools-trigger" id="tools-trigger" title="AI tools"></button>
+
+  <aside class="tools" id="tools" hidden>
+    <header class="tools-head">
+      <span class="tools-title">AI tools</span>
+      <button class="tools-close" id="tools-close" title="Close"></button>
     </header>
-    <div class="panel-body">
-      <h3 class="panel-section">Widgets</h3>
-      <p class="panel-hint">Drag to reorder.</p>
-      <div class="widget-list" id="widget-list"></div>
-
-      <h3 class="panel-section">Sections</h3>
-      <label class="panel-toggle">
-        <input type="checkbox" id="toggle-most-visited">
-        <span>Show most visited</span>
-      </label>
-
-      <h3 class="panel-section">Background</h3>
-      <div class="panel-choices" id="background-choices"></div>
-      <input type="text" id="background-value" class="panel-input" hidden
-             placeholder="https://example.com/image.jpg" spellcheck="false">
-    </div>
+    <div class="tools-body" id="tools-body"></div>
   </aside>
 
   <script src="../../shared/theme.js"></script>
-  <script src="../../shared/widgets.js"></script>
+  <script src="../../shared/modes.js"></script>
   <script src="common.js"></script>
-  <script src="widgets/index.js"></script>
   <script src="newtab.js"></script>
 </body>
 </html>

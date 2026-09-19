@@ -3,74 +3,76 @@
 /**
  * New tab page.
  *
- * Default view is deliberately minimal: a search box plus two widgets. Layout,
- * widgets, background and the most-visited section are all user-configurable
- * through the customiser panel, and every change persists via settings.
+ * Deliberately minimal: a mark, a search box, five actions, a thin row of
+ * frequent sites and one small utility row. Everything advanced lives behind
+ * the AI tools panel rather than on the page - the restraint is the point.
+ *
+ * The search box has two modes. Enter searches; Tab switches to AI and Enter
+ * then asks Gemini. Both states are obvious at a glance, because a field that
+ * silently changes what Enter does is a trap.
  */
 (function () {
 
 const { invoke, onState, $, element, icon, favicon, openUrl } = window.page;
 
-let state = { settings: {}, catalog: { widgets: [], backgrounds: [] } };
-
-/** Live widget nodes, so timers can be cleared when a widget is removed. */
-let mounted = [];
-
-/* ---- search --------------------------------------------------------------- */
-
-/**
- * The search box has two modes.
- *
- *   Search mode  Enter -> normal search or navigation (the omnibox pipeline)
- *   AI mode      Enter -> the query goes to Gemini and the answer appears below
- *
- * Tab switches between them, Escape leaves AI mode. The mode is visible at a
- * glance through the badge, the accent border and the hint line, because a
- * text field that silently changes what Enter does would be a trap.
- */
+let state = { settings: {}, ai: {}, modes: {} };
 let aiMode = false;
-let aiBusy = false;
+let busy = false;
+let lastQuestion = '';
+let clockTimer = null;
+
+/* ---- mode ----------------------------------------------------------------- */
 
 const queryInput = $('#query');
 
 function setMode(next) {
   aiMode = next;
-  document.body.classList.toggle('ai-mode', aiMode);
-  $('#ai-badge').hidden = !aiMode;
-  queryInput.placeholder = aiMode ? 'Ask Gemini anything\u2026' : 'Search the web';
+  document.body.classList.toggle('ai', aiMode);
+  $('#search-badge').hidden = !aiMode;
+  queryInput.placeholder = aiMode
+    ? 'Ask Gemini anything…'
+    : 'Search the web or press Tab for AI';
+  $('#search-icon').replaceChildren(icon(aiMode ? 'sparkle' : 'search', { size: 17 }));
   renderHint();
 }
 
+/** The hint is the only place the two-key interaction is explained. */
 function renderHint() {
-  const hint = $('#search-hint');
-  if (!state.ai?.available) { hint.textContent = ''; return; }
-  if (aiBusy) { hint.textContent = 'Asking Gemini\u2026  Esc to cancel'; return; }
-  hint.textContent = aiMode
-    ? 'AI Mode active \u2014 Press Enter to ask Gemini  \u00b7  Tab or Esc for search'
-    : 'Press Tab for an AI answer';
-}
+  const hint = $('#keyhint');
+  if (!state.ai?.available) { hint.replaceChildren(); return; }
+  if (busy) { hint.replaceChildren(element('span', { text: 'Asking Gemini…  Esc to cancel' })); return; }
 
-function setSearchIcon() {
-  $('#search-icon').replaceChildren(icon(aiMode ? 'sparkle' : 'search', { size: 17 }));
+  hint.replaceChildren(...(aiMode
+    ? [
+        element('kbd', { text: 'Enter' }),
+        element('span', { text: ' to ask Gemini · ' }),
+        element('kbd', { text: 'Tab' }),
+        element('span', { text: ' or ' }),
+        element('kbd', { text: 'Esc' }),
+        element('span', { text: ' for search' }),
+      ]
+    : [
+        element('kbd', { text: 'Enter' }),
+        element('span', { text: ' to search · ' }),
+        element('kbd', { text: 'Tab' }),
+        element('span', { text: ' then ' }),
+        element('kbd', { text: 'Enter' }),
+        element('span', { text: ' for an AI answer' }),
+      ]));
 }
-
-setSearchIcon();
-renderHint();
 
 queryInput.addEventListener('keydown', (event) => {
   if (event.key === 'Tab' && !event.shiftKey) {
-    // Tab is the mode switch rather than a focus move: this field is the
-    // primary control on the page, so moving focus away is never what is
-    // wanted here.
+    // Tab is the mode switch, not a focus move: this field is the only control
+    // that matters here, so moving focus away is never what is wanted.
     if (!state.ai?.available) return;
     event.preventDefault();
     setMode(!aiMode);
-    setSearchIcon();
     return;
   }
   if (event.key === 'Escape') {
-    if (aiBusy) { invoke('ai:cancel'); aiBusy = false; renderHint(); return; }
-    if (aiMode) { event.preventDefault(); setMode(false); setSearchIcon(); }
+    if (busy) { invoke('ai:cancel'); busy = false; renderHint(); return; }
+    if (aiMode) { event.preventDefault(); setMode(false); }
   }
 });
 
@@ -78,373 +80,298 @@ $('#search').addEventListener('submit', (event) => {
   event.preventDefault();
   const value = queryInput.value.trim();
   if (!value) return;
-  if (aiMode && state.ai?.available) return askGemini(value);
-  // Routed through the omnibox pipeline in main so engine choice and the
-  // URL-vs-search decision live in exactly one place.
+  if (aiMode && state.ai?.available) return ask(value);
   invoke('tabs:navigate', { input: value });
 });
 
-/* ---- Gemini answers ------------------------------------------------------- */
+/* ---- AI answer ------------------------------------------------------------- */
 
 const SYSTEM_PROMPT = [
-  'You are the built-in assistant in a web browser.',
-  'Answer directly and concisely - usually two or three short paragraphs.',
-  'Use plain text with simple dashes for lists; no markdown headings or bold.',
-  'If you are unsure or the question needs current information you do not have,',
-  'say so plainly rather than guessing.',
-  'End with a line "FOLLOWUPS:" followed by up to three short follow-up',
-  'questions separated by " | ".',
+  'You are the assistant built into a web browser. Answer directly and briefly -',
+  'two or three short paragraphs at most. Plain text only: no markdown headings,',
+  'no bold markers, simple dashes for lists. If the question needs current',
+  'information you do not have, say so rather than guessing.',
 ].join(' ');
 
-let lastQuestion = '';
-
-async function askGemini(prompt) {
+async function ask(prompt) {
   lastQuestion = prompt;
-  aiBusy = true;
+  busy = true;
   renderHint();
-  const panel = $('#ai-panel');
-  panel.hidden = false;
-  $('#ai-panel-title').textContent = 'Gemini';
-  $('#ai-answer').textContent = 'Thinking\u2026';
-  $('#ai-followups').replaceChildren();
+  $('#answer').hidden = false;
+  $('#answer-label').textContent = 'Gemini';
+  $('#answer-text').textContent = 'Thinking…';
 
   const result = await invoke('ai:ask', { prompt, system: SYSTEM_PROMPT });
-  aiBusy = false;
+  busy = false;
   renderHint();
-
   if (!result) return;
-  if (!result.ok) {
-    $('#ai-answer').textContent = result.error || 'The assistant could not answer.';
-    return;
+
+  if (result.ok) {
+    $('#answer-text').textContent = result.text;
+    $('#answer-label').textContent = 'Gemini · ' + (result.model || '');
+  } else {
+    $('#answer-text').textContent = result.error || 'The assistant could not answer.';
   }
-
-  // Split the trailing FOLLOWUPS: line off the answer body.
-  const match = /\n?FOLLOWUPS:\s*(.+)$/is.exec(result.text);
-  const body = match ? result.text.slice(0, match.index).trim() : result.text.trim();
-  $('#ai-answer').textContent = body;
-  $('#ai-panel-title').textContent = 'Gemini \u00b7 ' + (result.model || '');
-
-  const followups = match
-    ? match[1].split('|').map((item) => item.trim()).filter(Boolean).slice(0, 3)
-    : [];
-  $('#ai-followups').replaceChildren(...followups.map((question) =>
-    element('button', {
-      class: 'ai-followup',
-      text: question,
-      onclick: () => { queryInput.value = question; askGemini(question); },
-    })));
 }
 
-$('#ai-copy').addEventListener('click', async () => {
-  const text = $('#ai-answer').textContent || '';
+$('#answer-close').addEventListener('click', () => { $('#answer').hidden = true; });
+
+$('#answer-copy').addEventListener('click', async (event) => {
+  const text = $('#answer-text').textContent || '';
   if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    $('#ai-copy').textContent = 'Copied';
-    setTimeout(() => { $('#ai-copy').textContent = 'Copy'; }, 1400);
-  } catch {
-    $('#ai-copy').textContent = 'Copy failed';
-    setTimeout(() => { $('#ai-copy').textContent = 'Copy'; }, 1400);
-  }
+  const button = event.currentTarget;
+  try { await navigator.clipboard.writeText(text); button.textContent = 'Copied'; }
+  catch { button.textContent = 'Copy failed'; }
+  setTimeout(() => { button.textContent = 'Copy'; }, 1400);
 });
 
-$('#ai-close').addEventListener('click', () => { $('#ai-panel').hidden = true; });
-
 // Carry the question into the full AI page, where it becomes a saved
-// conversation with history rather than a one-shot answer.
-$('#ai-open').addEventListener('click', async () => {
+// conversation rather than a one-shot answer.
+$('#answer-open').addEventListener('click', async () => {
   const question = lastQuestion;
   await invoke('tabs:navigate', { input: 'browser://ai' });
   if (question) invoke('chat:send', { prompt: question, system: SYSTEM_PROMPT });
 });
 
-/* ---- widgets -------------------------------------------------------------- */
+/* ---- actions --------------------------------------------------------------- */
 
 /**
- * Context handed to every widget renderer. Widgets never reach for globals
- * directly - this is the whole surface they are allowed to use, which keeps
- * adding one a local change.
+ * Five, and only five. Anything else belongs in the tools panel - a homepage
+ * that offers everything offers nothing.
  */
-function widgetContext() {
-  return {
-    state,
-    catalog: state.catalog || { widgets: [] },
-    invoke,
-    element,
-    icon,
-    favicon,
-    openUrl,
-    /**
-     * Whether AI is available. The key itself is never here - it lives only in
-     * the main process - so this reports availability, not the credential.
-     */
-    credential() {
-      return state.ai?.available ? true : null;
+function renderActions() {
+  const gameOn = !!state.modes?.resources?.active;
+  const focusOn = !!state.modes?.focus?.active;
+
+  const actions = [
+    {
+      name: 'Ask AI', icon: 'sparkle',
+      run: () => { queryInput.focus(); if (!aiMode) setMode(true); },
     },
-    /** Ask Gemini. The prompt goes to main, which holds the key. */
-    async ask(prompt, options = {}) {
-      const result = await invoke('ai:ask', { prompt, ...options });
-      if (!result?.ok) throw new Error(result?.error || 'The assistant could not answer.');
-      return result.text;
+    {
+      name: 'Summarise', icon: 'bookmark',
+      run: () => invoke('tabs:navigate', { input: 'browser://student' }),
     },
-  };
+    {
+      name: 'Research', icon: 'search',
+      run: () => invoke('tabs:navigate', { input: 'browser://ai' }),
+    },
+    {
+      name: 'Focus', icon: 'clock', on: focusOn,
+      run: () => invoke('tabs:navigate', { input: 'browser://focus' }),
+    },
+    {
+      name: 'Game Mode', icon: 'gear', on: gameOn,
+      run: () => invoke('resources:game-mode', { on: !gameOn }),
+    },
+  ];
+
+  $('#actions').replaceChildren(...actions.map((action) => element('button', {
+    class: 'action' + (action.on ? ' on' : ''),
+    onclick: action.run,
+  }, [
+    icon(action.icon, { size: 14 }),
+    element('span', { text: action.name }),
+  ])));
 }
 
-/**
- * Apply one widget's appearance overrides.
- *
- * Written as CSS custom properties scoped to the widget element, which is what
- * lets two widgets look completely different while both still inherit anything
- * the user has not overridden from the global theme.
- */
-function applyWidgetStyle(node, id) {
-  const style = state.settings?.newTab?.widgetStyles?.[id];
-  if (!style) return;
-  const vars = window.theme.widgetVariables(style);
-  for (const [name, value] of Object.entries(vars)) node.style.setProperty(name, value);
-  if (style.align) node.style.textAlign = style.align;
-  if (style.span === 'full') node.classList.add('span-full');
-}
+/* ---- frequent sites -------------------------------------------------------- */
 
-function renderWidgets() {
-  // Let outgoing widgets clean up (timers, listeners) before they are dropped.
-  mounted.forEach((node) => node.dispose?.());
-  mounted = [];
-
-  const ids = state.settings?.newTab?.widgets || [];
-  const ctx = widgetContext();
-  const nodes = [];
-  for (const id of ids) {
-    const render = window.widgetRenderers[id];
-    if (!render) continue; // declared but not implemented yet
-    try {
-      const node = render(ctx);
-      applyWidgetStyle(node, id);
-      nodes.push(node);
-      mounted.push(node);
-    } catch (error) {
-      console.error('widget failed:', id, error);
-    }
-  }
-  $('#widgets').replaceChildren(...nodes);
-}
-
-/* ---- most visited --------------------------------------------------------- */
-
-function renderMostVisited() {
-  const show = state.settings?.newTab?.showMostVisited !== false;
-  $('#most-visited-section').hidden = !show;
-  if (!show) return;
-
-  // Collapse history by host, keeping the most recent URL per host.
+function renderFrequent() {
   const byHost = new Map();
   for (const entry of state.history || []) {
     let host;
-    try { host = new URL(entry.url).hostname; } catch { continue; }
+    try { host = new URL(entry.url).hostname.replace(/^www\./, ''); } catch { continue; }
     const current = byHost.get(host);
     if (current) current.visits += 1;
     else byHost.set(host, { url: entry.url, title: entry.title, host, visits: 1 });
   }
-  const top = [...byHost.values()].sort((a, b) => b.visits - a.visits).slice(0, 10);
+  const top = [...byHost.values()].sort((a, b) => b.visits - a.visits).slice(0, 6);
 
-  const tiles = top.map((entry) => element('button', {
-    class: 'tile',
+  // Hidden entirely on a fresh profile rather than showing empty placeholders:
+  // a row of grey circles is worse than no row.
+  $('#frequent').hidden = top.length === 0;
+  if (!top.length) return;
+
+  $('#frequent-row').replaceChildren(...top.map((entry) => element('button', {
+    class: 'frequent-item',
     title: entry.url,
     onclick: (event) => openUrl(entry.url, event),
   }, [
-    favicon(entry.url, 24),
-    element('span', {
-      class: 'tile-name',
-      text: entry.title || entry.host.replace(/^www\./, ''),
-    }),
-  ]));
-
-  // Placeholders keep the grid from collapsing on a fresh profile.
-  while (tiles.length < 5) {
-    tiles.push(element('div', { class: 'tile placeholder' }, [
-      element('span', { class: 'favicon-slot' }),
-      element('span', { class: 'tile-name', text: '\u2014' }),
-    ]));
-  }
-  $('#tiles').replaceChildren(...tiles);
+    favicon(entry.url, 20),
+    element('span', { class: 'frequent-name', text: entry.host.split('.')[0] }),
+  ])));
 }
 
-/* ---- background ----------------------------------------------------------- */
+/* ---- utility row ----------------------------------------------------------- */
 
-function renderBackground() {
-  const config = state.settings?.newTab || {};
-  const backdrop = $('#backdrop');
-  backdrop.className = 'backdrop bg-' + (config.background || 'plain');
-  // Image URLs are user-supplied, so set it through CSSOM rather than building
-  // a style attribute, and let the CSP img-src rules police the origin.
-  backdrop.style.backgroundImage =
-    config.background === 'image' && config.backgroundValue
-      ? 'url("' + config.backgroundValue.replace(/["\\]/g, '') + '")'
-      : '';
+function renderUtility() {
+  const now = new Date();
+  const time = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const date = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
+  const tabs = (state.tabs || []).filter((tab) => tab.url && !tab.url.startsWith('browser://'));
+  const recent = tabs[0];
+
+  const resources = state.modes?.resources || {};
+  const focus = state.modes?.focus || {};
+  const safety = state.modes?.safety || {};
+
+  const cards = [
+    card('Now', time, date),
+    recent
+      ? card('Recent tab', recent.title || recent.url, hostOf(recent.url),
+          () => invoke('tabs:select', { id: recent.id }))
+      : card('Session', plural(state.tabs?.length || 0, 'tab'), 'Nothing else open'),
+    card(
+      focus.active ? 'Focus' : 'System',
+      focus.active ? focus.badge + ' left' : (resources.badge || 'Ready'),
+      safety.active ? 'Protection on' : 'Protection off',
+      () => invoke('tabs:navigate', { input: 'browser://resources' }),
+      focus.active || safety.active ? 'good' : '',
+    ),
+  ];
+
+  $('#utility').replaceChildren(...cards);
 }
 
-/* ---- customiser ----------------------------------------------------------- */
+function card(label, value, sub, onclick, tone = '') {
+  const children = [
+    element('div', { class: 'util-label', text: label }),
+    element('div', { class: 'util-value' + (tone ? ' ' + tone : ''), text: value }),
+    element('div', { class: 'util-sub', text: sub }),
+  ];
+  return onclick
+    ? element('button', { class: 'util-card', onclick }, children)
+    : element('div', { class: 'util-card' }, children);
+}
 
-const panel = $('#panel');
-let panelOpen = false;
+function plural(count, noun) {
+  return count + ' ' + noun + (count === 1 ? '' : 's');
+}
 
-function togglePanel(open) {
-  panelOpen = open ?? !panelOpen;
-  if (panelOpen) {
-    panel.hidden = false;
-    renderPanel();
-    // Force a style flush so the browser records the closed state (hidden
-    // elements have no transition start point), then open on the next frame.
-    // Without the flush the class can land in the same frame as unhiding and
-    // the transition is skipped, leaving the panel parked off-screen.
-    void panel.offsetHeight;
-    requestAnimationFrame(() => panel.classList.add('open'));
-    // rAF can be starved in a background view; open on a timer as a backstop.
-    setTimeout(() => { if (panelOpen) panel.classList.add('open'); }, 50);
+function hostOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+}
+
+/* ---- AI tools panel --------------------------------------------------------- */
+
+const tools = $('#tools');
+let toolsOpen = false;
+
+function toggleTools(open) {
+  const next = open ?? !toolsOpen;
+  if (next === toolsOpen) return;
+  toolsOpen = next;
+
+  if (toolsOpen) {
+    tools.classList.remove('closing');
+    tools.hidden = false;
+    renderTools();
   } else {
-    panel.classList.remove('open');
     const ms = parseInt(getComputedStyle(document.documentElement)
       .getPropertyValue('--motion-base'), 10) || 0;
-    setTimeout(() => { if (!panelOpen) panel.hidden = true; }, ms);
+    if (!ms) {
+      // Animations are off: hide immediately rather than waiting on a
+      // transition that will never run.
+      tools.hidden = true;
+      return;
+    }
+    tools.classList.add('closing');
+    setTimeout(() => {
+      if (!toolsOpen) { tools.hidden = true; tools.classList.remove('closing'); }
+    }, ms + 30);
   }
 }
 
-$('#customize').append(icon('grid', { size: 16 }));
-$('#customize').addEventListener('click', () => togglePanel());
-$('#panel-close').append(icon('close', { size: 15 }));
-$('#panel-close').addEventListener('click', () => togglePanel(false));
+function renderTools() {
+  const { MODES } = window.modes;
+  const summary = state.modes || {};
+
+  const groups = [
+    ['Work', ['student', 'legal', 'shopping']],
+    ['Capture', ['notes', 'ai']],
+    ['System', ['focus', 'resources', 'safety']],
+  ];
+
+  const nodes = [];
+  for (const [title, ids] of groups) {
+    nodes.push(element('div', { class: 'tools-group', text: title }));
+    for (const id of ids) {
+      const mode = MODES[id];
+      if (!mode) continue;
+      const modeState = summary[id] || {};
+      nodes.push(element('button', {
+        class: 'tool-item',
+        onclick: () => invoke('tabs:navigate', { input: mode.page }),
+      }, [
+        icon(mode.icon, { size: 15 }),
+        element('div', { class: 'tool-text' }, [
+          element('div', { class: 'tool-name', text: mode.name }),
+          element('div', { class: 'tool-hint', text: modeState.summary || mode.tagline }),
+        ]),
+        modeState.active
+          ? element('span', { class: 'tool-state on', text: 'On' })
+          : modeState.badge
+            ? element('span', { class: 'tool-state', text: modeState.badge })
+            : null,
+      ]));
+    }
+  }
+
+  nodes.push(element('div', { class: 'tools-group', text: 'Browser' }));
+  for (const [name, hint, page] of [
+    ['Dashboard', 'Everything in one place', 'browser://dashboard'],
+    ['Settings', 'Appearance and privacy', 'browser://settings'],
+  ]) {
+    nodes.push(element('button', {
+      class: 'tool-item',
+      onclick: () => invoke('tabs:navigate', { input: page }),
+    }, [
+      icon(name === 'Settings' ? 'gear' : 'grid', { size: 15 }),
+      element('div', { class: 'tool-text' }, [
+        element('div', { class: 'tool-name', text: name }),
+        element('div', { class: 'tool-hint', text: hint }),
+      ]),
+    ]));
+  }
+
+  $('#tools-body').replaceChildren(...nodes);
+}
+
+$('#tools-trigger').addEventListener('click', () => toggleTools());
+$('#tools-close').addEventListener('click', () => toggleTools(false));
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && panelOpen) togglePanel(false);
+  if (event.key === 'Escape' && toolsOpen) toggleTools(false);
 });
 
-/** Persist a change to the newTab settings object. */
-function updateNewTab(patch) {
-  const next = { ...(state.settings?.newTab || {}), ...patch };
-  invoke('settings:update', { newTab: next }).catch((error) => console.error(error));
-}
+// Clicking the page closes the panel, but clicking inside it must not.
+document.addEventListener('pointerdown', (event) => {
+  if (!toolsOpen) return;
+  if (tools.contains(event.target) || $('#tools-trigger').contains(event.target)) return;
+  toggleTools(false);
+}, true);
 
-function renderPanel() {
-  const config = state.settings?.newTab || {};
-  const active = config.widgets || [];
-  const catalog = state.catalog?.widgets || [];
+/* ---- init ------------------------------------------------------------------ */
 
-  // Active widgets first (in their order), then the rest as "add" options.
-  const rows = [];
-  active.forEach((id, index) => {
-    const meta = catalog.find((w) => w.id === id);
-    if (!meta) return;
-    rows.push(widgetRow(meta, true, index));
-  });
-  catalog.filter((w) => !active.includes(w.id)).forEach((meta) => {
-    rows.push(widgetRow(meta, false));
-  });
-  $('#widget-list').replaceChildren(...rows);
-
-  $('#toggle-most-visited').checked = config.showMostVisited !== false;
-
-  const backgrounds = state.catalog?.backgrounds || [];
-  $('#background-choices').replaceChildren(...backgrounds.map((bg) => element('button', {
-    class: 'choice' + (config.background === bg.id ? ' selected' : ''),
-    text: bg.name,
-    onclick: () => updateNewTab({ background: bg.id }),
-  })));
-
-  const valueInput = $('#background-value');
-  valueInput.hidden = config.background !== 'image';
-  if (document.activeElement !== valueInput) valueInput.value = config.backgroundValue || '';
-}
-
-function widgetRow(meta, isActive, index) {
-  const row = element('div', {
-    class: 'widget-row-item' + (isActive ? ' active' : ''),
-    draggable: isActive ? 'true' : null,
-  }, [
-    icon(meta.icon || 'grid', { size: 15 }),
-    element('div', { class: 'widget-row-text' }, [
-      element('div', { class: 'widget-row-name' }, [
-        element('span', { text: meta.name }),
-        meta.experimental
-          ? element('span', { class: 'widget-badge', text: 'Soon' })
-          : null,
-      ]),
-      element('div', { class: 'widget-row-desc', text: meta.description || '' }),
-    ]),
-    element('button', {
-      class: 'widget-toggle',
-      text: isActive ? 'Remove' : 'Add',
-      onclick: () => {
-        const current = state.settings?.newTab?.widgets || [];
-        updateNewTab({
-          widgets: isActive
-            ? current.filter((id) => id !== meta.id)
-            : [...current, meta.id],
-        });
-      },
-    }),
-  ]);
-
-  if (isActive) {
-    row.dataset.id = meta.id;
-    row.dataset.index = index;
-  }
-  return row;
-}
-
-// Drag to reorder active widgets.
-let dragId = null;
-$('#widget-list').addEventListener('dragstart', (event) => {
-  const row = event.target.closest('.widget-row-item.active');
-  if (!row) return;
-  dragId = row.dataset.id;
-  row.classList.add('dragging');
-  event.dataTransfer.effectAllowed = 'move';
-});
-$('#widget-list').addEventListener('dragover', (event) => {
-  if (dragId) event.preventDefault();
-});
-$('#widget-list').addEventListener('drop', (event) => {
-  if (!dragId) return;
-  event.preventDefault();
-  const rows = [...$('#widget-list').querySelectorAll('.widget-row-item.active')];
-  let target = rows.findIndex((row) => {
-    const box = row.getBoundingClientRect();
-    return event.clientY < box.top + box.height / 2;
-  });
-  if (target === -1) target = rows.length - 1;
-
-  const current = [...(state.settings?.newTab?.widgets || [])];
-  const from = current.indexOf(dragId);
-  if (from !== -1) {
-    current.splice(from, 1);
-    current.splice(Math.max(0, Math.min(target, current.length)), 0, dragId);
-    updateNewTab({ widgets: current });
-  }
-  dragId = null;
-});
-$('#widget-list').addEventListener('dragend', () => {
-  dragId = null;
-  $('#widget-list').querySelectorAll('.dragging').forEach((n) => n.classList.remove('dragging'));
-});
-
-$('#toggle-most-visited').addEventListener('change', (event) =>
-  updateNewTab({ showMostVisited: event.target.checked }));
-
-const bgValue = $('#background-value');
-bgValue.addEventListener('change', () => updateNewTab({ backgroundValue: bgValue.value.trim() }));
-bgValue.addEventListener('keydown', (event) => { if (event.key === 'Enter') bgValue.blur(); });
-
-/* ---- state ---------------------------------------------------------------- */
+$('#mark-glyph').append(icon('sparkle', { size: 30 }));
+$('#tools-trigger').append(icon('grid', { size: 16 }));
+setMode(false);
 
 onState((next) => {
   state = next;
+  renderActions();
+  renderFrequent();
+  renderUtility();
   renderHint();
-  renderBackground();
-  renderMostVisited();
-  renderWidgets();
-  if (panelOpen) renderPanel();
+  if (toolsOpen) renderTools();
 });
 
-$('#query').focus();
+// The clock is the only thing on this page that needs a timer.
+clockTimer = setInterval(renderUtility, 30000);
+window.addEventListener('pagehide', () => clearInterval(clockTimer));
+
+queryInput.focus();
 
 })();

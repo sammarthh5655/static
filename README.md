@@ -46,6 +46,7 @@ Other scripts:
 | `npm run test:ai` | AI mode switching and a real Gemini call |
 | `npm run test:aipage` | The AI page: transcript, history, multi-turn memory |
 | `npm run test:modes` | Focus blocking, safety scoring, notes and resource metrics |
+| `npm run test:homepage` | New tab page: restraint, AI mode, tools panel |
 | `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
 | `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
 
@@ -104,7 +105,7 @@ src/
     ui.js                Icon builder and the custom menu system
     overlay.html/.css/.js  Transparent full-window view that draws menus
     pages/               Built-in browser:// pages
-      newtab.*           New tab page: search box + most-visited grid
+      newtab.*           New tab page: mark, search, five actions, tools panel
       history.*          Searchable history with per-entry delete
       bookmarks.*        Bookmark manager
       downloads.*        Download manager

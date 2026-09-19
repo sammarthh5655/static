@@ -27,7 +27,8 @@
     "test:appearance": "npm run build && node scripts/start.cjs --appearance",
     "test:ai": "npm run build && node scripts/start.cjs --ai",
     "test:aipage": "npm run build && node scripts/start.cjs --aipage",
-    "test:modes": "npm run build && node scripts/start.cjs --modes"
+    "test:modes": "npm run build && node scripts/start.cjs --modes",
+    "test:homepage": "npm run build && node scripts/start.cjs --homepage"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",
