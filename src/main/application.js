@@ -19,6 +19,8 @@ const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
 const { MODES } = require('../shared/modes');
+const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
+  require('../features/workspaces');
 
 /**
  * Chrome geometry. These MUST match the heights in renderer/chrome.css,
@@ -718,6 +720,131 @@ class BrowserApplication {
         return { ok: true };
       },
 
+      // ---- workspaces (student / legal / shopping) --------------------------
+      /** Task catalogues, so a page never hardcodes the list of what it can do. */
+      'workspace:tasks': (_sender, payload) => (payload?.mode === 'legal'
+        ? { tasks: Object.values(LEGAL_TASKS), disclaimer: LEGAL_DISCLAIMER }
+        : { tasks: Object.values(STUDENT_TASKS) }),
+
+      /**
+       * Readable text of the active page.
+       *
+       * Scripts, styles and nav chrome are stripped in the page itself rather
+       * than sent to the model: they are most of the bytes and none of the
+       * meaning, and the prompt budget is finite.
+       */
+      'workspace:page-text': async () => {
+        const tab = this.tabs?.active;
+        if (!tab) return { ok: false, error: 'No page is open.' };
+        if (tab.state.internalUrl) {
+          return { ok: false, error: 'Open a web page first - this is a browser page.' };
+        }
+        try {
+          const text = await tab.view.webContents.executeJavaScript(`(() => {
+            const drop = 'script,style,noscript,svg,nav,header,footer,aside,iframe,form';
+            const root = document.querySelector('article, main, [role=main]') || document.body;
+            const clone = root.cloneNode(true);
+            clone.querySelectorAll(drop).forEach((node) => node.remove());
+            return (clone.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
+          })()`, true);
+          return {
+            ok: true,
+            text: String(text || '').slice(0, 50000),
+            title: tab.state.title,
+            url: tab.state.displayUrl,
+          };
+        } catch (error) {
+          return { ok: false, error: 'Could not read this page: ' + error.message };
+        }
+      },
+
+      /** Run one Student or Legal task over supplied text. */
+      'workspace:run': async (_sender, payload) => {
+        const catalogue = payload?.mode === 'legal' ? LEGAL_TASKS : STUDENT_TASKS;
+        const task = catalogue[payload?.task];
+        if (!task) return { ok: false, error: 'Unknown task.' };
+        const source = String(payload?.text || '').trim();
+        if (!source) return { ok: false, error: 'There is no text to work from.' };
+
+        this.aiController?.abort();
+        this.aiController = new AbortController();
+        try {
+          const prompt = task.needsOption && payload?.option
+            ? `Target ${task.needsOption}: ${payload.option}\n\n${source}`
+            : source;
+          const result = await gemini.generate({
+            prompt,
+            system: task.system,
+            // Legal work rewards accuracy over latency, so it PREFERS the
+            // stronger model - preferModel, not model, so it still degrades to
+            // the rest of the chain when that one is out of quota rather than
+            // failing the request.
+            preferModel: payload?.mode === 'legal' ? gemini.QUALITY_MODEL : undefined,
+            signal: this.aiController.signal,
+          });
+          return { ok: true, text: result.text, model: result.model, task: task.id };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      },
+
+      /**
+       * Compare the product pages currently open.
+       *
+       * Detection is deliberately loose - a URL shaped like a product page, or
+       * page text with a price in it - because being too strict here means the
+       * feature silently does nothing on sites we did not anticipate.
+       */
+      'shopping:compare': async () => {
+        const tabs = [...(this.tabs?.tabs.values() || [])]
+          .filter((tab) => !tab.state.internalUrl && /^https?:/.test(tab.state.displayUrl || ''));
+        if (tabs.length < 2) {
+          return { ok: false, error: 'Open at least two product pages in separate tabs first.' };
+        }
+
+        const extracted = [];
+        for (const tab of tabs.slice(0, 5)) {
+          try {
+            const text = await tab.view.webContents.executeJavaScript(`(() => {
+              const drop = 'script,style,noscript,svg,iframe';
+              const clone = document.body.cloneNode(true);
+              clone.querySelectorAll(drop).forEach((node) => node.remove());
+              return (clone.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
+            })()`, true);
+            const body = String(text || '');
+            // Only treat it as a product if there is something price-shaped.
+            const looksLikeProduct = /(?:[\u20B9$£€]\s?\d|\d+\s?(?:INR|USD|EUR|GBP))/i.test(body);
+            if (!looksLikeProduct) continue;
+            extracted.push({
+              title: tab.state.title,
+              url: tab.state.displayUrl,
+              text: body.slice(0, 12000),
+            });
+          } catch { /* a tab that refuses injection is simply skipped */ }
+        }
+
+        if (extracted.length < 2) {
+          return {
+            ok: false,
+            error: 'Could not find two product pages. Open the product pages themselves '
+              + '(not search results) and try again.',
+          };
+        }
+
+        const prompt = extracted
+          .map((item, index) => `--- PRODUCT ${index + 1}: ${item.title}\nURL: ${item.url}\n\n${item.text}`)
+          .join('\n\n');
+
+        try {
+          const result = await gemini.generate({ prompt, system: SHOPPING_SYSTEM });
+          return { ok: true, text: result.text, model: result.model, sources: extracted.map((item) => ({
+            title: item.title, url: item.url,
+          })) };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      },
+
       // ---- dashboard -------------------------------------------------------
       /** Live per-mode state for the dashboard cards and sidebar badges. */
       'modes:state': () => this.modeSummary(),
@@ -836,6 +963,9 @@ class BrowserApplication {
       case 'open:notes': open('browser://notes'); break;
       case 'open:focus': open('browser://focus'); break;
       case 'open:resources': open('browser://resources'); break;
+      case 'open:student': open('browser://student'); break;
+      case 'open:legal': open('browser://legal'); break;
+      case 'open:shopping': open('browser://shopping'); break;
       case 'notes:capture': this.captureNote(); break;
       case 'open:extensions': open('browser://extensions'); break;
 

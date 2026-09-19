@@ -23,6 +23,7 @@ module.exports = {
     'safety:state', 'safety:assess', 'safety:trust', 'safety:untrust',
     'safety:enabled', 'safety:proceed',
     'modes:state',
+    'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
   events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed'],
 };

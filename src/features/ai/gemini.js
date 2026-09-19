@@ -101,11 +101,18 @@ const RETRYABLE = new Set([429, 500, 502, 503, 504]);
  * feature feel broken when it is merely busy.
  */
 async function generate(options = {}) {
-  // An explicit model means the caller wants that one specifically; only the
-  // default path walks the fallback chain.
+  // `model` pins the request to exactly one model - used by tests and by
+  // callers that genuinely need a specific one.
+  //
+  // `preferModel` puts a model at the FRONT of the normal chain instead. That
+  // is what a caller wanting higher quality should use: it gets the better
+  // model when it is available, and still degrades to the rest of the chain
+  // rather than failing outright when that model is out of quota.
   const chain = options.model
     ? [options.model]
-    : [DEFAULT_MODEL, ...FALLBACK_MODELS];
+    : options.preferModel
+      ? [options.preferModel, DEFAULT_MODEL, ...FALLBACK_MODELS.filter((m) => m !== options.preferModel)]
+      : [DEFAULT_MODEL, ...FALLBACK_MODELS];
 
   let lastError;
   for (const model of chain) {
