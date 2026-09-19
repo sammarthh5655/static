@@ -34,7 +34,11 @@ async function run(browser) {
     check('blocks facebook pixel cross-site', inspect('https://www.facebook.com/tr?id=1', 'news.com')?.block === true);
 
     // Does not over-block.
-    check('allows facebook on facebook', !inspect('https://www.facebook.com/tr?id=1', 'facebook.com')?.block);
+    // NOT the Facebook pixel: EasyPrivacy blocks ||facebook.com/tr? with no
+    // $third-party option, so it is blocked on facebook.com too - that is the
+    // list's deliberate intent, not over-blocking. Test a real first-party
+    // asset instead.
+    check('allows first-party assets', !inspect('https://www.facebook.com/images/logo.png', 'facebook.com', 'image')?.block);
     check('allows a normal CDN', !inspect('https://cdn.jsdelivr.net/npm/x.js', 'news.com')?.block);
     check('allows first-party scripts', !inspect('https://news.com/app.js', 'news.com')?.block);
 
@@ -73,6 +77,54 @@ async function run(browser) {
       report.count + ' from ' + report.sources.length + ' hosts');
     check('real site still loads', (tab.state.title || '').length > 0, tab.state.title);
     browser.tabs.close(id);
+
+    // ---- scriptlets: video ads --------------------------------------------
+    // Network rules CANNOT block YouTube video ads: they come from the same
+    // googlevideo.com endpoint as the video itself, so blocking them blocks
+    // the content. These assertions cover the part only scriptlet injection
+    // into the page's main world can do.
+    const ytTab = browser.tabs.create({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+    const yt = browser.tabs.tabs.get(ytTab);
+    for (let i = 0; i < 90 && yt.view.webContents.isLoading(); i++) await wait(300);
+    await wait(7000);
+
+    const player = await yt.view.webContents.executeJavaScript(`({
+      ran: !!window.__staticScriptletsRan,
+      adPlacements: (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.adPlacements)
+        ? window.ytInitialPlayerResponse.adPlacements.length : 0,
+      playerAds: (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.playerAds)
+        ? window.ytInitialPlayerResponse.playerAds.length : 0,
+      adShowing: !!document.querySelector('.ad-showing'),
+      hasVideo: !!document.querySelector('video'),
+      title: document.title,
+    })`).catch((error) => ({ error: error.message }));
+
+    check('scriptlets run on YouTube', player.ran === true, player.error || '');
+    check('ad placements stripped', player.adPlacements === 0, 'adPlacements=' + player.adPlacements);
+    check('player ads stripped', player.playerAds === 0, 'playerAds=' + player.playerAds);
+    check('no ad is showing', player.adShowing === false);
+    check('the real video still loads', player.hasVideo === true, player.title);
+    browser.tabs.close(ytTab);
+
+    // Scriptlets must not break ordinary sites. This is the failure that
+    // matters most here: a broken page is worse than an unblocked ad.
+    for (const [label, url] of [
+      ['wikipedia', 'https://en.wikipedia.org/wiki/Advertising'],
+      ['github', 'https://github.com/electron/electron'],
+    ]) {
+      const siteTab = browser.tabs.create({ url });
+      const site = browser.tabs.tabs.get(siteTab);
+      for (let i = 0; i < 80 && site.view.webContents.isLoading(); i++) await wait(300);
+      await wait(2500);
+      const page = await site.view.webContents.executeJavaScript(`({
+        ran: !!window.__staticScriptletsRan,
+        text: document.body ? document.body.innerText.trim().length : 0,
+        title: document.title,
+      })`).catch((error) => ({ error: error.message }));
+      check(label + ' still renders with scriptlets active',
+        page.ran === true && page.text > 2000, page.title || page.error);
+      browser.tabs.close(siteTab);
+    }
 
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll shields checks passed.\n');
     app.exit(fails ? 1 : 0);

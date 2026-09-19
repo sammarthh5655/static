@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**Video ad blocking** (scriptlets)
+- Blocks YouTube pre-rolls, mid-rolls and post-rolls by emptying the ad slots
+  in the player response before the player reads them - so there is nothing to
+  skip or wait through, because the player never learns an ad exists
+- Stubs the common video ad SDKs (Google IMA, GPT, Prebid) everywhere, so
+  players on other sites see "no ads available" - the same path they already
+  handle when an ad request goes unfilled
+- Cosmetic CSS collapses the empty boxes a blocked ad would have filled, which
+  closes the gap previously documented as permanent
+- Verified: YouTube ad placements drop to zero and the real video plays, while
+  Wikipedia, GitHub and CNN all still render correctly
+
 **Shields** (`browser://shields`)
 - Ad and tracker blocking using EasyList + EasyPrivacy (113,000+ rules),
   cached on disk and refreshed weekly, with a built-in list so a first run is

@@ -89,6 +89,10 @@ function settingsCard() {
       'Strips utm_*, fbclid, gclid and similar from addresses you open.'),
     toggleRow('blockThirdPartyCookies', 'Block third-party cookies',
       'Cookies are not sent to or set by sites other than the one you are on.'),
+    toggleRow('blockVideoAds', 'Block video ads',
+      'Stops pre-rolls and mid-rolls on YouTube and players that use the common ad SDKs.'),
+    toggleRow('hideAdSlots', 'Hide leftover ad space',
+      'Collapses the empty boxes a blocked ad would have filled.'),
   ]);
 }
 
@@ -136,22 +140,25 @@ function limitsCard() {
     ]),
     element('p', {
       class: 'muted',
-      text: 'This blocks network requests using EasyList and EasyPrivacy, so ad and '
-        + 'tracking servers never receive the request and the bytes are never '
-        + 'downloaded. Two things it does not do, which dedicated blockers do:',
+      text: 'Network requests are blocked using EasyList and EasyPrivacy, so ad and '
+        + 'tracking servers never receive the request. Video ads need a second '
+        + 'approach: on YouTube the ad is served from the same address as the video, '
+        + 'so it cannot be blocked by address. Those are removed inside the page '
+        + 'instead, before the player ever learns an ad exists.',
     }),
     element('div', { class: 'blocked-list' }, [
       element('div', { class: 'blocked-row' }, [
         element('span', {
           class: 'blocked-host',
-          text: 'No cosmetic filtering — an empty box may remain where an ad was.',
+          text: 'No fingerprint randomisation — that needs changes to Chromium '
+            + 'itself, which this browser cannot make.',
         }),
       ]),
       element('div', { class: 'blocked-row' }, [
         element('span', {
           class: 'blocked-host',
-          text: 'No fingerprint randomisation — that needs changes to Chromium '
-            + 'itself, which this browser cannot make.',
+          text: 'Sites change. A player that reworks how it delivers ads can '
+            + 'outrun these rules until they are updated.',
         }),
       ]),
     ]),

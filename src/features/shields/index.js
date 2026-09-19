@@ -9,10 +9,13 @@ const { FilterEngine } = require('./filters');
  *
  * WHAT THIS IS AND IS NOT - read before comparing it to Brave or uBlock:
  *
- * This blocks NETWORK requests using EasyList/EasyPrivacy rules. It does not
- * do cosmetic filtering, so an ad's network request is stopped but the empty
- * box where the ad was may remain. It also does not randomise fingerprints,
- * which needs Chromium patches Electron does not expose.
+ * This blocks NETWORK requests using EasyList/EasyPrivacy rules, and pairs
+ * that with scriptlet injection (see scriptlets.js) for the ads that cannot be
+ * blocked by address - YouTube serves video ads from the same endpoint as the
+ * video itself.
+ *
+ * It does NOT randomise fingerprints, which needs Chromium patches Electron
+ * does not expose.
  *
  * What it does do is real: the ad and tracker networks never get the request,
  * so they never see the visit and the bytes are never downloaded.
@@ -103,6 +106,9 @@ class Shields {
       upgradeHttps: true,
       stripTracking: true,
       blockThirdPartyCookies: true,
+      // Scriptlet-based video ad blocking and cosmetic hiding.
+      blockVideoAds: true,
+      hideAdSlots: true,
       // Sites the user has switched shields off for.
       disabledSites: [],
       totalBlocked: 0,
@@ -294,7 +300,7 @@ class Shields {
 
   update(patch) {
     for (const key of ['enabled', 'blockTrackers', 'upgradeHttps', 'stripTracking',
-                       'blockThirdPartyCookies']) {
+                       'blockThirdPartyCookies', 'blockVideoAds', 'hideAdSlots']) {
       if (typeof patch?.[key] === 'boolean') this.store.data[key] = patch[key];
     }
     this.store.save();

@@ -20,6 +20,7 @@ const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
+const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { MODES } = require('../shared/modes');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -354,7 +355,10 @@ class BrowserApplication {
       getEngine: () => this.settings.value.searchEngine,
       // Every tab gets the shortcut interceptor, so Ctrl+T and friends fire
       // even while focus is inside page content.
-      onTabCreated: (contents) => this.attachShortcuts(contents),
+      onTabCreated: (contents) => {
+        this.attachShortcuts(contents);
+        this.attachScriptlets(contents);
+      },
       onChange: () => this.push(),
       onNavigate: (event) => {
         if (event.type === 'visit') return this.history.record(event.url, event.title);
@@ -1053,6 +1057,54 @@ class BrowserApplication {
       if (action === 'page:stop' && !this.tabs?.active?.state.loading) return;
       event.preventDefault();
       this.dispatch(action);
+    });
+  }
+
+  /**
+   * Inject ad-defence scriptlets and cosmetic CSS into a tab.
+   *
+   * Timing is the whole trick. Scriptlets have to run in the page's MAIN world
+   * BEFORE the page's own scripts, or the ad SDK is already loaded and the
+   * player has already read its ad list. `did-start-navigation` is the
+   * earliest hook that fires with a live frame, and `executeJavaScript`
+   * evaluates in the main world - both verified rather than assumed.
+   *
+   * Everything is wrapped so a failure is silent: a scriptlet that throws on a
+   * site it was not written for would break that site, which is worse than
+   * letting an ad through.
+   */
+  attachScriptlets(contents) {
+    if (!contents || contents.isDestroyed()) return;
+
+    const inject = (url) => {
+      if (!this.shields.config.enabled || !this.shields.config.blockTrackers) return;
+      let host = '';
+      try {
+        const parsed = new URL(url);
+        if (!/^https?:$/.test(parsed.protocol)) return;
+        host = parsed.hostname;
+      } catch { return; }
+      if (!this.shields.activeFor(host)) return;
+
+      contents.executeJavaScript(scriptsFor(host), true).catch(() => {
+        // A page can refuse injection (CSP, a frame that died mid-navigation).
+        // Nothing to do: the network rules still apply.
+      });
+    };
+
+    contents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
+      if (!isMainFrame) return;
+      inject(url);
+    });
+
+    // Cosmetic CSS hides the empty box an ad used to occupy. It goes in at
+    // dom-ready rather than document-start because insertCSS needs a document.
+    contents.on('dom-ready', () => {
+      if (!this.shields.config.enabled || !this.shields.config.hideAdSlots) return;
+      let host = '';
+      try { host = new URL(contents.getURL()).hostname; } catch { return; }
+      if (!this.shields.activeFor(host)) return;
+      contents.insertCSS(COSMETIC_CSS).catch(() => {});
     });
   }
 
