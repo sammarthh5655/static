@@ -517,9 +517,12 @@ class BrowserApplication {
     }, 5200);
   }
 
-  focus() {
+  // Keep window activation separate from `this.focus`, the Focus Mode service.
+  // A second launch must restore the existing window, not call that service.
+  focusWindow() {
     this.ensureWindow();
     if (this.window.isMinimized()) this.window.restore();
+    this.window.show();
     this.window.focus();
   }
 

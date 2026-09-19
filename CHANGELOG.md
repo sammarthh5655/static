@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the main-process crash when opening static while it is already running:
+  Focus Mode had shadowed the window activation method. Second launches now
+  restore and show the existing window, and app activation uses the same path.
+- Added an Electron regression check that launches a second process with both
+  minimized and hidden windows, verifies the original tabs and Focus Mode stay
+  intact, and checks app activation.
+
 ### Added
 
 **Video ad blocking** (scriptlets)

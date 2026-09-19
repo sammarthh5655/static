@@ -49,6 +49,56 @@ async function run(browser) {
       assert.strictEqual(tab.state.displayUrl, 'browser://newtab');
     });
 
+    await step('second launches restore the window without colliding with Focus Mode', async () => {
+      const { spawn } = require('node:child_process');
+      const window = browser.window;
+      const focusMode = browser.focus;
+      const tabCount = browser.tabs.order.length;
+      assert.strictEqual(typeof focusMode.shouldBlock, 'function');
+
+      for (const state of ['minimized', 'hidden']) {
+        if (state === 'minimized') window.minimize();
+        else window.hide();
+        await until(state + ' window', () => state === 'minimized'
+          ? window.isMinimized() : !window.isVisible());
+
+        let received = false;
+        let exited = false;
+        let exitCode;
+        let childError;
+        const onSecondInstance = () => { received = true; };
+        app.on('second-instance', onSecondInstance);
+        const env = { ...process.env };
+        delete env.ELECTRON_RUN_AS_NODE;
+        // Use the same isolated smoke profile to exercise the real OS lock and
+        // main.js event handler without touching the user's running browser.
+        const child = spawn(process.execPath, [app.getAppPath(), '--smoke'], {
+          env, stdio: 'ignore', windowsHide: true,
+        });
+        child.once('error', error => { childError = error; exited = true; });
+        child.once('exit', code => { exitCode = code; exited = true; });
+        try {
+          await until('second process exits', () => exited);
+          assert.ifError(childError);
+          assert.strictEqual(exitCode, 0);
+          await until('existing window restored', () => received &&
+            window.isVisible() && !window.isMinimized());
+          assert.strictEqual(browser.window, window);
+          assert.strictEqual(browser.tabs.order.length, tabCount);
+          assert.strictEqual(browser.focus, focusMode);
+          assert.strictEqual(typeof browser.focus.shouldBlock, 'function');
+        } finally {
+          app.removeListener('second-instance', onSecondInstance);
+          if (!exited) child.kill();
+        }
+      }
+
+      window.hide();
+      app.emit('activate');
+      await until('activation shows existing window', () => window.isVisible());
+      assert.strictEqual(browser.window, window);
+    });
+
     await step('opens and closes tabs', async () => {
       const id = browser.tabs.create({ url: 'browser://settings' });
       assert.strictEqual(browser.tabs.order.length, 2);

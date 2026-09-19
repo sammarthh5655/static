@@ -42,8 +42,8 @@ else {
     else if (testFlag === '--appearance') await require('../../tests/appearance.cjs').run(browser);
     else if (testFlag) await require('../../tests/smoke.cjs').run(browser);
   }).catch(error => { console.error(error); app.exit(1); });
-  app.on('second-instance', () => browser?.focus());
-  app.on('activate', () => browser?.ensureWindow());
+  app.on('second-instance', () => browser?.focusWindow());
+  app.on('activate', () => browser?.focusWindow());
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' || testFlag) app.quit(); });
   app.on('before-quit', () => browser?.flush());
 }
