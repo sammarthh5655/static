@@ -40,7 +40,7 @@ function onState(callback) {
 let appliedTheme = '';
 function applyTheme(settings) {
   if (!window.theme) return;
-  const key = [settings.theme, settings.surfaceStyle, settings.radius, settings.animations].join('|');
+  const key = JSON.stringify(window.theme.cssVariables(settings));
   if (key === appliedTheme) return;
   appliedTheme = key;
   for (const [name, value] of Object.entries(window.theme.cssVariables(settings))) {

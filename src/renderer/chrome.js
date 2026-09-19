@@ -50,7 +50,7 @@ const act = (action) => invoke('ui:action', { action });
 let appliedTheme = '';
 
 function applyTheme(settings) {
-  const key = [settings.theme, settings.surfaceStyle, settings.radius, settings.animations].join('|');
+  const key = JSON.stringify(window.theme.cssVariables(settings));
   if (key === appliedTheme) return;
   appliedTheme = key;
   const vars = window.theme.cssVariables(settings);
@@ -120,15 +120,22 @@ const doAction = (id) => action('ui:action', { action: id });
 function mainMenuItems() {
   const s = state.settings || {};
   return [
+    { brand: true },
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
+    { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },
+    { separator: true },
     { label: 'AI chat', icon: 'sparkle', shortcut: accel('open:ai'), action: doAction('open:ai') },
     { separator: true },
-    { heading: 'Library' },
     { label: 'Bookmarks', icon: 'bookmark', shortcut: accel('open:bookmarks'), action: doAction('open:bookmarks') },
     { label: 'History', icon: 'clock', shortcut: accel('open:history'), action: doAction('open:history') },
     { label: 'Downloads', icon: 'download', shortcut: accel('open:downloads'), action: doAction('open:downloads') },
     { separator: true },
-    { heading: 'Browser' },
+    { label: 'Sidebar', icon: 'sidebar', hint: 'Workspace sidebar', value: s.sidebarMode || 'on', choices: [
+      { label: 'On', value: 'on', action: action('settings:update', { sidebarMode: 'on' }) },
+      { label: 'Autohide', value: 'autohide', action: action('settings:update', { sidebarMode: 'autohide' }) },
+      { label: 'Off', value: 'off', action: action('settings:update', { sidebarMode: 'off' }) },
+    ] },
+    { separator: true },
     { label: 'Extensions', icon: 'puzzle', shortcut: accel('open:extensions'), action: doAction('open:extensions') },
     { label: 'Settings', icon: 'gear', shortcut: accel('open:settings'), action: doAction('open:settings') },
     { separator: true },
@@ -138,7 +145,11 @@ function mainMenuItems() {
       checked: !!s.bookmarksBar,
       action: action('settings:update', { bookmarksBar: !s.bookmarksBar }),
     },
-    { label: 'Developer tools', icon: 'gear', shortcut: accel('window:devtools'), action: doAction('window:devtools') },
+    { separator: true },
+    { label: 'Developer tools', icon: 'code', shortcut: accel('window:devtools'), action: doAction('window:devtools') },
+    { separator: true },
+    { label: 'Help & about Static', icon: 'help', action: action('tabs:new', { url: 'browser://settings#about' }) },
+    { label: 'Exit', icon: 'close', action: action('window:control', { action: 'close' }) },
   ];
 }
 
@@ -157,6 +168,7 @@ let menuOpenFor = null;
 function toggleMenu(trigger, items, align = 'left') {
   if (menuOpenFor === trigger) {
     closeOverlayMenu();
+    invoke('menu:open', { items: [] });
     return;
   }
   closeOverlayMenu();
@@ -187,6 +199,7 @@ function closeOverlayMenu() {
 // The overlay owns dismissal (click-away, Escape), so clear the trigger's
 // active styling whenever focus leaves this view.
 window.addEventListener('blur', closeOverlayMenu);
+window.browser.on('ui:menu-closed', closeOverlayMenu);
 
 /** Right-click menu for a tab. */
 function tabContextMenu(tab, event) {

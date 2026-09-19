@@ -89,6 +89,7 @@ async function run(browser) {
     afterNew + ' -> ' + browser.tabs.order.length);
 
   browser.settings.update({ theme: 'dark', radius: 'rounded' });
+  await require('./settings-design.cjs').run(browser);
   console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll appearance checks passed.\n');
   app.exit(fails ? 1 : 0);
 }

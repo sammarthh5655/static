@@ -23,6 +23,15 @@ body.shell {
 body.shell.sidebar-collapsed { grid-template-columns: 0 1fr; }
 body.shell.sidebar-collapsed .shell-sidebar { display: none; }
 
+.sidebar-reveal { display: none; }
+body.shell[data-sidebar=autohide] { grid-template-columns: 12px minmax(0, 1fr); }
+body.shell[data-sidebar=autohide] .shell-sidebar { position: fixed; inset: 0 auto 0 0; width: 232px; z-index: 20; transform: translateX(-220px); transition: transform var(--motion-base) var(--ease); box-shadow: var(--menu-shadow); }
+body.shell[data-sidebar=autohide] .shell-sidebar:hover,
+body.shell[data-sidebar=autohide] .shell-sidebar:focus-within,
+body.shell[data-sidebar=autohide]:has(.sidebar-reveal:focus) .shell-sidebar { transform: translateX(0); }
+body.shell[data-sidebar=autohide] .shell-main { grid-column: 2; }
+body.shell[data-sidebar=autohide] .sidebar-reveal { display: block; position: fixed; left: 0; top: 8px; z-index: 21; padding: 4px 1px; width: 12px; overflow: hidden; border-color: var(--accent); }
+
 /* ---- sidebar -------------------------------------------------------------- */
 
 .shell-sidebar {

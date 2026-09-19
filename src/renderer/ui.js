@@ -91,12 +91,56 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
   const root = document.createElement('div');
   root.className = 'menu';
   root.setAttribute('role', 'menu');
+  root.setAttribute('aria-label', 'Browser menu');
+  if (items.some(item => item?.brand)) root.classList.add('browser-menu');
 
   for (const item of items) {
+    if (item?.brand) {
+      const header = document.createElement('div');
+      header.className = 'menu-brand';
+      const mark = document.createElement('img');
+      mark.src = 'assets/static-mark.svg';
+      mark.alt = '';
+      const text = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = 'Static';
+      const subtitle = document.createElement('span');
+      subtitle.textContent = 'Browse smarter with AI.';
+      text.append(title, subtitle);
+      const dismiss = iconButton('close', { title: 'Close menu', onClick: closeMenu, size: 16 });
+      header.append(mark, text, dismiss);
+      root.append(header);
+      continue;
+    }
     if (!item || item.separator) {
       const divider = document.createElement('div');
       divider.className = 'menu-divider';
       root.append(divider);
+      continue;
+    }
+
+    if (item.choices) {
+      const row = document.createElement('div');
+      row.className = 'menu-segment-row';
+      row.title = item.hint || item.label;
+      row.append(icon(item.icon, { size: 20 }));
+      const label = document.createElement('span');
+      label.textContent = item.label;
+      const choices = document.createElement('div');
+      choices.className = 'menu-segment';
+      choices.setAttribute('role', 'group');
+      choices.setAttribute('aria-label', item.hint || item.label);
+      for (const choice of item.choices) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = choice.label;
+        button.setAttribute('role', 'menuitemradio');
+        button.setAttribute('aria-checked', String(choice.value === item.value));
+        button.addEventListener('click', () => { closeMenu(); choice.onSelect?.(); });
+        choices.append(button);
+      }
+      row.append(label, choices);
+      root.append(row);
       continue;
     }
     if (item.heading) {
@@ -110,7 +154,8 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
     const node = document.createElement('button');
     node.type = 'button';
     node.className = 'menu-item' + (item.danger ? ' danger' : '') + (item.checked ? ' checked' : '');
-    node.setAttribute('role', 'menuitem');
+    node.setAttribute('role', typeof item.checked === 'boolean' ? 'menuitemcheckbox' : 'menuitem');
+    if (typeof item.checked === 'boolean') node.setAttribute('aria-checked', String(item.checked));
     if (item.disabled) node.disabled = true;
 
     const glyph = document.createElement('span');
@@ -168,7 +213,8 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
   // final frame even if the view was not composited while it played.
   root.classList.add('open');
 
-  openMenu = { root, onClose };
+  openMenu = { root, onClose, width: window.innerWidth, height: window.innerHeight };
+  root.querySelector('.menu-item:not(:disabled)')?.focus({ preventScroll: true });
   return root;
 }
 
@@ -218,10 +264,26 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && openMenu) {
     event.preventDefault();
     closeMenu();
+    return;
+  }
+  if (openMenu && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) {
+    event.preventDefault();
+    const buttons = [...openMenu.root.querySelectorAll('button:not(:disabled)')];
+    let index = buttons.indexOf(document.activeElement);
+    const step = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
+    if (event.key === 'Home') index = 0;
+    else if (event.key === 'End') index = buttons.length - 1;
+    else index = (index + step + buttons.length) % buttons.length;
+    buttons[index]?.focus();
   }
 });
 
-window.addEventListener('resize', closeMenu);
+window.addEventListener('resize', () => {
+  // Native view resizing can deliver its event after the menu has already
+  // measured the new viewport. Ignore that late notification; only an actual
+  // change from the dimensions used to place this menu should dismiss it.
+  if (openMenu && (openMenu.width !== window.innerWidth || openMenu.height !== window.innerHeight)) closeMenu();
+});
 window.addEventListener('blur', closeMenu);
 
 window.ui = { icon, iconButton, menu, closeMenu, menuIsOpen, anchorOf, anchorAt };

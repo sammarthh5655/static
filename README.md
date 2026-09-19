@@ -39,10 +39,10 @@ Other scripts:
 | --- | --- |
 | `npm start` | Build preloads, then launch the browser |
 | `npm run build` | Bundle the preload scripts into `build/` |
-| `npm test` | Unit tests for URL/omnibox parsing (plain Node, no Electron) |
+| `npm test` | Unit tests for URL parsing, sidebar preferences and scoped resets |
 | `npm run test:smoke` | Boots the real app in Electron and drives it end-to-end |
 | `npm run test:probe` | Loads the chrome, menu overlay and every `browser://` page; fails on console errors |
-| `npm run test:appearance` | Theme, radius, motion, window controls and shortcuts |
+| `npm run test:appearance` | Theme, menu keyboard controls, searchable Settings, sidebar, reset and responsive-layout checks |
 | `npm run test:ai` | AI mode switching and a real Gemini call |
 | `npm run test:aipage` | The AI page: transcript, history, multi-turn memory |
 | `npm run test:modes` | Focus blocking, safety scoring, notes and resource metrics |
@@ -342,3 +342,23 @@ free option is GPL-3.0. The alternative is a paid patron license from its
 author. Using it under GPL-3.0 requires this project to be GPL-3.0 as well —
 so if you plan to distribute this commercially as closed source, you need to
 buy that license first.
+
+## Menu and Settings design
+
+The browser menu and Settings share the Static mark, theme tokens and outline
+icons. Eclipse uses the midnight/cyan look; light and other themes remain available.
+Open Settings from the browser menu, then choose a category in the sidebar.
+Ctrl+K (Cmd+K on macOS) searches settings across categories. Section links such as
+`browser://settings#appearance` and `browser://settings#about` open directly.
+
+Appearance includes font, size, density, accent, menu surface and corner controls.
+The menu's Sidebar selector controls navigation on workspace pages: On keeps it
+visible, Autohide reveals it from the left edge or keyboard focus, and Off hides it.
+The workspace header button restores a hidden sidebar. Reset settings requires a
+confirmation and affects preferences only; saved browsing data and extensions stay.
+
+The implementation lives in `src/renderer/ui.js`, `overlay.css`, and
+`pages/settings-navigation.js` / `settings.css`. Settings validation and reset
+scopes live in `src/features/settings`; colors and icons stay in `src/shared/theme.js`.
+The redesign exposes existing browser capabilities; private/multiple windows,
+full autofill and language management are not added by this visual update.

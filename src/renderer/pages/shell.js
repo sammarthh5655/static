@@ -235,7 +235,9 @@ function mount({ mode, title, subtitle, content, actions = [], commands = [] }) 
     element('button', {
       class: 'shell-toggle',
       title: 'Toggle sidebar',
-      onclick: () => document.body.classList.toggle('sidebar-collapsed'),
+      onclick: () => invoke('settings:update', {
+        sidebarMode: document.body.dataset.sidebar === 'on' ? 'off' : 'on',
+      }),
     }, [icon('menu', { size: 16 })]),
     element('h1', { class: 'shell-title', text: title }),
     subtitle ? element('span', { class: 'shell-subtitle', text: subtitle }) : null,
@@ -251,6 +253,18 @@ function mount({ mode, title, subtitle, content, actions = [], commands = [] }) 
   ]);
 
   document.body.replaceChildren(buildSidebar(), main);
+  // Persist the same preference used by the browser menu. Autohide keeps a
+  // focusable edge so keyboard users can reveal navigation without a pointer.
+  const reveal = element('button', {
+    class: 'sidebar-reveal', 'aria-label': 'Reveal workspace sidebar',
+    onclick: () => invoke('settings:update', { sidebarMode: 'on' }),
+  }, [icon('sidebar', { size: 16 })]);
+  document.body.append(reveal);
+  window.page.onState(state => {
+    const mode = state.settings?.sidebarMode || 'on';
+    document.body.dataset.sidebar = mode;
+    document.body.classList.toggle('sidebar-collapsed', mode === 'off');
+  });
 
   // Ctrl/Cmd+K anywhere in a mode page.
   document.addEventListener('keydown', (event) => {

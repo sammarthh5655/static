@@ -189,7 +189,11 @@ class Tabs {
       // Internal pages load from disk but keep their browser:// identity in the
       // omnibox, so users never see a file:// path for a built-in screen.
       tab.state.internalUrl = target;
-      tab.view.webContents.loadFile(path.join(__dirname, '..', '..', 'renderer', 'pages', `${page}.html`));
+      // Preserve section links such as browser://settings#appearance while
+      // keeping the on-disk file chosen only from the internal-page allowlist.
+      tab.view.webContents.loadFile(path.join(__dirname, '..', '..', 'renderer', 'pages', `${page}.html`), {
+        hash: new URL(target).hash,
+      });
     } else {
       tab.state.internalUrl = null;
       tab.view.webContents.loadURL(target);

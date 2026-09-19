@@ -1,34 +1,21 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
-  <title>Settings</title>
-  <link rel="stylesheet" href="pages.css">
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;self&#39;; style-src &#39;self&#39;; img-src &#39;self&#39; data:">
+<title>Settings - Static</title>
+<link rel="stylesheet" href="pages.css">
+<link rel="stylesheet" href="settings.css">
 </head>
-<body>
-  <div class="wrap">
-    <h1>Settings</h1>
-
-    <h2>Search</h2>
-    <div class="card">
-      <div class="field">
-        <div>
-          <label for="engine">Default search engine</label>
-          <div class="hint">Used by the address bar and the new tab page.</div>
-        </div>
-        <div class="control">
-          <select id="engine">
-            <option value="google">Google</option>
-            <option value="brave">Brave Search</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <h2>Startup and new tabs</h2>
-    <div class="card">
+<body class="settings-page">
+<aside class="settings-sidebar" aria-label="Settings navigation">
+<div class="settings-brand"><img src="../assets/static-mark.svg" alt="" width="46" height="46"><div><strong>Static</strong><span>Settings</span></div></div>
+<div class="settings-search"><span data-icon="search"></span><input id="settings-search" type="search" placeholder="Search settings..." aria-label="Search settings" autocomplete="off"><kbd class="search-key">Ctrl+K</kbd></div>
+<nav id="settings-nav" aria-label="Settings categories"></nav>
+<div class="settings-sidebar-foot">CLEANER. SMARTER. MORE YOURS.</div>
+</aside>
+<main class="settings-main"><header class="settings-header"><div><span class="eyebrow">YOUR BROWSER, YOUR WAY</span><h1 id="settings-title">Get started</h1><p id="settings-description">Everything you need to feel at home.</p></div><span class="saved-indicator"><span></span>Changes saved automatically</span></header>
+<div id="settings-status" role="status" aria-live="polite"></div><div id="settings-content"><section class="settings-section" data-section="start" aria-label="Get started" hidden><div class="settings-hero"><span class="eyebrow">MAKE ROOM FOR YOUR WEB</span><h2>A browser that feels<br>like you.</h2><p>A little more focus. A lot more possibility.<br>Make Static your own, one detail at a time.</p><img src="../assets/static-mark.svg" alt="" class="hero-mark"></div><div class="settings-quick"><button data-section-target="appearance"><span data-icon="palette"></span><strong>Make it yours</strong><span>Theme, colors &amp; type</span></button><button data-section-target="privacy"><span data-icon="shield"></span><strong>Browse with control</strong><span>Privacy &amp; protection</span></button><button data-section-target="ai"><span data-icon="sparkle"></span><strong>A little intelligence</strong><span>Your AI workspace</span></button></div><h2>On startup & new tabs</h2><div class="card">
       <div class="field">
         <div>
           <label for="behavior">New tab opens</label>
@@ -48,10 +35,8 @@
         </div>
         <div class="control"><input id="homepage" type="text" spellcheck="false"></div>
       </div>
-    </div>
-
-    <h2>Appearance</h2>
-    <div class="card">
+    </div></section>
+<section class="settings-section" data-section="appearance" aria-label="Appearance" hidden><div class="card">
       <div class="field">
         <div>
           <label for="theme">Theme</label>
@@ -88,10 +73,8 @@
           <input id="bookmarksBar" type="checkbox" class="toggle">
         </div>
       </div>
-    </div>
-
-    <h2>New tab page</h2>
-    <div class="card">
+    </div><h2>Typography & color</h2><div class="card"><div class="field"><div><label>Typeface</label><div class="hint">Your font, across the entire browser.</div></div><div class="control right"><select id="font" aria-label="Typeface"></select></div></div><div class="field"><div><label>Text size</label><div class="hint">10 to 22 pixels, scaled by the density setting.</div></div><div class="control right"><input id="fontSize" type="number" min="10" max="22" step="0.5" aria-label="Text size"></div></div><div class="field"><div><label>Density</label><div class="hint">Choose how much room each control has.</div></div><div class="control right"><select id="density" aria-label="Density"></select></div></div><div class="field"><div><label>Accent color</label><div class="hint">Used for active items, buttons and focus rings.</div></div><div class="control right"><select id="accent" aria-label="Accent color"></select></div></div><div class="field"><div><label>Custom accent</label><div class="hint">Choose a color, then select Custom above.</div></div><div class="control right"><input id="accentCustom" type="color" aria-label="Custom accent"></div></div></div></section>
+<section class="settings-section" data-section="content" aria-label="Content" hidden><div class="card">
       <div class="field">
         <div>
           <label>Customize widgets and background</label>
@@ -110,23 +93,8 @@
           <input id="showMostVisited" type="checkbox" class="toggle">
         </div>
       </div>
-    </div>
-
-    <h2>Extensions</h2>
-    <div class="card">
-      <div class="field">
-        <div>
-          <label>Manage extensions</label>
-          <div class="hint">Install, disable or remove Chrome extensions.</div>
-        </div>
-        <div class="control right">
-          <button id="extensions">Open extensions</button>
-        </div>
-      </div>
-    </div>
-
-    <h2>Shields</h2>
-    <div class="card">
+    </div></section>
+<section class="settings-section" data-section="privacy" aria-label="Privacy & Security" hidden><h2>Shields</h2><div class="card">
       <div class="field">
         <div>
           <label for="sh-enabled">Shields</label>
@@ -183,10 +151,7 @@
           <button id="sh-open">Open Shields</button>
         </div>
       </div>
-    </div>
-
-    <h2>Safety</h2>
-    <div class="card">
+    </div><h2>Safety</h2><div class="card">
       <div class="field">
         <div>
           <label for="sf-enabled">Warn about fake and risky sites</label>
@@ -201,28 +166,36 @@
         </div>
         <div class="control right"><button id="sf-open">Open Safety</button></div>
       </div>
-    </div>
-
-    <h2>Performance</h2>
-    <div class="card">
-      <div class="field">
-        <div>
-          <label for="rs-game">Game Mode</label>
-          <div class="hint">Pauses background tabs so games get the machine.</div>
-        </div>
-        <div class="control right"><input id="rs-game" type="checkbox" class="toggle"></div>
+    </div><h2>Clear browsing data</h2><div class="card">
+      <div class="checks">
+        <label><input type="checkbox" id="clear-history" checked> Browsing history</label>
+        <label><input type="checkbox" id="clear-cookies"> Cookies and site data</label>
+        <label><input type="checkbox" id="clear-cache"> Cached files and images</label>
+        <label><input type="checkbox" id="clear-downloads"> Download history</label>
       </div>
       <div class="field">
-        <div>
-          <label>Memory in use</label>
-          <div class="hint" id="rs-usage">Measuring…</div>
+        <div class="hint" id="clear-status">Choose what to remove, then clear.</div>
+        <div class="control right">
+          <button id="clear" class="danger">Clear browsing data</button>
         </div>
-        <div class="control right"><button id="rs-open">Open Resources</button></div>
       </div>
-    </div>
-
-    <h2>Focus</h2>
-    <div class="card">
+    </div></section>
+<section class="settings-section" data-section="ai" aria-label="AI" hidden><div class="card"><div class="field"><div><label>Gemini</label><div class="hint">Gemini 3 Flash Preview powers your AI conversations.</div></div><div class="control right"><span id="ai-connection" class="status-badge">Checking connection</span></div></div><div class="field"><div><label>Your AI workspace</label><div class="hint">Ask questions, revisit conversations and keep your research together.</div></div><div class="control right"><button data-open-page="browser://ai">Open AI chat</button></div></div><div class="field"><div><label>Saved notes</label><div class="hint">Keep sources and selected text alongside your work.</div></div><div class="control right"><button data-open-page="browser://notes">Open Notes</button></div></div></div><p class="settings-note">Prompts and the source text you choose to submit are sent to Google for a response. AI answers can be wrong; check important details against their sources.</p></section>
+<section class="settings-section" data-section="search" aria-label="Search" hidden><div class="card">
+      <div class="field">
+        <div>
+          <label for="engine">Default search engine</label>
+          <div class="hint">Used by the address bar and the new tab page.</div>
+        </div>
+        <div class="control">
+          <select id="engine">
+            <option value="google">Google</option>
+            <option value="brave">Brave Search</option>
+          </select>
+        </div>
+      </div>
+    </div></section>
+<section class="settings-section" data-section="workspaces" aria-label="Workspaces" hidden><div class="card"><div class="field"><div><label>Workspace sidebar</label><div class="hint">Keep navigation visible, reveal it at the left edge, or hide it.</div></div><div class="control right"><select id="sidebarMode" aria-label="Workspace sidebar"><option value="on">On</option><option value="autohide">Autohide</option><option value="off">Off</option></select></div></div></div><h2>Focus</h2><div class="card">
       <div class="field">
         <div>
           <label>Session</label>
@@ -239,33 +212,48 @@
           <div class="hint" id="fc-sites">&nbsp;</div>
         </div>
       </div>
-    </div>
-
-    <h2>Modes</h2>
-    <div class="card">
+    </div><h2>Your workspaces</h2><div class="card">
       <div class="hint">Every mode in static. Open one to change what it does.</div>
       <div id="mode-list" class="mode-grid"></div>
-    </div>
-
-    <h2>Privacy</h2>
-    <div class="card">
-      <div class="checks">
-        <label><input type="checkbox" id="clear-history" checked> Browsing history</label>
-        <label><input type="checkbox" id="clear-cookies"> Cookies and site data</label>
-        <label><input type="checkbox" id="clear-cache"> Cached files and images</label>
-        <label><input type="checkbox" id="clear-downloads"> Download history</label>
-      </div>
+    </div></section>
+<section class="settings-section" data-section="extensions" aria-label="Extensions" hidden><div class="card">
       <div class="field">
-        <div class="hint" id="clear-status">Choose what to remove, then clear.</div>
+        <div>
+          <label>Manage extensions</label>
+          <div class="hint">Install, disable or remove Chrome extensions.</div>
+        </div>
         <div class="control right">
-          <button id="clear" class="danger">Clear browsing data</button>
+          <button id="extensions">Open extensions</button>
         </div>
       </div>
-    </div>
-  </div>
-  <script src="../../shared/theme.js"></script>
-  <script src="../../shared/modes.js"></script>
-  <script src="common.js"></script>
-  <script src="settings.js"></script>
+    </div><p class="settings-note">Chrome extensions use Static&#39;s compatibility bridge. Support depends on the Chrome APIs each extension needs.</p></section>
+<section class="settings-section" data-section="passwords" aria-label="Passwords" hidden><div class="card"><div class="field"><div><label>Saved passwords</label><div class="hint">Review and manage credentials in the local password vault.</div></div><div class="control right"><button data-open-page="browser://passwords">Open password manager</button></div></div></div><p class="settings-note">Passwords are encrypted using your operating system. This page does not expose saved passwords.</p></section>
+<section class="settings-section" data-section="downloads" aria-label="Downloads" hidden><div class="card"><div class="field"><div><label>Your downloads</label><div class="hint">Follow active downloads and open their containing folders.</div></div><div class="control right"><button data-open-page="browser://downloads">Open downloads</button></div></div></div></section>
+<section class="settings-section" data-section="accessibility" aria-label="Accessibility" hidden><div class="card"><div class="field"><div><label>Reduce motion</label><div class="hint">Turn off menu and interface animations.</div></div><div class="control right"><input id="reduce-motion" type="checkbox" class="toggle" aria-label="Reduce motion"></div></div><div class="field"><div><label>Text & spacing</label><div class="hint">Adjust typeface, text size and density in Appearance.</div></div><div class="control right"><button data-section-target="appearance">Adjust appearance</button></div></div></div><div class="card shortcut-guide"><h2>Move around with your keyboard</h2><dl><dt>Search settings</dt><dd><kbd class="search-key">Ctrl+K</kbd></dd><dt>Open browser menu</dt><dd><kbd>F10</kbd></dd><dt>Move through menu items</dt><dd><kbd>&uarr;</kbd> <kbd>&darr;</kbd></dd><dt>Close menus & dialogs</dt><dd><kbd>Esc</kbd></dd></dl></div></section>
+<section class="settings-section" data-section="system" aria-label="System" hidden><div class="card">
+      <div class="field">
+        <div>
+          <label for="rs-game">Game Mode</label>
+          <div class="hint">Pauses background tabs so games get the machine.</div>
+        </div>
+        <div class="control right"><input id="rs-game" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label>Memory in use</label>
+          <div class="hint" id="rs-usage">Measuring…</div>
+        </div>
+        <div class="control right"><button id="rs-open">Open Resources</button></div>
+      </div>
+    </div></section>
+<section class="settings-section" data-section="reset" aria-label="Reset settings" hidden><div class="card"><div class="field"><div><label>Reset appearance</label><div class="hint">Restore the default theme, typeface, spacing and sidebar.</div></div><div class="control right"><button data-reset="appearance">Reset appearance</button></div></div><div class="field"><div><label>Reset browser preferences</label><div class="hint">Also reset your homepage, search engine and new-tab layout.</div></div><div class="control right"><button data-reset="all" class="danger">Reset preferences</button></div></div></div><p class="settings-note">Your bookmarks, history, downloads, notes, conversations, saved passwords and installed extensions are kept.</p></section>
+<section class="settings-section" data-section="about" aria-label="About Static" hidden><div class="card about-static"><img src="../assets/static-mark.svg" alt="" width="72" height="72"><h2>Static</h2><p>A more intelligent web.</p><span id="app-version" class="status-badge"></span><dl><dt>Chromium</dt><dd id="chromium-version"></dd><dt>Electron</dt><dd id="electron-version"></dd></dl></div><h2>Quick help</h2><div class="card"><div class="field"><div><label>Search or ask AI</label><div class="hint">Enter searches the web. Press Tab, then Enter for AI on a new tab.</div></div><div class="control right"><button data-open-page="browser://newtab">Open a new tab</button></div></div><div class="field"><div><label>Make a widget</label><div class="hint">Open a new tab, choose Customize, then pick the widgets you want.</div></div><div class="control right"><button data-section-target="content">New-tab options</button></div></div></div></section></div><div id="settings-no-results" class="empty" hidden>No settings found. Try theme, privacy or search.</div>
+</main>
+<dialog id="reset-dialog" aria-labelledby="reset-title"><form method="dialog"><span data-icon="reset"></span><h2 id="reset-title">Reset preferences?</h2><p id="reset-description"></p><p>Your saved browsing data will be kept.</p><div class="dialog-actions"><button value="cancel" autofocus>Cancel</button><button id="confirm-reset" value="reset" class="primary">Reset</button></div></form></dialog>
+<script src="../../shared/theme.js"></script>
+<script src="../../shared/modes.js"></script>
+<script src="common.js"></script>
+<script src="settings-navigation.js"></script>
+<script src="settings.js"></script>
 </body>
 </html>

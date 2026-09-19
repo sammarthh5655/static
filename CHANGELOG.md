@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Fixed live font/accent propagation to chrome, menus and internal pages.
+- Fixed stale menu-trigger state after keyboard opening, replacement-menu
+  ordering, and delayed overlay resize events; menus support keyboard navigation.
+
 - Fixed the main-process crash when opening static while it is already running:
   Focus Mode had shadowed the window activation method. Second launches now
   restore and show the existing window, and app activation uses the same path.
@@ -18,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   intact, and checks app activation.
 
 ### Added
+
+**Static menu and Settings design**
+- Cyan/blue Static mark, midnight glass surfaces, grouped menu rows and shared
+  outline icons based on the supplied visual reference. Other themes remain selectable.
+- Searchable Settings sidebar with fourteen functional categories, section links,
+  keyboard search, responsive layouts, and real application/engine version details.
+- Typeface, size, density and accent controls, plus workspace sidebar On/Autohide/Off.
+- Confirmed appearance-only or full preference reset; saved browsing data is retained.
+- Electron coverage for menu reopening/keyboard use, settings search, live appearance,
+  reset cancellation/confirmation, sidebar behavior, section links and compact/light views.
 
 **Video ad blocking** (scriptlets)
 - Blocks YouTube pre-rolls, mid-rolls and post-rolls by emptying the ad slots

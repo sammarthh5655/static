@@ -10,7 +10,7 @@ let applying = false;
 function update(patch) {
   if (applying) return;
   invoke('settings:update', patch).catch((error) => {
-    $('#clear-status').textContent = error.message;
+    $('#settings-status').textContent = error.message;
   });
 }
 
@@ -24,6 +24,12 @@ $('#theme').addEventListener('change', (e) => update({ theme: e.target.value }))
 $('#surfaceStyle').addEventListener('change', (e) => update({ surfaceStyle: e.target.value }));
 $('#radius').addEventListener('change', (e) => update({ radius: e.target.value }));
 $('#animations').addEventListener('change', (e) => update({ animations: e.target.checked }));
+for (const id of ['font', 'density', 'accent', 'sidebarMode']) {
+  $('#' + id).addEventListener('change', event => update({ [id]: event.target.value }));
+}
+$('#fontSize').addEventListener('change', event => update({ fontSize: Number(event.target.value) }));
+$('#accentCustom').addEventListener('change', event => update({ accentCustom: event.target.value, accent: 'custom' }));
+$('#reduce-motion').addEventListener('change', event => update({ animations: !event.target.checked }));
 
 $('#showMostVisited').addEventListener('change', (e) =>
   update({ newTab: { showMostVisited: e.target.checked } }));
@@ -53,9 +59,14 @@ $('#clear').addEventListener('click', async () => {
   }
   $('#clear').disabled = true;
   $('#clear-status').textContent = 'Clearing…';
-  await invoke('settings:clear-data', options);
-  $('#clear').disabled = false;
-  $('#clear-status').textContent = 'Browsing data cleared.';
+  try {
+    await invoke('settings:clear-data', options);
+    $('#clear-status').textContent = 'Browsing data cleared.';
+  } catch (error) {
+    $('#clear-status').textContent = error.message;
+  } finally {
+    $('#clear').disabled = false;
+  }
 });
 
 // ---- Shields ---------------------------------------------------------
@@ -161,6 +172,13 @@ onState((state) => {
   fillSelect($('#surfaceStyle'), catalog.surfaceStyles || [], s.surfaceStyle || 'frosted');
   fillSelect($('#radius'), catalog.radii || [], s.radius || 'rounded');
   $('#animations').checked = s.animations !== false;
+  $('#reduce-motion').checked = s.animations === false;
+  $('#sidebarMode').value = s.sidebarMode || 'on';
+  fillSelect($('#font'), Object.values(window.theme.FONTS), s.font || 'system');
+  fillSelect($('#density'), Object.values(window.theme.DENSITY), s.density || 'comfortable');
+  fillSelect($('#accent'), Object.values(window.theme.ACCENTS), s.accent || 'default');
+  if (document.activeElement !== $('#fontSize')) $('#fontSize').value = s.fontSize || 13;
+  if (document.activeElement !== $('#accentCustom')) $('#accentCustom').value = s.accentCustom || '#47baff';
   $('#showMostVisited').checked = s.newTab?.showMostVisited !== false;
 
   // Shields. Read from state.features, which carries the raw config flags -

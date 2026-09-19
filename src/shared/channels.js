@@ -9,7 +9,7 @@ module.exports = {
     'history:search', 'history:remove',
     'extensions:load-unpacked', 'extensions:load-crx', 'extensions:set-enabled', 'extensions:remove', 'extensions:options',
     'downloads:reveal', 'downloads:cancel', 'downloads:clear',
-    'settings:update', 'settings:clear-data',
+    'settings:update', 'settings:clear-data', 'settings:reset',
     'newtab:notes',
     'ai:ask', 'ai:cancel', 'ai:status',
     'chat:list', 'chat:get', 'chat:new', 'chat:send',
@@ -28,5 +28,5 @@ module.exports = {
     'passwords:reveal', 'passwords:remove', 'passwords:clear', 'passwords:generate',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
-  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed'],
+  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed'],
 };

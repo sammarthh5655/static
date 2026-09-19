@@ -7,6 +7,7 @@ const { WIDGETS, BACKGROUNDS, DEFAULT_LAYOUT } = require('../../shared/widgets')
 const DEFAULTS = {
   searchEngine: 'google',
   bookmarksBar: true,
+  sidebarMode: 'on',
   homepage: 'browser://newtab',
   newTabBehavior: 'newtab',
 
@@ -57,6 +58,7 @@ class Settings {
     if (typeof next.animations !== 'boolean') next.animations = DEFAULTS.animations;
     if (!FONTS[next.font]) next.font = DEFAULTS.font;
     if (!DENSITY[next.density]) next.density = DEFAULTS.density;
+    if (!['on', 'autohide', 'off'].includes(next.sidebarMode)) next.sidebarMode = DEFAULTS.sidebarMode;
     if (!ACCENTS[next.accent]) next.accent = DEFAULTS.accent;
     next.fontSize = clampSize(next.fontSize, DEFAULTS.fontSize);
     next.accentCustom = normalizeHex(next.accentCustom) || '';
@@ -88,6 +90,7 @@ class Settings {
     for (const [key, value] of Object.entries(patch)) {
       if (key === 'searchEngine' && ['google', 'brave'].includes(value)) next[key] = value;
       else if (key === 'bookmarksBar' && typeof value === 'boolean') next[key] = value;
+      else if (key === 'sidebarMode' && ['on', 'autohide', 'off'].includes(value)) next[key] = value;
       else if (key === 'newTabBehavior' && ['newtab', 'homepage'].includes(value)) next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
       else if (key === 'theme' && THEMES[value]) next[key] = value;
@@ -105,6 +108,22 @@ class Settings {
     this.store.save(next);
     this.value = next;
     return next;
+  }
+
+  reset(scope) {
+    if (!['appearance', 'all'].includes(scope)) throw new Error('Invalid reset scope.');
+    const defaults = structuredClone(DEFAULTS);
+    if (scope === 'appearance') {
+      return this.update(Object.fromEntries([
+        'theme', 'surfaceStyle', 'radius', 'animations', 'font', 'fontSize',
+        'density', 'accent', 'accentCustom', 'sidebarMode',
+      ].map(key => [key, defaults[key]])));
+    }
+    // Reset only this preference store; other feature stores and the profile
+    // (bookmarks, notes, history, passwords, extensions) remain untouched.
+    this.value = this.#normalise(defaults);
+    this.store.save(this.value);
+    return this.value;
   }
 }
 

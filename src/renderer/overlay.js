@@ -20,7 +20,7 @@ let state = { settings: {} };
 let appliedTheme = '';
 
 function applyTheme(settings) {
-  const key = [settings.theme, settings.surfaceStyle, settings.radius, settings.animations].join('|');
+  const key = JSON.stringify(window.theme.cssVariables(settings));
   if (key === appliedTheme) return;
   appliedTheme = key;
   for (const [name, value] of Object.entries(window.theme.cssVariables(settings))) {
@@ -39,9 +39,10 @@ function setInteractive(open) {
 
 /** Turn a serialised item into one the menu builder can use. */
 function hydrate(item) {
-  if (!item || item.separator || item.heading) return item;
+  if (!item || item.separator || item.heading || item.brand) return item;
   return {
     ...item,
+    choices: item.choices?.map(hydrate),
     onSelect: () => {
       setInteractive(false);
       if (item.action) invoke(item.action.channel, item.action.payload);
@@ -52,6 +53,9 @@ function hydrate(item) {
 /** Draw a menu from a request, if there is one. */
 async function renderMenu(payload) {
   const items = (payload?.items || []).map(hydrate);
+  // Dismiss first: otherwise the old menu's close callback can shrink the
+  // native overlay after the replacement menu has already been opened.
+  window.ui.closeMenu();
   if (!items.length) return;
 
   // Size the overlay to the window BEFORE building the menu, and wait for that

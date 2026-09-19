@@ -449,6 +449,7 @@ class BrowserApplication {
       // Widget + background catalogues, so the new tab customiser and the
       // settings page never hardcode a list that could drift from the registry.
       ai: { available: gemini.hasKey() },
+      appInfo: { version: app.getVersion(), chromium: process.versions.chrome, electron: process.versions.electron },
       modes: this.modeSummary(),
       // Raw feature config, so Settings can render a checkbox per option.
       // `modes` above carries display strings for the dashboard; these are the
@@ -629,6 +630,12 @@ class BrowserApplication {
         return next;
       },
       'settings:clear-data': (_sender, payload) => this.#clearData(payload),
+      'settings:reset': (_sender, payload) => {
+        const next = this.settings.reset(payload?.scope);
+        this.layout();
+        this.push();
+        return next;
+      },
 
       // ---- AI -------------------------------------------------------------
       // The Gemini key lives only in main (features/ai/gemini.js). A renderer
@@ -1082,6 +1089,8 @@ class BrowserApplication {
   attachShortcuts(contents) {
     if (!contents || contents.isDestroyed()) return;
     contents.on('before-input-event', (event, input) => {
+      // Escape must dismiss the menu even if the underlying site is loading.
+      if (contents === this.overlay?.webContents && this.overlayInteractive && input.key === 'Escape') return;
       const action = matchAccelerator(input);
       if (!action) return;
       // Escape is only ours while a page is actually loading; otherwise it
@@ -1248,6 +1257,7 @@ class BrowserApplication {
    */
   setOverlayInteractive(interactive) {
     if (!this.overlay || !this.window || this.window.isDestroyed()) return;
+    const wasInteractive = this.overlayInteractive;
     this.overlayInteractive = interactive;
     const { width, height } = this.window.getContentBounds();
     // Full-window while a menu is open; a 1x1 corner otherwise, so clicks pass
@@ -1262,10 +1272,15 @@ class BrowserApplication {
       // bug stayed hidden; on a real site the page covered the menu entirely.
       this.window.contentView.addChildView(this.overlay);
       this.overlay.setBounds({ x: 0, y: 0, width, height });
+      this.overlay.webContents.focus();
     } else {
       // A 1x1 corner when idle, so clicks pass straight through to the chrome
       // and the page below. The view stays attached either way.
       this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+      // A menu can open from F10 while a web tab owns focus, so chrome never
+      // gets a blur event. Explicitly reset its trigger on every dismissal.
+      this.chrome.webContents.send('ui:menu-closed');
+      if (wasInteractive) this.chrome.webContents.focus();
     }
   }
 
