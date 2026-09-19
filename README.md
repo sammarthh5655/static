@@ -45,6 +45,7 @@ Other scripts:
 | `npm run test:appearance` | Theme, radius, motion, window controls and shortcuts |
 | `npm run test:ai` | AI mode switching and a real Gemini call |
 | `npm run test:aipage` | The AI page: transcript, history, multi-turn memory |
+| `npm run test:modes` | Focus blocking, safety scoring, notes and resource metrics |
 | `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
 | `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
 
@@ -110,10 +111,23 @@ src/
       extensions.*       Extension manager (enable/disable/remove/load)
       settings.*         Settings, including clear-browsing-data
       ai.*               AI page: chat sidebar, transcript, composer
+      dashboard.*        Control centre: live cards for every mode
+      focus.*            Focus sessions, blocklist, block interstitial
+      notes.*            Captured text, links, screenshots
+      resources.*        Memory, CPU and Game Mode
+      safety.*           Fake-site warnings and trust list
+      student/legal.*    AI workspaces (share workspace.js)
+      shopping.*         Product comparison
+      shell.js/.css      Sidebar, header and command bar shared by mode pages
       common.js          Shared helpers for every internal page
       widgets/           New tab widget implementations
   features/              One folder per feature, each a self-contained module
     ai/                  Gemini client + chat history - main process only
+    focus/               Site blocking, sessions, presets
+    notes/               Captured notes and workspaces
+    resources/           Per-tab metrics, suspension, Game Mode
+    safety/              Phishing and lookalike-domain heuristics
+    workspaces/          Prompt definitions for Student, Legal and Shopping
     tabs/                Tab lifecycle, WebContentsView management, navigation
     bookmarks/           Bookmark storage and toggling
     history/             Visit recording, search, omnibox suggestions
@@ -124,6 +138,7 @@ src/
     channels.js          The complete IPC contract - the security allowlist
     urls.js              URL vs search detection, scheme allowlist, security state
     theme.js             Colours, radius, blur, motion, fonts, icon set - one source
+    modes.js             Mode registry: sidebar, cards and command bar build from it
     widgets.js           New tab widget registry
 scripts/
   build.cjs              esbuild preload bundler
@@ -273,6 +288,23 @@ package, which is the single most common source of Electron build breakage.
 Writes are atomic (temp file + rename) and history writes are debounced so
 logging every visit doesn't hammer the disk. If history ever needs to grow past
 a few hundred thousand rows, that is the point to revisit this.
+
+---
+
+## What the resource controls can and cannot do
+
+Electron reports real per-process CPU and memory through `app.getAppMetrics()`,
+so the numbers in Resources are genuine. But there is **no API to cap a
+renderer's memory or throttle its CPU to a percentage** — Chromium does not
+expose one.
+
+So the memory modes and CPU profiles are *policies*, not enforcement: they
+decide when to warn, mute, throttle or suspend. The real levers are
+`setBackgroundThrottling`, `setAudioMuted` and discarding a tab. Game Mode is
+those same levers applied at once, with a measured before/after.
+
+A slider claiming to cap RAM at 2 GB would be a lie the user only discovers
+when it fails, so the UI says this on the page itself.
 
 ---
 

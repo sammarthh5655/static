@@ -10,6 +10,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+**Control centre**
+- `browser://dashboard` with a card per mode showing LIVE state, a persistent
+  sidebar with badges, and a Ctrl+K command bar that searches modes, actions,
+  open tabs and history
+- `shared/modes.js` is the single registry the sidebar, cards and command bar
+  all build from - adding a mode means one entry plus a page
+
+**Focus mode** (`browser://focus`)
+- Blocks top-level loads via webRequest; a blocked navigation redirects to the
+  page itself, which explains why rather than showing a browser error
+- YouTube allowed by default and in every preset, stated visibly in the UI
+- Pomodoro timer, presets (Study/Work/Legal/Gaming/Custom), per-site toggles,
+  productivity stats, and an emergency unlock with a one-minute wait
+
+**Resources** (`browser://resources`)
+- Real per-tab memory and CPU from app.getAppMetrics()
+- Memory modes and CPU profiles, auto-suspend, and Game Mode with a savings
+  report and one-click restore
+- The page states its own limits: a browser cannot cap memory or throttle CPU,
+  so these are policies, not enforcement
+
+**Notes** (`browser://notes`)
+- Capture selected text, links or screenshots from any page (Ctrl+Shift+S)
+- Workspaces, tags, search, pin, AI summarise, and Markdown export
+
+**Safety** (`browser://safety`)
+- Local heuristics for lookalike domains, brand imitation, punycode, risky
+  TLDs, IP hosts and unencrypted sign-in forms
+- Full interstitial explaining WHY, with go back / continue / always trust
+- Tuned against false positives: verified silent on google, github, wikipedia,
+  amazon.in and hdfcbank
+
+**Student and Legal** (`browser://student`, `browser://legal`)
+- Student: summarise, explain simply, notes, quiz, flashcards, translate
+- Legal: Indian practice - judgment summary, case brief, provisions, timeline,
+  issues, para-wise notes, and drafting for notices, replies and submissions.
+  Prompts name both current and former provisions (BNS/IPC, BNSS/CrPC) and use
+  Indian citation form. A verification disclaimer is always visible.
+
+**Shopping** (`browser://shopping`)
+- Compares product pages already open in tabs; missing fields show as "not
+  found" rather than being guessed
+
+### Fixed
+- Menus could open invisible. A RUNNING animation overrides the base rule
+  whatever its fill mode, so an animation stalled mid-flight (which happens
+  when the overlay view is not composited) pinned the menu at opacity 0. The
+  entrance now animates transform only, so no animation state can hide it.
+- The menu had no max-height and overflowed the window once it grew past nine
+  items; it now caps to the viewport and scrolls.
+- Legal pinned itself to the Pro model with `model`, so a quota error failed
+  the request outright. `preferModel` now puts it first in the chain but still
+  falls back.
+
+
+### Added
+
 **AI page (browser://ai)**
 - A dedicated AI page with a conversation sidebar, transcript and composer
 - Chat history persists in the main process, so a transcript survives closing
