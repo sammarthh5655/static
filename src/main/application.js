@@ -14,6 +14,11 @@ const { Extensions } = require('../features/extensions');
 const { Tabs, NEW_TAB } = require('../features/tabs');
 const gemini = require('../features/ai/gemini');
 const { Chats } = require('../features/ai/chats');
+const { Resources } = require('../features/resources');
+const { Focus } = require('../features/focus');
+const { Notes } = require('../features/notes');
+const { Safety } = require('../features/safety');
+const { MODES } = require('../shared/modes');
 
 /**
  * Chrome geometry. These MUST match the heights in renderer/chrome.css,
@@ -60,6 +65,8 @@ class BrowserApplication {
     this.pendingMenu = null;
     // Aborts the in-flight Gemini request when a new one starts.
     this.aiController = null;
+    // URLs the user chose to open despite a safety warning, this run only.
+    this.sessionAllowed = new Set();
   }
 
   async start() {
@@ -67,10 +74,25 @@ class BrowserApplication {
     this.bookmarks = new Bookmarks(this.dir);
     this.history = new History(this.dir);
     this.downloads = new Downloads(this.dir, this.session, () => this.push());
-    this.notes = new JsonStore(this.dir, 'notes', { text: '' });
+    // The new-tab scratchpad widget. Distinct from the Notes feature below.
+    this.scratchpad = new JsonStore(this.dir, 'scratchpad', { text: '' });
     this.chats = new Chats(this.dir);
 
+    // Feature modes. Each owns its own JsonStore and notifies through push(),
+    // so the dashboard and every mode page stay in step without polling.
+    this.focus = new Focus(this.dir, { onChange: () => this.push() });
+    this.notes = new Notes(this.dir, { onChange: () => this.push() });
+    this.safety = new Safety(this.dir, { onChange: () => this.push() });
+    // Resources needs the tab manager, which ensureWindow() creates, so it is
+    // constructed with lazy accessors rather than direct references.
+    this.resources = new Resources(this.dir, {
+      getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
+      getActiveId: () => this.tabs?.activeId || null,
+      onChange: () => this.push(),
+    });
+
     this.#hardenSession();
+    this.#installRequestFilter();
     this.ensureWindow();
     this.#registerIpc();
 
@@ -103,6 +125,26 @@ class BrowserApplication {
       console.error('Extension subsystem failed to start:', error);
       this.notify('Extensions failed to load: ' + error.message);
     }
+  }
+
+  /**
+   * Block requests for Focus mode.
+   *
+   * Only top-level document loads are considered: blocking subresources would
+   * break embeds and assets on pages the user is entitled to see, and the goal
+   * is to stop someone opening a distracting SITE, not to break the web.
+   */
+  #installRequestFilter() {
+    this.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        if (details.resourceType !== 'mainFrame') return callback({});
+        if (!this.focus.shouldBlock(details.url)) return callback({});
+        this.focus.recordHit();
+        // Redirect rather than cancel: a cancelled load shows Chromium's own
+        // error page, which explains nothing about why it was stopped.
+        const target = 'browser://focus?blocked=' + encodeURIComponent(details.url);
+        callback({ redirectURL: target });
+      });
   }
 
   /**
@@ -290,6 +332,7 @@ class BrowserApplication {
       // Widget + background catalogues, so the new tab customiser and the
       // settings page never hardcode a list that could drift from the registry.
       ai: { available: gemini.hasKey() },
+      modes: this.modeSummary(),
       catalog: {
         widgets: Object.values(WIDGETS),
         backgrounds: Object.values(BACKGROUNDS),
@@ -558,13 +601,134 @@ class BrowserApplication {
         }
       },
 
+      // ---- resources -------------------------------------------------------
+      'resources:state': () => this.resources.state(),
+      'resources:watch': (_sender, payload) => {
+        if (payload?.watch === false) this.resources.stop();
+        else this.resources.start();
+        return this.resources.state();
+      },
+      'resources:update': (_sender, payload) => this.resources.update(payload),
+      'resources:suspend': (_sender, payload) =>
+        this.resources.suspend(payload?.id, 'manual', { discard: !!payload?.discard }),
+      'resources:resume': (_sender, payload) => this.resources.resume(payload?.id),
+      'resources:resume-all': () => this.resources.resumeAll(),
+      'resources:game-mode': (_sender, payload) => this.resources.setGameMode(!!payload?.on),
+
+      // ---- focus -----------------------------------------------------------
+      'focus:state': () => this.focus.state(),
+      'focus:start': (_sender, payload) => this.focus.start(payload),
+      'focus:stop': () => this.focus.finish('stopped'),
+      'focus:update': (_sender, payload) => this.focus.update(payload),
+      'focus:unlock': () => this.focus.requestUnlock(),
+
+      // ---- notes -----------------------------------------------------------
+      'notes:state': () => this.notes.state(),
+      'notes:list': (_sender, payload) => this.notes.list(payload || {}),
+      'notes:add': (_sender, payload) => this.notes.add(payload || {}),
+      'notes:update': (_sender, payload) => this.notes.update(payload?.id, payload || {}),
+      'notes:remove': (_sender, payload) => this.notes.remove(payload?.id),
+      'notes:workspace-add': (_sender, payload) => this.notes.addWorkspace(payload?.name),
+      'notes:workspace-remove': (_sender, payload) => this.notes.removeWorkspace(payload?.id),
+      'notes:workspace-select': (_sender, payload) => this.notes.setActiveWorkspace(payload?.id),
+      'notes:export': (_sender, payload) =>
+        this.notes.export(payload?.format || 'markdown', payload?.workspace || null),
+
+      /** Capture the active tab: its selection if any, otherwise the link. */
+      'notes:capture': async (_sender, payload) => {
+        const tab = this.tabs?.active;
+        if (!tab) return { ok: false, error: 'No page is open.' };
+        const wc = tab.view.webContents;
+        let selection = '';
+        try {
+          selection = await wc.executeJavaScript('String(window.getSelection())', true);
+        } catch { selection = ''; }
+
+        const note = this.notes.add({
+          kind: selection.trim() ? 'text' : 'link',
+          body: selection.trim(),
+          title: tab.state.title,
+          url: tab.state.displayUrl,
+          tags: payload?.tags,
+          comment: payload?.comment,
+        });
+        this.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
+        return { ok: true, note };
+      },
+
+      /** Screenshot the active tab into a note. */
+      'notes:screenshot': async () => {
+        const tab = this.tabs?.active;
+        if (!tab) return { ok: false, error: 'No page is open.' };
+        try {
+          const image = await tab.view.webContents.capturePage();
+          if (image.isEmpty()) return { ok: false, error: 'The page could not be captured.' };
+          const file = this.notes.saveImage(image.toPNG());
+          if (!file) return { ok: false, error: 'The screenshot could not be saved.' };
+          const note = this.notes.add({
+            kind: 'screenshot',
+            image: file,
+            title: tab.state.title,
+            url: tab.state.displayUrl,
+          });
+          this.notify('Screenshot saved to Notes');
+          return { ok: true, note };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      },
+
+      /** Summarise a note with Gemini and store the summary alongside it. */
+      'notes:summarise': async (_sender, payload) => {
+        const note = this.notes.get(payload?.id);
+        if (!note) return { ok: false, error: 'That note no longer exists.' };
+        const source = (note.body || '').trim() || note.url;
+        if (!source) return { ok: false, error: 'There is nothing to summarise.' };
+        try {
+          const result = await gemini.generate({
+            prompt: source.slice(0, 40000),
+            system: 'Summarise the following in three or four short bullet points, '
+              + 'each starting with a dash. Plain text only, no headings or bold.',
+          });
+          this.notes.update(note.id, { comment: result.text });
+          return { ok: true, text: result.text };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      },
+
+      // ---- safety ----------------------------------------------------------
+      'safety:state': () => this.safety.state(),
+      'safety:assess': (_sender, payload) => this.safety.assess(payload?.url || ''),
+      'safety:trust': (_sender, payload) => {
+        this.safety.trust(payload?.host);
+        // Re-open what was blocked, now that it is trusted.
+        if (payload?.url) this.tabs.navigate(this.tabs.activeId, payload.url);
+        return { ok: true };
+      },
+      'safety:untrust': (_sender, payload) => this.safety.untrust(payload?.host),
+      'safety:enabled': (_sender, payload) => this.safety.setEnabled(!!payload?.enabled),
+      'safety:proceed': (_sender, payload) => {
+        // "Continue anyway" for this session only: the assessment is recorded,
+        // but the site is not permanently trusted.
+        this.safety.recordWarning({ host: payload?.host, url: payload?.url, score: 0,
+          risk: 'proceeded', reasons: [] }, 'proceeded');
+        this.sessionAllowed.add(payload?.url || '');
+        if (payload?.url) this.tabs.navigate(this.tabs.activeId, payload.url);
+        return { ok: true };
+      },
+
+      // ---- dashboard -------------------------------------------------------
+      /** Live per-mode state for the dashboard cards and sidebar badges. */
+      'modes:state': () => this.modeSummary(),
+
       // Scratchpad widget contents. Kept in its own small store rather than in
       // settings, so a long note never bloats the settings file.
       'newtab:notes': (_sender, payload) => {
         if (typeof payload?.text === 'string') {
-          this.notes.save({ text: payload.text.slice(0, 20000) });
+          this.scratchpad.save({ text: payload.text.slice(0, 20000) });
         }
-        return this.notes.data.text || '';
+        return this.scratchpad.data.text || '';
       },
     };
 
@@ -668,6 +832,11 @@ class BrowserApplication {
       case 'open:downloads': open('browser://downloads'); break;
       case 'open:settings': open('browser://settings'); break;
       case 'open:ai': open('browser://ai'); break;
+      case 'open:dashboard': open('browser://dashboard'); break;
+      case 'open:notes': open('browser://notes'); break;
+      case 'open:focus': open('browser://focus'); break;
+      case 'open:resources': open('browser://resources'); break;
+      case 'notes:capture': this.captureNote(); break;
       case 'open:extensions': open('browser://extensions'); break;
 
       case 'window:devtools': {
@@ -730,10 +899,84 @@ class BrowserApplication {
     return true;
   }
 
+  /**
+   * Save the active page (or its selection) to Notes.
+   *
+   * Shared by the Ctrl+Shift+S shortcut and the menu, so both take exactly the
+   * same path as the notes:capture IPC handler.
+   */
+  async captureNote() {
+    const tab = this.tabs?.active;
+    if (!tab) return;
+    let selection = '';
+    try {
+      selection = await tab.view.webContents
+        .executeJavaScript('String(window.getSelection())', true);
+    } catch { selection = ''; }
+    this.notes.add({
+      kind: selection.trim() ? 'text' : 'link',
+      body: selection.trim(),
+      title: tab.state.title,
+      url: tab.state.displayUrl,
+    });
+    this.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
+  }
+
+  /**
+   * One-line live state per mode, for the dashboard cards and sidebar badges.
+   * Kept cheap: this runs on every push().
+   */
+  modeSummary() {
+    const focus = this.focus.state();
+    const notes = this.notes.state();
+    const safety = this.safety.state();
+    const resources = this.resources.latest.totals || {};
+
+    const minutes = Math.ceil(focus.remainingMs / 60000);
+    return {
+      focus: {
+        active: focus.active,
+        badge: focus.active ? `${minutes}m` : null,
+        summary: focus.active
+          ? `${minutes} minutes left`
+          : `${focus.stats.todayMinutes}m focused today`,
+      },
+      notes: {
+        active: false,
+        badge: notes.count ? String(notes.count) : null,
+        summary: notes.count ? `${notes.count} saved` : 'Nothing saved yet',
+      },
+      resources: {
+        active: !!this.resources.config.gameMode,
+        badge: resources.totalMemoryMb
+          ? (resources.totalMemoryMb / 1024).toFixed(1) + 'G' : null,
+        summary: resources.totalMemoryMb
+          ? `${(resources.totalMemoryMb / 1024).toFixed(1)} GB across ${resources.tabCount} tabs`
+          : 'Not measured yet',
+      },
+      safety: {
+        active: safety.enabled,
+        badge: safety.blockedCount ? String(safety.blockedCount) : null,
+        summary: safety.enabled
+          ? `${safety.blockedCount} warnings shown`
+          : 'Warnings are off',
+      },
+      ai: { active: false, badge: null, summary: `${this.chats.list().length} conversations` },
+      student: { active: false, badge: null, summary: 'Summarise and revise' },
+      legal: { active: false, badge: null, summary: 'Indian legal research' },
+      shopping: { active: false, badge: null, summary: 'Compare open products' },
+      dashboard: { active: false, badge: null, summary: 'All modes' },
+    };
+  }
+
   flush() {
     this.history.flush();
     this.downloads.flush();
     this.chats.flush();
+    this.focus.flush();
+    this.notes.flush();
+    this.safety.flush();
+    this.resources.flush();
   }
 }
 

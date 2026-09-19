@@ -141,5 +141,9 @@ function openUrl(url, event) {
   return invoke('tabs:navigate', { input: url });
 }
 
-  window.page = { invoke, onState, $, element, timeAgo, formatBytes, openUrl, icon, favicon, applyTheme };
+  window.page = {
+    invoke, onState, $, element, timeAgo, formatBytes, openUrl, icon, favicon, applyTheme,
+    // Needed by the shell so Ctrl+K becomes Cmd+K on macOS.
+    platform: bridge.platform,
+  };
 })();

@@ -1,4 +1,5 @@
-﻿const INTERNAL_PAGES = new Set(['newtab', 'bookmarks', 'history', 'extensions', 'downloads', 'settings', 'ai']);
+﻿const INTERNAL_PAGES = new Set(['newtab', 'bookmarks', 'history', 'extensions', 'downloads', 'settings', 'ai',
+  'dashboard', 'notes', 'focus', 'resources', 'safety']);
 const ENGINES = { google: 'https://www.google.com/search?q=', brave: 'https://search.brave.com/search?q=' };
 function internalPage(input) {
   try { const u = new URL(input); return u.protocol === 'browser:' && INTERNAL_PAGES.has(u.hostname) ? u.hostname : null; }

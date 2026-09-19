@@ -49,6 +49,11 @@ const ACCELERATORS = [
   accel('open:downloads', 'Downloads', 'j', { mod: true }),
   accel('open:settings', 'Settings', ',', { mod: true }),
   accel('open:ai', 'AI chat', 'g', { mod: true, shift: true }),
+  accel('open:dashboard', 'Dashboard', 'd', { mod: true, shift: true }),
+  accel('open:notes', 'Notes', 'n', { mod: true, shift: true }),
+  accel('open:focus', 'Focus mode', 'f', { mod: true, shift: true }),
+  accel('open:resources', 'Resources', 'p', { mod: true, shift: true }),
+  accel('notes:capture', 'Save to notes', 's', { mod: true, shift: true }),
   accel('open:extensions', 'Extensions', 'e', { mod: true, shift: true }),
 
   accel('window:devtools', 'Toggle developer tools', 'F12', {}),
