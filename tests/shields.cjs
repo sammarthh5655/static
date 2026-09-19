@@ -119,6 +119,46 @@ async function run(browser) {
     check('the real video still loads', player.hasVideo === true, player.title);
     browser.tabs.close(ytTab);
 
+    // Cosmetic hiding: the containers YouTube renders ads into must not be
+    // visible. Checked on a live page because the selector list was wrong
+    // until it was verified against one.
+    const ytHome = browser.tabs.create({ url: 'https://www.youtube.com' });
+    const home = browser.tabs.tabs.get(ytHome);
+    for (let i = 0; i < 90 && home.view.webContents.isLoading(); i++) await wait(300);
+    await wait(4500);
+    const cosmetic = await home.view.webContents.executeJavaScript(`(function(){
+      var sel = ['ytd-ad-slot-renderer','ytd-in-feed-ad-layout-renderer','#player-ads',
+                 '#masthead-ad','ytd-promoted-video-renderer','ytd-display-ad-renderer'];
+      var visible = 0;
+      sel.forEach(function(s){
+        document.querySelectorAll(s).forEach(function(el){
+          if (getComputedStyle(el).display !== 'none' && el.offsetHeight > 0) visible++;
+        });
+      });
+      var sponsored = [].slice.call(document.querySelectorAll('*')).filter(function(e){
+        return e.children.length === 0 &&
+               /^sponsored$/i.test((e.textContent||'').trim()) && e.offsetHeight > 0;
+      }).length;
+      return { visible: visible, sponsored: sponsored };
+    })()`).catch((error) => ({ error: error.message }));
+    check('no visible ad containers on YouTube', cosmetic.visible === 0,
+      cosmetic.visible + ' visible');
+    check('no visible Sponsored labels', cosmetic.sponsored === 0,
+      cosmetic.sponsored + ' labels');
+
+    // The menu overlay must sit ABOVE the page. It previously rendered behind
+    // a real site, because resizing the overlay did not reorder it and any
+    // tab added afterwards sat on top.
+    await browser.chrome.webContents.executeJavaScript(
+      "document.getElementById('app-menu').click()");
+    await wait(900);
+    const children = browser.window.contentView.children;
+    const overlayIndex = children.indexOf(browser.overlay);
+    check('menu overlay is the topmost view', overlayIndex === children.length - 1,
+      'index ' + overlayIndex + ' of ' + children.length);
+    await browser.overlay.webContents.executeJavaScript('window.ui.closeMenu()').catch(() => {});
+    browser.tabs.close(ytHome);
+
     // Scriptlets must not break ordinary sites. This is the failure that
     // matters most here: a broken page is worse than an unblocked ad.
     for (const [label, url] of [

@@ -279,6 +279,7 @@ function scriptsFor(host) {
 
 /** Cosmetic rules: hide the empty boxes an ad used to occupy. */
 const COSMETIC_CSS = `
+/* Generic ad containers used across the web. */
 .adsbygoogle, ins.adsbygoogle,
 [id^="google_ads_"], [id^="div-gpt-ad"], [id^="ad-slot"],
 [class*="ad-slot"], [class*="ad-container"], [class*="ad-wrapper"],
@@ -286,9 +287,41 @@ const COSMETIC_CSS = `
 [data-ad-slot], [data-ad-client], [data-google-query-id],
 iframe[src*="doubleclick.net"], iframe[src*="googlesyndication"],
 iframe[src*="amazon-adsystem"], iframe[id^="google_ads_iframe"],
-.ytp-ad-overlay-container, .ytp-ad-message-container,
-#player-ads, #masthead-ad, ytd-promoted-video-renderer,
-ytd-display-ad-renderer, ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer {
+
+/* YouTube. These are the custom elements YouTube renders ads into; hiding the
+   element is what removes the leftover box once the network request is gone.
+   Verified against a live page rather than guessed - ytd-ad-slot-renderer,
+   ytd-in-feed-ad-layout-renderer, #player-ads and #masthead-ad were all still
+   present and visible before these rules existed. */
+ytd-ad-slot-renderer,
+ytd-promoted-video-renderer,
+ytd-display-ad-renderer,
+ytd-in-feed-ad-layout-renderer,
+ytd-banner-promo-renderer,
+ytd-statement-banner-renderer,
+ytd-companion-slot-renderer,
+ytd-action-companion-ad-renderer,
+ytd-promoted-sparkles-web-renderer,
+ytd-promoted-sparkles-text-search-renderer,
+ytd-carousel-ad-renderer,
+ytd-search-pyv-renderer,
+ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"],
+ytm-promoted-video-renderer,
+ytm-companion-slot-renderer,
+#player-ads,
+#masthead-ad,
+#offer-module,
+
+/* The in-player overlay ads, including the Shorts overlay that survived the
+   first pass. */
+.ytp-ad-overlay-container,
+.ytp-ad-message-container,
+.ytp-ad-overlay-slot,
+.ytp-featured-product,
+.ytp-suggested-action,
+.ytd-player-legacy-desktop-watch-ads-renderer,
+#shorts-inline-ads,
+ytd-reel-player-overlay-renderer ytd-ad-slot-renderer {
   display: none !important;
 }
 `;

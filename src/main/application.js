@@ -1107,14 +1107,23 @@ class BrowserApplication {
       inject(url);
     });
 
-    // Cosmetic CSS hides the empty box an ad used to occupy. It goes in at
-    // dom-ready rather than document-start because insertCSS needs a document.
-    contents.on('dom-ready', () => {
+    // Cosmetic CSS hides the box an ad would have occupied. It goes in at
+    // dom-ready rather than document-start because insertCSS needs a document,
+    // and it persists for the lifetime of that document - so ads rendered
+    // later by the page's own JavaScript are covered too.
+    const insertCosmetic = () => {
       if (!this.shields.config.enabled || !this.shields.config.hideAdSlots) return;
       let host = '';
       try { host = new URL(contents.getURL()).hostname; } catch { return; }
       if (!this.shields.activeFor(host)) return;
       contents.insertCSS(COSMETIC_CSS).catch(() => {});
+    };
+
+    contents.on('dom-ready', insertCosmetic);
+    // Single-page navigations (clicking between YouTube videos) never fire
+    // dom-ready, and the stylesheet does not always survive them, so reapply.
+    contents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+      if (isMainFrame) insertCosmetic();
     });
   }
 
@@ -1189,9 +1198,20 @@ class BrowserApplication {
     // Full-window while a menu is open; a 1x1 corner otherwise, so clicks pass
     // straight through to the chrome and the page. The view stays attached
     // either way - see the note above this method.
-    this.overlay.setBounds(interactive
-      ? { x: 0, y: 0, width, height }
-      : { x: 0, y: 0, width: 1, height: 1 });
+    if (interactive) {
+      // RE-ADD before resizing, not just resize. addChildView moves an
+      // existing child to the END of the child list, which is what puts it on
+      // top. Without this the menu opened BEHIND the page: selecting or
+      // creating a tab appends that tab above the overlay, and resizing alone
+      // does not change the order. On a blank tab nothing was behind it so the
+      // bug stayed hidden; on a real site the page covered the menu entirely.
+      this.window.contentView.addChildView(this.overlay);
+      this.overlay.setBounds({ x: 0, y: 0, width, height });
+    } else {
+      // A 1x1 corner when idle, so clicks pass straight through to the chrome
+      // and the page below. The view stays attached either way.
+      this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+    }
   }
 
   /** Hand the queued menu request to the overlay, clearing it. */
