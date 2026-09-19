@@ -30,7 +30,8 @@
     "test:modes": "npm run build && node scripts/start.cjs --modes",
     "test:homepage": "npm run build && node scripts/start.cjs --homepage",
     "check:security": "node scripts/security.cjs",
-    "test:shields": "npm run build && node scripts/start.cjs --shields"
+    "test:shields": "npm run build && node scripts/start.cjs --shields",
+    "test:privacy": "npm run build && node scripts/start.cjs --privacy"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",

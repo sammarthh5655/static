@@ -92,6 +92,15 @@ const MODES = {
     group: 'system',
     order: 8,
   },
+  passwords: {
+    id: 'passwords',
+    name: 'Passwords',
+    tagline: 'Saved logins, encrypted by your OS',
+    icon: 'lock',
+    page: 'browser://passwords',
+    group: 'system',
+    order: 9,
+  },
   safety: {
     id: 'safety',
     name: 'Safety',
@@ -99,7 +108,7 @@ const MODES = {
     icon: 'lock',
     page: 'browser://safety',
     group: 'system',
-    order: 9,
+    order: 10,
   },
 };
 

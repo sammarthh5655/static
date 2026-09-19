@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+**Shields** (`browser://shields`)
+- Ad and tracker blocking using EasyList + EasyPrivacy (113,000+ rules),
+  cached on disk and refreshed weekly, with a built-in list so a first run is
+  never unprotected
+- HTTPS upgrade, tracking-parameter stripping (utm_*, fbclid, gclid), and
+  third-party cookie blocking
+- Per-site toggle and a per-tab report of exactly what was blocked
+- States its own gaps: no cosmetic filtering, no fingerprint randomisation
+
+**Passwords** (`browser://passwords`)
+- Encrypted with Electron safeStorage, which delegates to the OS - DPAPI on
+  Windows, Keychain on macOS, libsecret/kwallet on Linux
+- Listings never contain a password; plaintext crosses IPC one entry at a time
+- Strong password generator using crypto.randomInt, avoiding confusable
+  characters
+- Refuses to save at all when the OS offers no real encryption, rather than
+  silently falling back to plaintext
+
+**Security maintenance**
+- `npm run check:security` compares the pinned Electron against npm and exits
+  non-zero when behind. It found we were a patch behind on first run;
+  bumped 44.4.2 to 44.4.3.
+
 ### Changed
 - **Redesigned the new tab page.** It was a widget grid; it is now a calm,
   spacious page with a mark, one large search box, five actions, a thin row of

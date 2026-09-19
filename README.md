@@ -47,6 +47,9 @@ Other scripts:
 | `npm run test:aipage` | The AI page: transcript, history, multi-turn memory |
 | `npm run test:modes` | Focus blocking, safety scoring, notes and resource metrics |
 | `npm run test:homepage` | New tab page: restraint, AI mode, tools panel |
+| `npm run test:shields` | Ad/tracker blocking, HTTPS upgrade, real-site check |
+| `npm run test:privacy` | Password vault encryption and non-leakage |
+| `npm run check:security` | Whether the pinned Electron is behind upstream |
 | `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
 | `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
 
@@ -129,6 +132,8 @@ src/
     resources/           Per-tab metrics, suspension, Game Mode
     safety/              Phishing and lookalike-domain heuristics
     workspaces/          Prompt definitions for Student, Legal and Shopping
+    shields/             Ad/tracker filter engine, HTTPS upgrade, URL cleaning
+    passwords/           OS-encrypted credential vault
     tabs/                Tab lifecycle, WebContentsView management, navigation
     bookmarks/           Bookmark storage and toggling
     history/             Visit recording, search, omnibox suggestions

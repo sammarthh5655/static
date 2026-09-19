@@ -19,6 +19,7 @@ const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
+const { Passwords, generatePassword } = require('../features/passwords');
 const { MODES } = require('../shared/modes');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -87,6 +88,7 @@ class BrowserApplication {
     this.notes = new Notes(this.dir, { onChange: () => this.push() });
     this.safety = new Safety(this.dir, { onChange: () => this.push() });
     this.shields = new Shields(this.dir, { onChange: () => this.push() });
+    this.passwords = new Passwords(this.dir, { onChange: () => this.push() });
     // Resources needs the tab manager, which ensureWindow() creates, so it is
     // constructed with lazy accessors rather than direct references.
     this.resources = new Resources(this.dir, {
@@ -953,6 +955,20 @@ class BrowserApplication {
       'shields:report': () => this.shields.tabReport(this.tabs?.activeId),
       'shields:refresh': () => this.shields.refresh({ force: true }),
 
+      // ---- passwords -------------------------------------------------------
+      // Listing NEVER includes a password. Plaintext crosses this boundary
+      // only through passwords:reveal, for one entry at a time.
+      'passwords:state': () => this.passwords.state(),
+      'passwords:list': (_sender, payload) => this.passwords.list(payload?.query),
+      'passwords:for-url': (_sender, payload) => this.passwords.forUrl(payload?.url),
+      'passwords:save': (_sender, payload) => this.passwords.save_credential(payload || {}),
+      'passwords:reveal': (_sender, payload) => this.passwords.reveal(payload?.id),
+      'passwords:remove': (_sender, payload) => this.passwords.remove(payload?.id),
+      'passwords:clear': () => this.passwords.clear(),
+      'passwords:generate': (_sender, payload) => ({
+        password: generatePassword(payload || {}),
+      }),
+
       // ---- dashboard -------------------------------------------------------
       /** Live per-mode state for the dashboard cards and sidebar badges. */
       'modes:state': () => this.modeSummary(),
@@ -1223,6 +1239,7 @@ class BrowserApplication {
     this.notes.flush();
     this.safety.flush();
     this.shields.flush();
+    this.passwords.flush();
     this.resources.flush();
   }
 }

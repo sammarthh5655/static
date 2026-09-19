@@ -37,6 +37,16 @@ const TYPE_MAP = {
   other: 'other',
 };
 
+/**
+ * Options that scope a rule to behaviour this engine does not implement.
+ * A rule carrying one of these is marked inert rather than applied, because
+ * applying it as a plain network rule would be wrong in both directions.
+ */
+const COSMETIC_ONLY_OPTIONS = new Set([
+  'generichide', 'elemhide', 'specifichide', 'ehide', 'ghide',
+  'content', 'inline-script', 'inline-font',
+]);
+
 const TYPE_OPTIONS = new Set([
   'document', 'subdocument', 'stylesheet', 'script', 'image', 'font',
   'object', 'xmlhttprequest', 'ping', 'media', 'websocket', 'other',
@@ -54,6 +64,8 @@ class Rule {
     this.excludedTypes = null;
     this.domains = null;         // Set of domains the rule applies on
     this.excludedDomains = null;
+    // Set when the rule only governs behaviour this engine does not implement.
+    this.inert = false;
 
     this.#applyOptions(options);
     this.pattern = this.#normalise(pattern);
@@ -82,9 +94,16 @@ class Rule {
       if (TYPE_OPTIONS.has(name)) {
         if (negated) (this.excludedTypes ||= new Set()).add(name);
         else (this.types ||= new Set()).add(name);
+        continue;
       }
-      // Anything else (redirect, csp, popup, ...) is ignored rather than
-      // silently mis-applied.
+
+      // Options that scope a rule to something this engine does not implement.
+      // These MUST disable the rule rather than being ignored: `$generichide`
+      // and friends only lift COSMETIC hiding, so treating
+      // `@@||facebook.com^$generichide` as a plain network exception silently
+      // unblocks the Facebook pixel everywhere - which is exactly what it did
+      // before this check existed.
+      if (COSMETIC_ONLY_OPTIONS.has(name)) { this.inert = true; continue; }
     }
   }
 
@@ -106,6 +125,8 @@ class Rule {
    * @param {boolean} isThird   third-party request
    */
   matches(url, host, docHost, type, isThird) {
+    // Scoped to something this engine does not implement - see `inert` above.
+    if (this.inert) return false;
     if (this.thirdParty !== null && this.thirdParty !== isThird) return false;
     if (this.types && !this.types.has(type)) return false;
     if (this.excludedTypes && this.excludedTypes.has(type)) return false;

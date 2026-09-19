@@ -408,3 +408,54 @@
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
+
+/* ---- passwords -------------------------------------------------------------- */
+
+.password-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.password-row:last-child { border-bottom: 0; }
+
+.password-main { flex: 1; min-width: 0; }
+.password-origin { font-size: 13px; color: var(--text); }
+.password-user { font-size: 11.5px; color: var(--text-faint); margin-top: 2px; }
+
+/* A revealed password is monospace so ambiguous characters can be read. */
+.password-plain {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.password-error { margin-top: 4px; font-size: 11.5px; color: var(--warn); }
+
+.generated-value {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--accent);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+.generated-value:empty::before {
+  content: 'Press Generate';
+  color: var(--text-faint);
+  font-family: var(--font);
+  font-size: 12.5px;
+}
