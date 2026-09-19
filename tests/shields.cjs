@@ -94,7 +94,19 @@ async function run(browser) {
         ? window.ytInitialPlayerResponse.adPlacements.length : 0,
       playerAds: (window.ytInitialPlayerResponse && window.ytInitialPlayerResponse.playerAds)
         ? window.ytInitialPlayerResponse.playerAds.length : 0,
-      adShowing: !!document.querySelector('.ad-showing'),
+      // Whether an AD is actually playing, not whether a transient CSS class
+      // appeared. The player briefly sets .ad-showing while it works out it
+      // has no ads, which is not a user-visible ad.
+      playingAd: (() => {
+        const player = document.getElementById('movie_player');
+        try { return !!(player && player.getVideoData && player.getVideoData().isAd); }
+        catch (e) { return false; }
+      })(),
+      playingVideoId: (() => {
+        const player = document.getElementById('movie_player');
+        try { return player && player.getVideoData ? player.getVideoData().video_id : null; }
+        catch (e) { return null; }
+      })(),
       hasVideo: !!document.querySelector('video'),
       title: document.title,
     })`).catch((error) => ({ error: error.message }));
@@ -102,7 +114,8 @@ async function run(browser) {
     check('scriptlets run on YouTube', player.ran === true, player.error || '');
     check('ad placements stripped', player.adPlacements === 0, 'adPlacements=' + player.adPlacements);
     check('player ads stripped', player.playerAds === 0, 'playerAds=' + player.playerAds);
-    check('no ad is showing', player.adShowing === false);
+    check('no ad is playing', player.playingAd === false,
+      'video_id=' + player.playingVideoId);
     check('the real video still loads', player.hasVideo === true, player.title);
     browser.tabs.close(ytTab);
 

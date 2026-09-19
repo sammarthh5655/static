@@ -47,7 +47,7 @@ async function run(browser) {
       frequent: document.querySelectorAll('.frequent-item').length,
       utilCards: document.querySelectorAll('.util-card').length,
       hint: document.getElementById('keyhint').textContent,
-      toolsHidden: document.getElementById('tools').hidden,
+      toolsAbsent: !document.getElementById('tools'),
       accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
     })`);
 
@@ -57,7 +57,7 @@ async function run(browser) {
     check('frequent row populated', page.frequent >= 5, page.frequent + ' items');
     check('exactly three utility cards', page.utilCards === 3, page.utilCards);
     check('hint explains both keys', /Enter/.test(page.hint) && /Tab/.test(page.hint), page.hint);
-    check('advanced modes stay behind the panel', page.toolsHidden === true);
+    check('no panel on the homepage', page.toolsAbsent === true);
     check('eclipse theme applied', page.accent === '#5ed3f0', page.accent);
 
     const ai = await wc.executeJavaScript(`(async () => {
@@ -77,23 +77,16 @@ async function run(browser) {
     check('Tab enters AI mode', ai.mode && ai.badge, ai.placeholder);
     check('Escape leaves AI mode', ai.offAgain);
 
-    const panel = await wc.executeJavaScript(`(async () => {
-      const t = document.getElementById('tools');
-      // The floating trigger was removed for being intrusive; the panel now
-      // opens with Ctrl/Cmd+K, matching the command bar elsewhere.
-      document.dispatchEvent(new KeyboardEvent('keydown',
-        { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));
-      await new Promise(r => setTimeout(r, 500));
-      const opened = !t.hidden;
-      const items = document.querySelectorAll('.tool-item').length;
-      document.getElementById('tools-close').click();
-      await new Promise(r => setTimeout(r, 900));
-      return { opened, items, closed: t.hidden };
-    })()`, true);
-    check('tools panel opens on Ctrl+K', panel.opened && panel.items >= 8, panel.items + ' tools');
-    check('no floating trigger on the page',
-      await wc.executeJavaScript('!document.getElementById("tools-trigger")'));
-    check('tools panel closes', panel.closed);
+    // The AI tools panel and its floating button were both removed: a panel
+    // overlaying the homepage is the opposite of what this page is for.
+    const gone = await wc.executeJavaScript(`({
+      trigger: !!document.getElementById('tools-trigger'),
+      panel: !!document.getElementById('tools'),
+      stray: document.querySelectorAll('[class*="tools"]').length,
+    })`);
+    check('no floating tools button', gone.trigger === false);
+    check('no tools panel', gone.panel === false);
+    check('no stray tools markup', gone.stray === 0, gone.stray + ' nodes');
 
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');

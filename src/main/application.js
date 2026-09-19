@@ -103,17 +103,6 @@ class BrowserApplication {
     this.#installRequestFilter();
     this.#installCookiePolicy();
 
-    // Response-body filtering for YouTube. This has to happen before the
-    // renderer parses the document: the ad payload is embedded in the HTML as
-    // a `var` declaration, which no in-page script can get ahead of.
-    htmlFilter.install(
-      this.session,
-      () => this.shields.config.enabled && this.shields.config.blockVideoAds,
-      (count) => {
-        this.shields.store.data.totalBlocked =
-          (this.shields.config.totalBlocked || 0) + count;
-      },
-    );
     this.ensureWindow();
     this.#registerIpc();
 
@@ -1103,6 +1092,14 @@ class BrowserApplication {
         // A page can refuse injection (CSP, a frame that died mid-navigation).
         // Nothing to do: the network rules still apply.
       });
+
+      // YouTube needs its own stripper, which empties the ad arrays the
+      // instant the player response appears. Runs only on YouTube hosts and
+      // only when video-ad blocking is on.
+      if (this.shields.config.blockVideoAds) {
+        const youtube = htmlFilter.injectionFor(host);
+        if (youtube) contents.executeJavaScript(youtube, true).catch(() => {});
+      }
     };
 
     contents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {

@@ -4,8 +4,10 @@
  * New tab page.
  *
  * Deliberately minimal: a mark, a search box, five actions, a thin row of
- * frequent sites and one small utility row. Everything advanced lives behind
- * the AI tools panel rather than on the page - the restraint is the point.
+ * frequent sites and one small utility row. Nothing else - the restraint is
+ * the point. Every other mode is reachable from the browser menu, the command
+ * bar, or its own browser:// address; none of them needs to sit on the page
+ * you open a hundred times a day.
  *
  * The search box has two modes. Enter searches; Tab switches to AI and Enter
  * then asks Gemini. Both states are obvious at a glance, because a field that
@@ -136,8 +138,8 @@ $('#answer-open').addEventListener('click', async () => {
 /* ---- actions --------------------------------------------------------------- */
 
 /**
- * Five, and only five. Anything else belongs in the tools panel - a homepage
- * that offers everything offers nothing.
+ * Five, and only five. A homepage that offers everything offers nothing;
+ * anything beyond these lives in the menu or the command bar.
  */
 function renderActions() {
   const gameOn = !!state.modes?.resources?.active;
@@ -254,113 +256,6 @@ function hostOf(url) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
 
-/* ---- AI tools panel --------------------------------------------------------- */
-
-const tools = $('#tools');
-let toolsOpen = false;
-
-function toggleTools(open) {
-  const next = open ?? !toolsOpen;
-  if (next === toolsOpen) return;
-  toolsOpen = next;
-
-  if (toolsOpen) {
-    tools.classList.remove('closing');
-    tools.hidden = false;
-    renderTools();
-  } else {
-    const ms = parseInt(getComputedStyle(document.documentElement)
-      .getPropertyValue('--motion-base'), 10) || 0;
-    if (!ms) {
-      // Animations are off: hide immediately rather than waiting on a
-      // transition that will never run.
-      tools.hidden = true;
-      return;
-    }
-    tools.classList.add('closing');
-    setTimeout(() => {
-      if (!toolsOpen) { tools.hidden = true; tools.classList.remove('closing'); }
-    }, ms + 30);
-  }
-}
-
-function renderTools() {
-  const { MODES } = window.modes;
-  const summary = state.modes || {};
-
-  const groups = [
-    ['Work', ['student', 'legal', 'shopping']],
-    ['Capture', ['notes', 'ai']],
-    ['System', ['focus', 'resources', 'safety']],
-  ];
-
-  const nodes = [];
-  for (const [title, ids] of groups) {
-    nodes.push(element('div', { class: 'tools-group', text: title }));
-    for (const id of ids) {
-      const mode = MODES[id];
-      if (!mode) continue;
-      const modeState = summary[id] || {};
-      nodes.push(element('button', {
-        class: 'tool-item',
-        onclick: () => invoke('tabs:navigate', { input: mode.page }),
-      }, [
-        icon(mode.icon, { size: 15 }),
-        element('div', { class: 'tool-text' }, [
-          element('div', { class: 'tool-name', text: mode.name }),
-          element('div', { class: 'tool-hint', text: modeState.summary || mode.tagline }),
-        ]),
-        modeState.active
-          ? element('span', { class: 'tool-state on', text: 'On' })
-          : modeState.badge
-            ? element('span', { class: 'tool-state', text: modeState.badge })
-            : null,
-      ]));
-    }
-  }
-
-  nodes.push(element('div', { class: 'tools-group', text: 'Browser' }));
-  for (const [name, hint, page] of [
-    ['Dashboard', 'Everything in one place', 'browser://dashboard'],
-    ['Settings', 'Appearance and privacy', 'browser://settings'],
-  ]) {
-    nodes.push(element('button', {
-      class: 'tool-item',
-      onclick: () => invoke('tabs:navigate', { input: page }),
-    }, [
-      icon(name === 'Settings' ? 'gear' : 'grid', { size: 15 }),
-      element('div', { class: 'tool-text' }, [
-        element('div', { class: 'tool-name', text: name }),
-        element('div', { class: 'tool-hint', text: hint }),
-      ]),
-    ]));
-  }
-
-  $('#tools-body').replaceChildren(...nodes);
-}
-
-$('#tools-close').addEventListener('click', () => toggleTools(false));
-
-// No floating button: it sat over the page permanently and got in the way.
-// The panel opens on Ctrl/Cmd+K, which is the same key the command bar uses
-// everywhere else in the browser, so there is one thing to remember.
-document.addEventListener('keydown', (event) => {
-  const mod = window.page.platform === 'darwin' ? event.metaKey : event.ctrlKey;
-  if (mod && event.key.toLowerCase() === 'k') {
-    event.preventDefault();
-    toggleTools();
-    return;
-  }
-  if (event.key === 'Escape' && toolsOpen) toggleTools(false);
-});
-
-// Clicking the page closes the panel, but clicking inside it must not.
-document.addEventListener('pointerdown', (event) => {
-  if (!toolsOpen) return;
-  if (tools.contains(event.target)) return;
-  toggleTools(false);
-}, true);
-
 /* ---- init ------------------------------------------------------------------ */
 
 $('#mark-glyph').append(icon('sparkle', { size: 30 }));
@@ -372,7 +267,6 @@ onState((next) => {
   renderFrequent();
   renderUtility();
   renderHint();
-  if (toolsOpen) renderTools();
 });
 
 // The clock is the only thing on this page that needs a timer.

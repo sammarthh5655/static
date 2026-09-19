@@ -104,73 +104,113 @@ function matchBracket(text, start) {
 }
 
 /**
- * Install the filter on a session.
+ * Install the filter.
  *
- * @param {Electron.Session} session
- * @param {() => boolean} isEnabled  checked per request, so the toggle is live
- * @param {(count:number) => void} onStrip
+ * DESIGN NOTE - read before changing this.
+ *
+ * An earlier version registered `protocol.handle('https')` and rewrote the
+ * response body. It worked, but it put EVERY https request in the browser
+ * through net.fetch and rebuilt each response - an enormous blast radius for
+ * one site's ads. Anything net.fetch did not reproduce exactly (range
+ * requests, streaming, auth headers, redirects) became a broken request, and
+ * YouTube reported "no internet".
+ *
+ * This version does not touch the network stack at all. Nothing is
+ * intercepted, nothing is re-fetched, and a failure here cannot break a
+ * request. Ad removal happens in the page, on the object the player actually
+ * reads, driven by `injectionFor()` below.
  */
-function install(session, isEnabled, onStrip) {
-  session.protocol.handle('https', async (request) => {
-    // Everything that is not a YouTube document goes straight through. Using
-    // net.fetch here keeps cookies, cache and proxy behaviour identical to a
-    // normal load.
-    const passthrough = () => net.fetch(request, { bypassCustomProtocolHandlers: true });
-
-    if (!isEnabled() || request.method !== 'GET' || !shouldFilter(request.url)) {
-      return passthrough();
-    }
-    // Only documents: a fetch for JSON from the same path must not be rewritten.
-    const accept = request.headers.get('accept') || '';
-    if (!accept.includes('text/html')) return passthrough();
-
-    try {
-      const response = await passthrough();
-      const type = response.headers.get('content-type') || '';
-      if (!type.includes('text/html')) return response;
-
-      const html = await response.text();
-      const { html: cleaned, changed } = stripAdArrays(html);
-      if (changed) onStrip(changed);
-      // Nothing to rewrite: hand back the original response untouched rather
-      // than paying the reconstruction cost for no benefit.
-      if (!changed) return new Response(html, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: cleanHeaders(response.headers),
-      });
-
-      return new Response(cleaned, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: cleanHeaders(response.headers),
-      });
-    } catch {
-      // Any failure falls back to an unmodified load. An ad getting through is
-      // a far better outcome than a page that will not open.
-      return passthrough();
-    }
-  });
+function install() {
+  // Intentionally a no-op: kept so callers do not need to change, and so the
+  // reason the interception was removed stays visible here rather than only
+  // in git history.
 }
+
+function uninstall() {}
 
 /**
- * Headers for a rebuilt response.
+ * Code to run at document-start in a YouTube frame.
  *
- * `content-encoding` MUST go: net.fetch has already decompressed the body, so
- * leaving `br` or `gzip` in place tells the renderer to decompress plain text,
- * which stalls the load. `content-length` must go with it because the body's
- * size changed. Both were behind a multi-second delay to first frame, and one
- * video that never started at all.
+ * `ytInitialPlayerResponse` arrives as a top-level `var`, which does not fire
+ * a property setter - so it cannot be intercepted before assignment. What CAN
+ * be done is to empty its ad arrays the instant it appears, which happens
+ * before the player module reads them because this polls from document-start
+ * on the same turn the parser is producing.
  */
-function cleanHeaders(source) {
-  const headers = new Headers(source);
-  headers.delete('content-encoding');
-  headers.delete('content-length');
-  return headers;
+function injectionFor(host) {
+  const clean = String(host || '').toLowerCase().replace(/^www\./, '');
+  const isYouTube = clean === 'youtube.com' || clean.endsWith('.youtube.com') ||
+                    clean === 'youtube-nocookie.com' || clean === 'youtu.be';
+  if (!isYouTube) return '';
+
+  return `
+(function(){
+  if (window.__staticYtGuard) return;
+  window.__staticYtGuard = true;
+
+  var strip = function(data){
+    if (!data || typeof data !== 'object') return 0;
+    var n = 0;
+    try {
+      if (data.adPlacements && data.adPlacements.length) { data.adPlacements.length = 0; n++; }
+      if (data.playerAds && data.playerAds.length) { data.playerAds.length = 0; n++; }
+      if (data.adSlots && data.adSlots.length) { data.adSlots.length = 0; n++; }
+      if (data.adBreakHeartbeatParams) { delete data.adBreakHeartbeatParams; n++; }
+    } catch (e) {}
+    return n;
+  };
+
+  // Empty the arrays IN PLACE rather than reassigning them. The player may
+  // already hold a reference to the same array, so replacing the property
+  // would leave that reference pointing at the original ads.
+  var sweep = function(){
+    var n = 0;
+    try { n += strip(window.ytInitialPlayerResponse); } catch (e) {}
+    try {
+      var player = document.getElementById('movie_player');
+      if (player && player.getPlayerResponse) n += strip(player.getPlayerResponse());
+    } catch (e) {}
+    if (n) { window.__staticAdsStripped = (window.__staticAdsStripped || 0) + n; }
+  };
+
+  // Run immediately, then on a tight interval through page startup. The
+  // interval is what catches the var assignment, since a setter cannot.
+  sweep();
+  var ticks = 0;
+  var fast = setInterval(function(){
+    sweep();
+    if (++ticks > 120) { clearInterval(fast); }
+  }, 50);
+  document.addEventListener('DOMContentLoaded', sweep);
+  window.addEventListener('pagehide', function(){ clearInterval(fast); });
+
+  // Later videos in the same session fetch a fresh player response over XHR,
+  // which never goes through the initial HTML at all.
+  try {
+    var XHR = window.XMLHttpRequest;
+    var open = XHR.prototype.open;
+    var send = XHR.prototype.send;
+    XHR.prototype.open = function(m, url){ this.__u = String(url || ''); return open.apply(this, arguments); };
+    XHR.prototype.send = function(){
+      var xhr = this;
+      if (xhr.__u && xhr.__u.indexOf('/youtubei/v1/player') !== -1) {
+        xhr.addEventListener('readystatechange', function(){
+          if (xhr.readyState !== 4) return;
+          try {
+            var parsed = JSON.parse(xhr.responseText);
+            if (strip(parsed)) {
+              var text = JSON.stringify(parsed);
+              Object.defineProperty(xhr, 'responseText', { configurable: true, get: function(){ return text; } });
+              Object.defineProperty(xhr, 'response', { configurable: true, get: function(){ return text; } });
+            }
+          } catch (e) {}
+        }, false);
+      }
+      return send.apply(this, arguments);
+    };
+  } catch (e) {}
+})();
+`;
 }
 
-function uninstall(session) {
-  try { session.protocol.unhandle('https'); } catch { /* not installed */ }
-}
-
-module.exports = { install, uninstall, stripAdArrays, shouldFilter, matchBracket };
+module.exports = { install, uninstall, injectionFor, stripAdArrays, shouldFilter, matchBracket };
