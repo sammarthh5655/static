@@ -282,6 +282,11 @@ body.mac .titlebar { padding-left: 78px; }
   z-index: 100;
   min-width: 216px;
   max-width: 320px;
+  /* A menu must never outgrow the window: it is positioned absolutely, so an
+     over-tall one would render partly off-screen with no way to reach the rest.
+     Capping it and scrolling keeps every item reachable however many are added. */
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   padding: 5px;
   background: var(--menu-surface);
   backdrop-filter: var(--menu-blur);
@@ -302,18 +307,21 @@ body.mac .titlebar { padding-left: 78px; }
      leaving the element stuck there. */
   opacity: 1;
   transform: translateY(0) scale(1);
-  /* NO fill mode. `backwards`/`both` would hold the element on the animation's
-     FIRST frame (opacity 0) whenever the animation is not actually ticking -
-     and the overlay view is shrunk to 1x1 while idle, which is exactly when a
-     compositor may not run it. With no fill, an animation that never advances
-     simply leaves the base rule above in force, so the menu is visible either
-     way and the entrance is a bonus rather than a prerequisite. */
+  /* The entrance animates TRANSFORM ONLY, and carries no fill mode - see the
+     keyframes below. Between them, no state of the animation can leave the
+     menu invisible. */
   animation: menu-in var(--motion-base) var(--ease);
 }
 
+/* Transform only - NEVER opacity.
+   A RUNNING animation overrides the base rule whatever its fill mode, so an
+   animation that stalls mid-flight (which happens when the overlay view is not
+   being composited) would hold the menu at opacity 0 and make it invisible.
+   Animating only transform means the worst case is a menu that appears without
+   sliding, rather than one that never appears at all. */
 @keyframes menu-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { transform: translateY(-6px) scale(0.98); }
+  to   { transform: translateY(0) scale(1); }
 }
 
 /* Closing plays the same motion in reverse.

@@ -154,8 +154,12 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
   left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
   if (top + box.height > window.innerHeight - margin) {
     // Flip above the anchor when there is no room below.
-    top = Math.max(margin, anchor.top - box.height - 4);
+    top = anchor.top - box.height - 4;
   }
+  // Clamp after flipping: a menu taller than the space on either side would
+  // otherwise sit partly off-screen. Its own max-height makes it scroll.
+  top = Math.max(margin, Math.min(top, window.innerHeight - box.height - margin));
+  if (box.height > window.innerHeight - margin * 2) top = margin;
   root.style.left = Math.round(left) + 'px';
   root.style.top = Math.round(top) + 'px';
 
