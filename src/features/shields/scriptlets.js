@@ -66,7 +66,7 @@ const YOUTUBE = `
     return data;
   };
 
-  // The initial page load is already clean: features/shields/htmlfilter.js
+  // The initial page load is already clean: features/shields/youtube.js
   // strips the embedded player response before the renderer parses it, which
   // is the only way to get ahead of a top-level \`var\` declaration.
   //

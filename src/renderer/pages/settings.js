@@ -58,6 +58,81 @@ $('#clear').addEventListener('click', async () => {
   $('#clear-status').textContent = 'Browsing data cleared.';
 });
 
+// ---- Shields ---------------------------------------------------------
+// Each toggle patches one key of the shields config. Main is the authority:
+// it persists the change and pushes new state back, which repaints these
+// controls through onState below.
+function shields(patch) {
+  if (applying) return;
+  invoke('shields:update', patch).catch((error) => {
+    $('#sh-status').textContent = error.message;
+  });
+}
+
+const SHIELD_TOGGLES = [
+  ['#sh-enabled', 'enabled'],
+  ['#sh-trackers', 'blockTrackers'],
+  ['#sh-video', 'blockVideoAds'],
+  ['#sh-cosmetic', 'hideAdSlots'],
+  ['#sh-https', 'upgradeHttps'],
+  ['#sh-params', 'stripTracking'],
+  ['#sh-cookies', 'blockThirdPartyCookies'],
+];
+for (const [selector, key] of SHIELD_TOGGLES) {
+  $(selector).addEventListener('change', (e) => shields({ [key]: e.target.checked }));
+}
+
+$('#sh-refresh').addEventListener('click', async () => {
+  $('#sh-refresh').disabled = true;
+  $('#sh-status').textContent = 'Updating filter lists…';
+  try {
+    const result = await invoke('shields:refresh');
+    const count = result?.count ?? result?.ruleCount;
+    $('#sh-status').textContent = count
+      ? Number(count).toLocaleString() + ' rules loaded.'
+      : 'Filter lists updated.';
+  } catch (error) {
+    $('#sh-status').textContent = error.message;
+  }
+  $('#sh-refresh').disabled = false;
+});
+
+$('#sh-open').addEventListener('click', () => invoke('tabs:navigate', { input: 'browser://shields' }));
+
+// ---- Safety ----------------------------------------------------------
+$('#sf-enabled').addEventListener('change', (e) =>
+  invoke('safety:enabled', { enabled: e.target.checked }).catch(() => {}));
+$('#sf-open').addEventListener('click', () => invoke('tabs:navigate', { input: 'browser://safety' }));
+
+// ---- Performance -----------------------------------------------------
+$('#rs-game').addEventListener('change', (e) =>
+  invoke('resources:game-mode', { on: e.target.checked }).catch(() => {}));
+$('#rs-open').addEventListener('click', () => invoke('tabs:navigate', { input: 'browser://resources' }));
+
+// ---- Focus -----------------------------------------------------------
+// Only ending a session is offered here. STARTING one needs a preset and a
+// duration, which belongs on the Focus page rather than duplicated here.
+$('#fc-stop').addEventListener('click', () =>
+  invoke('focus:stop', { reason: 'stopped' }).catch(() => {}));
+$('#fc-open').addEventListener('click', () => invoke('tabs:navigate', { input: 'browser://focus' }));
+
+/**
+ * Every mode, as one grid. Built from the shared registry rather than a list
+ * written out here, so a mode added later shows up without touching Settings.
+ */
+function renderModes() {
+  const list = $('#mode-list');
+  if (!list || list.childElementCount) return;
+  const modes = (window.modes && window.modes.orderedModes()) || [];
+  list.replaceChildren(...modes.map((mode) => {
+    const card = element('button', { class: 'mode-card' });
+    card.appendChild(element('strong', { class: 'mode-name', text: mode.name }));
+    card.appendChild(element('span', { class: 'mode-tag', text: mode.tagline }));
+    card.addEventListener('click', () => invoke('tabs:navigate', { input: mode.page }));
+    return card;
+  }));
+}
+
 /**
  * Fill a <select> from a catalogue supplied by main, so the options here can
  * never drift from what the theme module actually supports.
@@ -87,6 +162,56 @@ onState((state) => {
   fillSelect($('#radius'), catalog.radii || [], s.radius || 'rounded');
   $('#animations').checked = s.animations !== false;
   $('#showMostVisited').checked = s.newTab?.showMostVisited !== false;
+
+  // Shields. Read from state.features, which carries the raw config flags -
+  // state.modes carries display strings for the dashboard and cannot drive a
+  // checkbox.
+  const features = state.features || {};
+  const sh = features.shields || {};
+  $('#sh-enabled').checked = sh.enabled !== false;
+  $('#sh-trackers').checked = sh.blockTrackers !== false;
+  $('#sh-video').checked = sh.blockVideoAds !== false;
+  $('#sh-cosmetic').checked = sh.hideAdSlots !== false;
+  $('#sh-https').checked = sh.upgradeHttps !== false;
+  $('#sh-params').checked = sh.stripTracking !== false;
+  $('#sh-cookies').checked = sh.blockThirdPartyCookies !== false;
+  // Every toggle below the master switch is meaningless while it is off.
+  for (const [selector] of SHIELD_TOGGLES.slice(1)) {
+    $(selector).disabled = sh.enabled === false;
+  }
+
+  // Safety.
+  const sf = features.safety || {};
+  $('#sf-enabled').checked = sf.enabled !== false;
+  const trusted = sf.trusted?.length || 0;
+  $('#sf-trusted').textContent = trusted
+    ? trusted + (trusted === 1 ? ' site you chose to trust.' : ' sites you chose to trust.')
+    : 'No sites trusted yet.';
+
+  // Performance.
+  const rs = features.resources || {};
+  $('#rs-game').checked = !!rs.gameMode;
+  $('#rs-usage').textContent = rs.totals?.totalMemoryMb
+    ? rs.totals.totalMemoryMb + ' MB across ' + rs.totals.tabCount +
+      (rs.totals.tabCount === 1 ? ' tab.' : ' tabs.')
+    : 'Measuring…';
+
+  // Focus.
+  const fc = features.focus || {};
+  const minutesLeft = Math.ceil((fc.remainingMs || 0) / 60000);
+  $('#fc-status').textContent = fc.active
+    ? (fc.session?.presetName || fc.session?.preset || 'Session') + ' running · ' +
+      minutesLeft + (minutesLeft === 1 ? ' minute left' : ' minutes left')
+    : (fc.stats?.todayMinutes
+        ? 'No session running · ' + fc.stats.todayMinutes + 'm focused today.'
+        : 'No session running.');
+  $('#fc-stop').disabled = !fc.active;
+  const blocked = fc.config?.blocked?.length || 0;
+  $('#fc-sites').textContent = blocked
+    ? blocked + (blocked === 1 ? ' site is blocked during a session.' : ' sites are blocked during a session.')
+    : 'Nothing blocked yet.';
+
+  renderModes();
 
   applying = false;
 });

@@ -21,7 +21,7 @@ const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
-const htmlFilter = require('../features/shields/htmlfilter');
+const { isYouTubeHost } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -86,17 +86,27 @@ class BrowserApplication {
 
     // Feature modes. Each owns its own JsonStore and notifies through push(),
     // so the dashboard and every mode page stay in step without polling.
-    this.focus = new Focus(this.dir, { onChange: () => this.push() });
-    this.notes = new Notes(this.dir, { onChange: () => this.push() });
-    this.safety = new Safety(this.dir, { onChange: () => this.push() });
-    this.shields = new Shields(this.dir, { onChange: () => this.push() });
-    this.passwords = new Passwords(this.dir, { onChange: () => this.push() });
+    this.focus = new Focus(this.dir, {
+      onChange: () => { this.push(); broadcastToPages(this, 'focus:changed'); },
+    });
+    this.notes = new Notes(this.dir, {
+      onChange: () => { this.push(); broadcastToPages(this, 'notes:changed'); },
+    });
+    this.safety = new Safety(this.dir, {
+      onChange: () => { this.push(); broadcastToPages(this, 'safety:changed'); },
+    });
+    this.shields = new Shields(this.dir, {
+      onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
+    });
+    this.passwords = new Passwords(this.dir, {
+      onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
+    });
     // Resources needs the tab manager, which ensureWindow() creates, so it is
     // constructed with lazy accessors rather than direct references.
     this.resources = new Resources(this.dir, {
       getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
       getActiveId: () => this.tabs?.activeId || null,
-      onChange: () => this.push(),
+      onChange: () => { this.push(); broadcastToPages(this, 'resources:changed'); },
     });
 
     this.#hardenSession();
@@ -105,6 +115,7 @@ class BrowserApplication {
 
     this.ensureWindow();
     this.#registerIpc();
+    this.attachVideoAdGate();
 
     // Extensions come last: they need the window to exist so popups and
     // chrome.tabs.create have somewhere to go.
@@ -439,6 +450,22 @@ class BrowserApplication {
       // settings page never hardcode a list that could drift from the registry.
       ai: { available: gemini.hasKey() },
       modes: this.modeSummary(),
+      // Raw feature config, so Settings can render a checkbox per option.
+      // `modes` above carries display strings for the dashboard; these are the
+      // actual flags, and the two must not be confused - a summary string
+      // cannot drive a toggle.
+      features: {
+        shields: { ...this.shields.config, ruleCount: this.shields.engine.count },
+        safety: this.safety.state(),
+        resources: {
+          gameMode: !!this.resources.config.gameMode,
+          // Sample on demand if nothing has measured recently. Without this,
+          // Settings shows "Measuring..." forever whenever no page is actively
+          // watching, since `latest` is only filled by the sampling timer.
+          totals: this.resourceTotals(),
+        },
+        focus: this.focus.state(),
+      },
       catalog: {
         widgets: Object.values(WIDGETS),
         backgrounds: Object.values(BACKGROUNDS),
@@ -1075,6 +1102,33 @@ class BrowserApplication {
    * site it was not written for would break that site, which is worse than
    * letting an ad through.
    */
+  /**
+   * Answer the tab preload's synchronous question: should YouTube video-ad
+   * removal run in THIS page?
+   *
+   * Deliberately outside the guarded `invoke` allowlist, which is for internal
+   * pages only. This is asked by ordinary web content, so it must reveal
+   * nothing and do nothing: it takes a hostname and returns one boolean. It is
+   * synchronous because the preload has to decide before the page's first
+   * script runs.
+   */
+  attachVideoAdGate() {
+    ipcMain.on('shields:video-ads-for-host', (event, host) => {
+      let allow = false;
+      try {
+        allow = Boolean(
+          this.shields?.config.enabled &&
+          this.shields.config.blockVideoAds &&
+          isYouTubeHost(host) &&
+          this.shields.activeFor(String(host || ''))
+        );
+      } catch {
+        allow = false;
+      }
+      event.returnValue = allow;
+    });
+  }
+
   attachScriptlets(contents) {
     if (!contents || contents.isDestroyed()) return;
 
@@ -1093,13 +1147,11 @@ class BrowserApplication {
         // Nothing to do: the network rules still apply.
       });
 
-      // YouTube needs its own stripper, which empties the ad arrays the
-      // instant the player response appears. Runs only on YouTube hosts and
-      // only when video-ad blocking is on.
-      if (this.shields.config.blockVideoAds) {
-        const youtube = htmlFilter.injectionFor(host);
-        if (youtube) contents.executeJavaScript(youtube, true).catch(() => {});
-      }
+      // NOTE: YouTube video-ad removal is NOT injected here. It has to install
+      // an accessor before the page's own `var ytInitialPlayerResponse = ...`
+      // runs, and executeJavaScript on did-start-navigation races the parser
+      // and loses. It now runs from the tab preload at document-start
+      // instead - see src/preload/tab.js and features/shields/youtube.js.
     };
 
     contents.on('did-start-navigation', (_event, url, isInPlace, isMainFrame) => {
@@ -1262,6 +1314,22 @@ class BrowserApplication {
    * One-line live state per mode, for the dashboard cards and sidebar badges.
    * Kept cheap: this runs on every push().
    */
+  /**
+   * Memory totals for display, sampled lazily.
+   *
+   * `resources.latest` is only populated while a page is watching. Anything
+   * that just wants a number - Settings, the dashboard - would otherwise read
+   * an empty object, so take a fresh sample when the last one is stale.
+   */
+  resourceTotals() {
+    const STALE_MS = 5000;
+    const latest = this.resources.latest;
+    if (!latest.sampledAt || Date.now() - latest.sampledAt > STALE_MS) {
+      try { return this.resources.sample().totals || {}; } catch { return latest.totals || {}; }
+    }
+    return latest.totals || {};
+  }
+
   modeSummary() {
     const focus = this.focus.state();
     const notes = this.notes.state();
@@ -1334,12 +1402,25 @@ function compactCount(value) {
   return String(n);
 }
 
-/** Tell every open internal page that the chat list changed. */
-function ipcBroadcastChats(app) {
+/**
+ * Tell every open internal page that something changed.
+ *
+ * Each mode page subscribes to its own `<mode>:changed` event and re-renders
+ * when it fires. Only `chat:changed` was ever actually sent, so every other
+ * mode page rendered once and then froze - clicking a Focus toggle updated
+ * main but the page never redrew, which looked exactly like the click doing
+ * nothing.
+ */
+function broadcastToPages(app, channel) {
   for (const tab of app.tabs?.tabs.values() || []) {
     const wc = tab.view.webContents;
-    if (!wc.isDestroyed() && tab.state.internalUrl) wc.send('chat:changed');
+    if (!wc.isDestroyed() && tab.state.internalUrl) wc.send(channel);
   }
+}
+
+/** Kept for the AI page, which calls it by name. */
+function ipcBroadcastChats(app) {
+  broadcastToPages(app, 'chat:changed');
 }
 
 module.exports = {

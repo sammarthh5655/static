@@ -125,6 +125,128 @@
       </div>
     </div>
 
+    <h2>Shields</h2>
+    <div class="card">
+      <div class="field">
+        <div>
+          <label for="sh-enabled">Shields</label>
+          <div class="hint">The master switch. Everything below depends on it.</div>
+        </div>
+        <div class="control right"><input id="sh-enabled" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="sh-trackers">Block ads and trackers</label>
+          <div class="hint">EasyList and EasyPrivacy rules, applied to every request.</div>
+        </div>
+        <div class="control right"><input id="sh-trackers" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="sh-video">Block video ads</label>
+          <div class="hint">Removes ads from YouTube before the player reads them.</div>
+        </div>
+        <div class="control right"><input id="sh-video" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="sh-cosmetic">Hide ad slots</label>
+          <div class="hint">Collapses the empty space a blocked ad leaves behind.</div>
+        </div>
+        <div class="control right"><input id="sh-cosmetic" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="sh-https">Upgrade to HTTPS</label>
+          <div class="hint">Switches insecure links to their encrypted version.</div>
+        </div>
+        <div class="control right"><input id="sh-https" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="sh-params">Strip tracking parameters</label>
+          <div class="hint">Removes utm_, fbclid and similar tags from addresses.</div>
+        </div>
+        <div class="control right"><input id="sh-params" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label for="sh-cookies">Block third-party cookies</label>
+          <div class="hint">Stops sites being followed from one site to the next.</div>
+        </div>
+        <div class="control right"><input id="sh-cookies" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div class="hint" id="sh-status">&nbsp;</div>
+        <div class="control right">
+          <button id="sh-refresh">Update filter lists</button>
+          <button id="sh-open">Open Shields</button>
+        </div>
+      </div>
+    </div>
+
+    <h2>Safety</h2>
+    <div class="card">
+      <div class="field">
+        <div>
+          <label for="sf-enabled">Warn about fake and risky sites</label>
+          <div class="hint">Checks addresses that imitate a known brand.</div>
+        </div>
+        <div class="control right"><input id="sf-enabled" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label>Trusted sites</label>
+          <div class="hint" id="sf-trusted">No sites trusted yet.</div>
+        </div>
+        <div class="control right"><button id="sf-open">Open Safety</button></div>
+      </div>
+    </div>
+
+    <h2>Performance</h2>
+    <div class="card">
+      <div class="field">
+        <div>
+          <label for="rs-game">Game Mode</label>
+          <div class="hint">Pauses background tabs so games get the machine.</div>
+        </div>
+        <div class="control right"><input id="rs-game" type="checkbox" class="toggle"></div>
+      </div>
+      <div class="field">
+        <div>
+          <label>Memory in use</label>
+          <div class="hint" id="rs-usage">Measuring…</div>
+        </div>
+        <div class="control right"><button id="rs-open">Open Resources</button></div>
+      </div>
+    </div>
+
+    <h2>Focus</h2>
+    <div class="card">
+      <div class="field">
+        <div>
+          <label>Session</label>
+          <div class="hint" id="fc-status">No session running.</div>
+        </div>
+        <div class="control right">
+          <button id="fc-stop">End session</button>
+          <button id="fc-open">Open Focus</button>
+        </div>
+      </div>
+      <div class="field">
+        <div>
+          <label>Blocked sites</label>
+          <div class="hint" id="fc-sites">&nbsp;</div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Modes</h2>
+    <div class="card">
+      <div class="hint">Every mode in static. Open one to change what it does.</div>
+      <div id="mode-list" class="mode-grid"></div>
+    </div>
+
     <h2>Privacy</h2>
     <div class="card">
       <div class="checks">
@@ -142,6 +264,7 @@
     </div>
   </div>
   <script src="../../shared/theme.js"></script>
+  <script src="../../shared/modes.js"></script>
   <script src="common.js"></script>
   <script src="settings.js"></script>
 </body>

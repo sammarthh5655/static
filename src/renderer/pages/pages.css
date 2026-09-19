@@ -133,3 +133,24 @@ input[type=checkbox].toggle { width: auto; }
 
 /* Icons on internal pages use the same outline set as the chrome. */
 .icon-svg { display: block; flex: none; }
+
+/* The mode list in Settings. Every mode in the browser, as one grid of
+   buttons, so Settings is the single place that reaches all of them. */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+.mode-card {
+  display: block;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  cursor: pointer;
+}
+.mode-card:hover { background: var(--surface-hover); }
+.mode-card .mode-name { display: block; margin-bottom: 3px; }
+.mode-card .mode-tag { display: block; color: var(--text-dim); font-size: 12px; }

@@ -112,6 +112,52 @@ async function run(browser) {
     })`).catch((error) => ({ error: error.message }));
 
     check('scriptlets run on YouTube', player.ran === true, player.error || '');
+    // The injection must reach the PAGE's own world at document-start. It is
+    // what installs the accessor ahead of `var ytInitialPlayerResponse = ...`,
+    // and `removed` counts the ad payloads it actually stripped. A zero here
+    // means it ran too late to matter, which is how earlier versions failed
+    // while still reporting that they had run.
+    const guard = await yt.view.webContents.executeJavaScript(`({
+      injected: !!window.__staticYt,
+      removed: typeof window.__staticAdsRemoved === 'function' ? window.__staticAdsRemoved() : -1,
+      adKeysGone: window.ytInitialPlayerResponse
+        ? !('adPlacements' in window.ytInitialPlayerResponse) : 'no-obj',
+    })`).catch((error) => ({ error: error.message }));
+    check('ad stripper injected at document-start', guard.injected === true, guard.error || '');
+    check('ad payloads actually stripped', guard.removed > 0, 'removed=' + guard.removed);
+    check('ad keys gone from the object the player reads',
+      guard.adKeysGone === true, String(guard.adKeysGone));
+
+    // Navigating to a second video WITHIN the session fetches a fresh player
+    // response over fetch(), not from the HTML. Hooking only XMLHttpRequest
+    // left this path untouched, which is why ads kept appearing after the
+    // first video. This is the regression guard for that.
+    await yt.view.webContents.executeJavaScript(`(function(){
+      var a = document.createElement('a');
+      a.href = '/watch?v=jNQXAC9IVRw';
+      document.body.appendChild(a);
+      a.click();
+    })()`).catch(() => {});
+    await wait(9000);
+    const second = await yt.view.webContents.executeJavaScript(`({
+      removed: window.__staticAdsRemoved(),
+      adKeysGone: window.ytInitialPlayerResponse
+        ? !('adPlacements' in window.ytInitialPlayerResponse) : 'no-obj',
+      playingAd: (function(){ try { var p = document.getElementById('movie_player');
+        return !!(p && p.getVideoData && p.getVideoData().isAd); } catch (e) { return 'err'; } })(),
+      videoTime: (function(){ var v = document.querySelector('video');
+        return v ? Math.round(v.currentTime) : -1; })(),
+      onSecondVideo: location.href.indexOf('jNQXAC9IVRw') !== -1,
+    })`).catch((error) => ({ error: error.message }));
+    check('in-session navigation reaches the second video',
+      second.onSecondVideo === true, second.error || '');
+    check('fetch() player response is stripped too',
+      second.removed > 0 && second.adKeysGone === true,
+      'removed=' + second.removed + ' keysGone=' + second.adKeysGone);
+    check('no ad plays on the second video', second.playingAd === false);
+    check('second video actually plays', second.videoTime > 0, 'currentTime=' + second.videoTime);
+
+
     check('ad placements stripped', player.adPlacements === 0, 'adPlacements=' + player.adPlacements);
     check('player ads stripped', player.playerAds === 0, 'playerAds=' + player.playerAds);
     check('no ad is playing', player.playingAd === false,
