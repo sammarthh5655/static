@@ -23,6 +23,7 @@ const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Health } = require('../features/health');
+const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
@@ -108,6 +109,9 @@ class BrowserApplication {
     this.passwords = new Passwords(this.dir, {
       onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
     });
+    // Static Sense: local intent detection. Reads tab titles and URLs already
+    // in memory - nothing is sent anywhere and no page content is read.
+    this.sense = new Sense(this.dir, { onChange: () => this.push() });
     // Resources needs the tab manager, which ensureWindow() creates, so it is
     // constructed with lazy accessors rather than direct references.
     this.resources = new Resources(this.dir, {
@@ -476,6 +480,23 @@ class BrowserApplication {
     return slept;
   }
 
+  /**
+   * The suggestion for right now, if any.
+   *
+   * Computed on demand rather than on a timer: a suggestion is only ever
+   * shown in response to the user looking, so there is nothing to poll for.
+   */
+  currentSuggestion() {
+    if (!this.sense) return null;
+    const tabs = [...(this.tabs?.tabs.values() || [])].map((tab) => ({
+      id: tab.id,
+      url: tab.state?.url || '',
+      title: tab.state?.title || '',
+      active: tab.id === this.tabs.activeId,
+    }));
+    return this.sense.suggest(tabs, { focusActive: !!this.focus?.active });
+  }
+
   /** Position the chrome across the top and give tabs the remaining area. */
   layout() {
     if (!this.window || this.window.isDestroyed()) return;
@@ -545,6 +566,7 @@ class BrowserApplication {
       // settings page never hardcode a list that could drift from the registry.
       ai: { available: gemini.hasKey() },
       sidebar: { open: this.sidebarOpen, width: this.sidebarWidth },
+      sense: this.sense ? this.sense.state() : null,
       appInfo: { version: app.getVersion(), chromium: process.versions.chrome, electron: process.versions.electron },
       modes: this.modeSummary(),
       // Raw feature config, so Settings can render a checkbox per option.
@@ -849,6 +871,25 @@ class BrowserApplication {
 
       /** The formats the summary UI offers. Served so it cannot drift. */
       // ---- health ----------------------------------------------------------
+      // ---- Static Sense ----------------------------------------------------
+      'sense:current': () => this.currentSuggestion(),
+      'sense:accept': (_sender, payload) => {
+        const id = String(payload?.id || '');
+        this.sense.accept(id);
+        const action = String(payload?.action || '');
+        if (action.startsWith('open:')) {
+          this.tabs.navigate(this.tabs.activeId, action.slice(5));
+        } else if (action === 'organizer:close-duplicates') {
+          this.productivity?.organizer?.closeDuplicates?.();
+        }
+        this.push();
+        return true;
+      },
+      'sense:snooze': (_sender, payload) => { this.sense.snooze(String(payload?.id || '')); return true; },
+      'sense:silence': (_sender, payload) => { this.sense.silence(String(payload?.id || '')); return true; },
+      'sense:state': () => this.sense.state(),
+      'sense:enabled': (_sender, payload) => this.sense.setEnabled(payload?.enabled !== false),
+
       'health:report': () => this.health.report(),
       /**
        * One-click fixes. Each returns what it actually did, so the UI can say

@@ -331,6 +331,7 @@ onState((next) => {
   renderActions();
   renderFrequent();
   renderWidgets();
+  renderSense();
   renderHint();
 });
 
@@ -342,6 +343,49 @@ window.addEventListener('pagehide', () => {
     }
   }
 });
+
+/* ---- Static Sense ---------------------------------------------------------
+ * One suggestion at most, and only when something actually warrants saying.
+ * Every suggestion can be dismissed for now or silenced for good - a browser
+ * that keeps suggesting things is one people learn to ignore.
+ */
+
+async function renderSense() {
+  const host = $('#sense');
+  if (!host) return;
+  let suggestion = null;
+  try { suggestion = await invoke('sense:current'); } catch { suggestion = null; }
+
+  if (!suggestion) { host.hidden = true; host.replaceChildren(); return; }
+
+  const act = element('button', { class: 'sense-act', text: suggestion.actionLabel });
+  act.addEventListener('click', async () => {
+    await invoke('sense:accept', { id: suggestion.id, action: suggestion.action });
+    renderSense();
+  });
+
+  const later = element('button', { class: 'sense-dismiss', text: 'Not now' });
+  later.addEventListener('click', async () => {
+    await invoke('sense:snooze', { id: suggestion.id });
+    renderSense();
+  });
+
+  const never = element('button', { class: 'sense-dismiss', text: 'Never' });
+  never.title = 'Do not suggest this again';
+  never.addEventListener('click', async () => {
+    await invoke('sense:silence', { id: suggestion.id });
+    renderSense();
+  });
+
+  host.replaceChildren(element('div', { class: 'sense-card' }, [
+    element('div', { class: 'sense-body' }, [
+      element('div', { class: 'sense-title', text: suggestion.title }),
+      element('div', { class: 'sense-detail', text: suggestion.detail }),
+    ]),
+    element('div', { class: 'sense-tools' }, [act, later, never]),
+  ]));
+  host.hidden = false;
+}
 
 $('#customise-open').addEventListener('click', () => setCustomising(!customising));
 
