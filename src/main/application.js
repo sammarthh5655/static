@@ -22,6 +22,7 @@ const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
+const { Health } = require('../features/health');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
@@ -146,6 +147,19 @@ class BrowserApplication {
       },
     });
     this.tabs.extensions = this.extensions;
+
+    // Health reads from the other modules rather than owning state, so it is
+    // constructed last - everything it inspects must already exist.
+    this.health = new Health({
+      dir: this.dir,
+      resources: this.resources,
+      shields: this.shields,
+      passwords: this.passwords,
+      extensions: this.extensions,
+      history: this.history,
+      downloads: this.downloads,
+      getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
+    });
 
     // Filter lists refresh in the background: a first run should not wait on
     // a network fetch, and a failure must not stop the browser starting.
@@ -443,6 +457,23 @@ class BrowserApplication {
       this.sidebar.webContents.focus();
     }
     return this.sidebarOpen;
+  }
+
+  /**
+   * Sleep every non-active tab over the heavy threshold.
+   *
+   * The ACTIVE tab is never slept: freeing memory by blanking the page
+   * someone is reading is not a fix.
+   */
+  #sleepHeavyTabs() {
+    const snapshot = this.resources.sample();
+    let slept = 0;
+    for (const tab of snapshot.tabs || []) {
+      if (tab.id === this.tabs.activeId) continue;
+      if ((tab.memoryMb || 0) < 400) continue;
+      try { this.resources.suspend(tab.id, 'health'); slept++; } catch { /* already gone */ }
+    }
+    return slept;
   }
 
   /** Position the chrome across the top and give tabs the remaining area. */
@@ -817,6 +848,47 @@ class BrowserApplication {
       },
 
       /** The formats the summary UI offers. Served so it cannot drift. */
+      // ---- health ----------------------------------------------------------
+      'health:report': () => this.health.report(),
+      /**
+       * One-click fixes. Each returns what it actually did, so the UI can say
+       * "slept 3 tabs" rather than claiming success it cannot verify.
+       */
+      'health:fix': async (_sender, payload) => {
+        const action = String(payload?.action || '');
+        switch (action) {
+          case 'sleep-heavy': {
+            const before = this.resources.sample().totals?.totalMemoryMb || 0;
+            const slept = this.resources.sleepInactive
+              ? this.resources.sleepInactive()
+              : this.#sleepHeavyTabs();
+            const after = this.resources.sample().totals?.totalMemoryMb || 0;
+            return { action, slept, freedMb: Math.max(0, before - after) };
+          }
+          case 'enable-shields':
+            this.shields.update({ enabled: true });
+            return { action, enabled: true };
+          case 'update-lists': {
+            const result = await this.shields.refresh({ force: true });
+            return { action, rules: this.shields.engine.count, result };
+          }
+          case 'clear-cache':
+            await this.session.clearCache();
+            return { action, cleared: true };
+          case 'open-shields':
+            this.tabs.navigate(this.tabs.activeId, 'browser://shields');
+            return { action };
+          case 'open-passwords':
+            this.tabs.navigate(this.tabs.activeId, 'browser://passwords');
+            return { action };
+          case 'open-extensions':
+            this.tabs.navigate(this.tabs.activeId, 'browser://extensions');
+            return { action };
+          default:
+            throw new Error('Unknown fix.');
+        }
+      },
+
       'sidebar:toggle': (_sender, payload) => this.toggleSidebar(payload?.open),
       'sidebar:state': () => ({ open: this.sidebarOpen, width: this.sidebarWidth }),
 

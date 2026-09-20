@@ -105,6 +105,15 @@ const MODES = {
     group: 'system',
     order: 9,
   },
+  health: {
+    id: 'health',
+    name: 'Health',
+    tagline: 'Performance, privacy, security and storage',
+    icon: 'gear',
+    page: 'browser://health',
+    group: 'system',
+    order: 11,
+  },
   safety: {
     id: 'safety',
     name: 'Safety',

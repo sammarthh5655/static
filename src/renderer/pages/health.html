@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Browser health</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="health.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>Browser health</h1>
+
+    <!-- Status plus the findings that produced it. The two are never
+         separated: a status with no stated cause is either ignored or
+         believed, and both are wrong. -->
+    <section class="health-status" id="status"></section>
+    <section class="health-findings" id="findings"></section>
+
+    <h2>Performance</h2>
+    <div class="card" id="performance"></div>
+
+    <h2>Privacy</h2>
+    <div class="card" id="privacy"></div>
+
+    <h2>Security</h2>
+    <div class="card" id="security"></div>
+
+    <h2>Storage</h2>
+    <div class="card" id="storage"></div>
+
+    <h2>Extensions</h2>
+    <div class="card" id="extensions"></div>
+  </div>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="../../shared/modes.js"></script>
+  <script src="common.js"></script>
+  <script src="health.js"></script>
+</body>
+</html>

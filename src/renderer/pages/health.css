@@ -1,0 +1,60 @@
+/* Browser health centre.
+   The status and its findings sit together at the top, because a status with
+   no stated cause is either ignored or believed and both are wrong. */
+
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  margin-bottom: 12px;
+}
+.status-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--text-faint); }
+.status-card.is-excellent .status-dot { background: #81c995; }
+.status-card.is-good .status-dot { background: #81c995; }
+.status-card.is-attention .status-dot { background: #f7c065; }
+.status-card.is-critical .status-dot { background: var(--danger); }
+
+.status-title { font-size: 16px; }
+.status-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+.health-findings { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+
+.finding {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+/* The left edge carries the severity, so a scan down the list reads as a
+   priority order without relying on colour alone - the text says it too. */
+.finding.is-critical { border-left-color: var(--danger); }
+.finding.is-attention { border-left-color: #f7c065; }
+.finding.is-good { border-left-color: var(--border); }
+
+.finding-body { flex: 1; min-width: 0; }
+.finding-title { font-size: 13px; }
+.finding-detail { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+.finding-fix {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.finding-fix:hover:not(:disabled) { background: var(--surface-hover); }
+.finding-fix:disabled { opacity: 0.6; cursor: default; }
+
+.health-value { font-variant-numeric: tabular-nums; color: var(--text); }
