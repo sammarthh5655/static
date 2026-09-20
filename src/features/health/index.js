@@ -83,7 +83,9 @@ class Health {
       .filter((tab) => (tab.memoryMb || 0) >= HEAVY_TAB_MB)
       .sort((a, b) => (b.memoryMb || 0) - (a.memoryMb || 0));
 
-    const all = this.getTabs();
+    // Same guard as the organizer and Sense: a tab closing while the report is
+    // being built leaves a null entry in this array.
+    const all = (this.getTabs() || []).filter(Boolean);
     const sleeping = all.filter((tab) => tab.state?.suspended).length;
 
     const findings = [];
