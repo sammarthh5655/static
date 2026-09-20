@@ -17,7 +17,7 @@ module.exports = {
     'downloads:reveal', 'downloads:cancel', 'downloads:clear',
     'settings:update', 'settings:clear-data', 'settings:reset',
     'newtab:notes',
-    'ai:ask', 'ai:cancel', 'ai:status',
+    'ai:ask', 'ai:cancel', 'ai:status', 'ai:page-permission', 'ai:summarise-page', 'ai:explain-selection', 'ai:formats', 'sidebar:toggle', 'sidebar:state',
     'chat:list', 'chat:get', 'chat:new', 'chat:send',
     'chat:rename', 'chat:pin', 'chat:delete', 'chat:clear',
     'resources:state', 'resources:update', 'resources:suspend', 'resources:resume',

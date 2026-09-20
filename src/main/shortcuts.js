@@ -36,6 +36,8 @@ const ACCELERATORS = [
   accel('tab:previous', 'Previous tab', 'Tab', { mod: !isMac, alt: isMac, shift: true }),
   accel('tab:reopen', 'Reopen closed tab', 't', { mod: true, shift: true }),
 
+  accel('sidebar:toggle', 'AI sidebar', 'j', { mod: true }),
+
   accel('omnibox:focus', 'Focus address bar', 'l', { mod: true }),
   accel('page:reload', 'Reload', 'r', { mod: true }),
   accel('page:stop', 'Stop', 'Escape', {}),

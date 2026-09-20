@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>AI sidebar</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body class="sidebar">
+  <header class="side-head">
+    <span class="side-title">AI</span>
+    <button class="side-tool" id="new-chat" title="New chat">New</button>
+    <button class="side-tool" id="open-full" title="Open the full AI page">Open</button>
+    <button class="side-tool" id="close" title="Close sidebar" aria-label="Close sidebar">×</button>
+  </header>
+
+  <!-- What the AI can currently see. Always visible, never a hidden state:
+       a sidebar that can read the page must say so plainly. -->
+  <div class="side-permission" id="permission">
+    <span class="perm-dot" id="perm-dot"></span>
+    <span class="perm-text" id="perm-text">Checking this page…</span>
+  </div>
+
+  <!-- Quick actions for the current page. -->
+  <div class="side-actions" id="actions"></div>
+
+  <div class="side-transcript" id="transcript"></div>
+
+  <form class="side-compose" id="compose" autocomplete="off">
+    <textarea id="input" rows="2" placeholder="Ask about this page…"
+              spellcheck="false" aria-label="Ask the AI"></textarea>
+    <button type="submit" id="send" class="side-send">Send</button>
+  </form>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="common.js"></script>
+  <script src="sidebar.js"></script>
+</body>
+</html>
