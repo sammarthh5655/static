@@ -179,10 +179,14 @@ class BrowserApplication {
 
     // Filter lists refresh in the background: a first run should not wait on
     // a network fetch, and a failure must not stop the browser starting.
+    // A profile with no cached lists is running on the 40-rule builtin, which
+    // blocks almost nothing. That is not something to discover four seconds
+    // into a browsing session, so a first run fetches immediately and only an
+    // already-stocked profile waits.
     setTimeout(() => {
       this.shields.refresh().catch((error) =>
         console.error('shields: refresh failed', error.message));
-    }, 4000);
+    }, this.shields.usingCache ? 4000 : 0);
 
     try {
       await this.extensions.start();
@@ -1479,6 +1483,38 @@ class BrowserApplication {
    * synchronous because the preload has to decide before the page's first
    * script runs.
    */
+  /**
+   * Read the in-page ad counters and record what was actually stripped.
+   *
+   * The page script runs in the page's MAIN world, which has no IPC access, so
+   * its counts had no way home: `videoAds` sat at 0 for every session while the
+   * blocker was working, which read as "video ad blocking does nothing".
+   *
+   * Polled rather than pushed, because the alternative is exposing a bridge to
+   * the main world, and anything reachable from the main world is reachable by
+   * the page. A count is not worth that.
+   */
+  #collectVideoAdStats(contents) {
+    if (!contents || contents.isDestroyed()) return;
+    // The player response arrives shortly after navigation; sample a few times
+    // rather than guessing one moment.
+    let previous = 0;
+    let ticks = 0;
+    const timer = setInterval(() => {
+      if (contents.isDestroyed() || ++ticks > 8) { clearInterval(timer); return; }
+      contents.executeJavaScript(
+        'window.__staticAdStats ? window.__staticAdStats().total : -1', true)
+        .then((total) => {
+          if (typeof total !== 'number' || total < 0) return;
+          if (total > previous) {
+            this.shields.stats.record('videoAds', total - previous);
+            previous = total;
+          }
+        })
+        .catch(() => { clearInterval(timer); });
+    }, 1200);
+  }
+
   attachVideoAdGate() {
     ipcMain.on('shields:video-ads-for-host', (event, host) => {
       let allow = false;
@@ -1551,6 +1587,7 @@ class BrowserApplication {
       contents.executeJavaScript(
         'if (window.__staticAdReset) window.__staticAdReset();', true).catch(() => {});
       contents.executeJavaScript(PAGE_SCRIPT, true).catch(() => {});
+      this.#collectVideoAdStats(contents);
     });
 
     // Cosmetic CSS hides the box an ad would have occupied. It goes in at
@@ -1636,6 +1673,17 @@ class BrowserApplication {
     // themselves rather than assume they survive.
 
     contents.on('dom-ready', insertCosmetic);
+
+    // The first video of a session loads a real document, so it never fires
+    // did-navigate-in-page. Without this, only the SECOND and later videos
+    // were ever counted.
+    contents.on('dom-ready', () => {
+      if (!this.shields.config.enabled || !this.shields.config.blockVideoAds) return;
+      let host = '';
+      try { host = new URL(contents.getURL()).hostname; } catch { return; }
+      if (!isYouTubeHost(host) || !this.shields.activeFor(host)) return;
+      this.#collectVideoAdStats(contents);
+    });
     // Single-page navigations (clicking between YouTube videos) never fire
     // dom-ready, and the stylesheet does not always survive them, so reapply.
     contents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
