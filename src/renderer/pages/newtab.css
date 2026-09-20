@@ -482,9 +482,12 @@ button.util-card:hover {
 .privacy-tab:hover { color: var(--text); }
 .privacy-tab.is-active { background: var(--surface-active); color: var(--text); }
 
-.privacy-headline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.privacy-count { font-size: 30px; font-weight: 300; letter-spacing: -0.02em; }
-.privacy-count-label { font-size: 12px; color: var(--text-dim); }
+/* Two lifetime figures side by side: ads and trackers. One combined number
+   with no period stated is what made four surfaces look like they disagreed. */
+.privacy-headline { display: flex; align-items: flex-start; gap: 22px; flex-wrap: wrap; }
+.privacy-figure { display: flex; flex-direction: column; gap: 1px; }
+.privacy-count { font-size: 28px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.1; }
+.privacy-count-label { font-size: 11.5px; color: var(--text-dim); }
 
 .spark {
   display: flex;

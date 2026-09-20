@@ -343,7 +343,10 @@ class Shields {
       rules: this.engine.count,
       usingCache: !!this.usingCache,
       lastFetch: this.config.lastFetch || 0,
-      totalBlocked: this.config.totalBlocked || 0,
+      // Derived from the per-day stats, NOT from a separate counter. Two
+      // counters is what made four surfaces disagree.
+      totalBlocked: this.stats.lifetime().blocked,
+      lifetime: this.stats.lifetime(),
       lists: LISTS.map((list) => ({ id: list.id, name: list.name })),
     };
   }

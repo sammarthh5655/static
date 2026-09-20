@@ -68,9 +68,10 @@ async function run(browser) {
     // Read the expected accent from the theme registry rather than repeating
     // the hex here. A hardcoded value went stale when the palette was retuned,
     // and the suite then reported a failure against correct behaviour.
-    const eclipseAccent = require('../src/shared/theme').THEMES.eclipse.tokens.accent;
-    check('eclipse theme applied', page.accent === eclipseAccent,
-      page.accent + ' (expected ' + eclipseAccent + ')');
+    const { THEMES, DEFAULT_THEME } = require('../src/shared/theme');
+    const expectedAccent = THEMES[browser.settings.value.theme || DEFAULT_THEME].tokens.accent;
+    check('the chosen planet is applied', page.accent === expectedAccent,
+      page.accent + ' (expected ' + expectedAccent + ')');
 
     const ai = await wc.executeJavaScript(`(async () => {
       const q = document.getElementById('query');
@@ -129,13 +130,26 @@ async function run(browser) {
       });
       return {
         headline: count ? count.textContent : null,
+        // Both lifetime figures, in order: ads then trackers.
+        figures: [...document.querySelectorAll('.privacy-figure')].map(function(f){
+          return {
+            value: f.querySelector('.privacy-count').textContent,
+            label: f.querySelector('.privacy-count-label').textContent,
+          };
+        }),
         stats: stats,
         estimateLabelled: !!document.querySelector('.privacy-estimate'),
         bars: document.querySelectorAll('.spark-bar').length,
       };
     })()`);
-    check('privacy widget shows the real blocked total',
-      live.headline === '12', 'showed ' + live.headline + ', expected 12');
+    // Lifetime ads and trackers as two separate figures, each labelled. One
+    // combined number with no period stated is what made the homepage, the
+    // shield card and the dashboard look like they disagreed.
+    check('privacy widget shows lifetime ads and trackers separately',
+      live.figures.length === 2 &&
+      live.figures[0].value === '7' && /ads/i.test(live.figures[0].label) &&
+      live.figures[1].value === '5' && /trackers/i.test(live.figures[1].label),
+      JSON.stringify(live.figures));
     check('privacy widget splits ads and trackers',
       live.stats.Ads === '7' && live.stats.Trackers === '5', JSON.stringify(live.stats));
     // Bandwidth and time cannot be measured - a blocked request is cancelled

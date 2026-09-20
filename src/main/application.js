@@ -595,7 +595,15 @@ class BrowserApplication {
       // actual flags, and the two must not be confused - a summary string
       // cannot drive a toggle.
       features: {
-        shields: { ...this.shields.config, ruleCount: this.shields.engine.count },
+        // totalBlocked is overridden deliberately: the raw config value is a
+        // legacy counter that drifts from the per-day stats. Everything that
+        // shows a count must read the same derived figure.
+        shields: {
+          ...this.shields.config,
+          ruleCount: this.shields.engine.count,
+          totalBlocked: this.shields.stats.lifetime().blocked,
+          lifetime: this.shields.stats.lifetime(),
+        },
         safety: this.safety.state(),
         resources: {
           gameMode: !!this.resources.config.gameMode,
@@ -1889,14 +1897,19 @@ class BrowserApplication {
           ? `${(resources.totalMemoryMb / 1024).toFixed(1)} GB across ${resources.tabCount} tabs`
           : 'Not measured yet',
       },
-      shields: {
-        active: !!this.shields.config.enabled,
-        badge: this.shields.config.totalBlocked
-          ? compactCount(this.shields.config.totalBlocked) : null,
-        summary: this.shields.config.enabled
-          ? `${compactCount(this.shields.config.totalBlocked || 0)} blocked · ${compactCount(this.shields.engine.count)} rules`
-          : 'Shields are off',
-      },
+      shields: (() => {
+        // One source of truth. Every surface that shows a blocked count reads
+        // the same lifetime figure, so the homepage, this card and the
+        // dashboard can never disagree again.
+        const life = this.shields.stats.lifetime();
+        return {
+          active: !!this.shields.config.enabled,
+          badge: life.blocked ? compactCount(life.blocked) : null,
+          summary: this.shields.config.enabled
+            ? `${compactCount(life.blocked)} blocked · ${compactCount(this.shields.engine.count)} rules`
+            : 'Shields are off',
+        };
+      })(),
       safety: {
         active: safety.enabled,
         badge: safety.blockedCount ? String(safety.blockedCount) : null,

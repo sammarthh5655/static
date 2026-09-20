@@ -174,9 +174,35 @@ class Stats {
     return true;
   }
 
+  /**
+   * The one number every surface shows.
+   *
+   * There used to be two counters: a lifetime `totalBlocked` integer bumped on
+   * each block, and this per-day map. They counted different events and drifted
+   * apart, so the homepage, the shield card and the dashboard each showed a
+   * DIFFERENT figure at the same moment - 142, 736, 746 and 747 all on screen
+   * at once. Anything that wants a headline count now derives it from here.
+   */
+  lifetime() {
+    const all = this.totals(0);
+    return {
+      // Ads and trackers are what "blocked" means to a person: requests that
+      // were stopped. Cosmetic hiding and parameter stripping are real, but
+      // counting them in the same number is what made it unexplainable.
+      ads: all.ads,
+      trackers: all.trackers,
+      blocked: all.ads + all.trackers,
+      cosmetic: all.cosmetic,
+      videoAds: all.videoAds,
+      // Everything, for anywhere that genuinely wants the grand total.
+      total: all.total,
+    };
+  }
+
   /** Everything the privacy widget needs, in one call. */
   summary() {
     return {
+      lifetime: this.lifetime(),
       today: this.totals(1),
       week: this.totals(7),
       month: this.totals(30),

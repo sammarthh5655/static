@@ -143,12 +143,26 @@ RENDERERS.privacy = (ctx) => {
     const totals = range.id === 'today' ? latest.today
       : range.id === 'week' ? latest.week : latest.allTime;
 
+    // The headline is ALWAYS lifetime, and always split into ads and trackers.
+    //
+    // It used to show whichever range was selected, with no period stated, so
+    // the same card read 142 while the shield card read 746 - the numbers were
+    // both right and looked like a bug. Lifetime is the figure every other
+    // surface shows too, so they now agree by construction.
+    const life = latest.lifetime || { ads: 0, trackers: 0 };
     const headline = ctx.element('div', { class: 'privacy-headline' }, [
-      ctx.element('span', { class: 'privacy-count', text: compact(totals.ads + totals.trackers) }),
-      ctx.element('span', { class: 'privacy-count-label', text: 'ads and trackers blocked' }),
+      ctx.element('div', { class: 'privacy-figure' }, [
+        ctx.element('span', { class: 'privacy-count', text: compact(life.ads) }),
+        ctx.element('span', { class: 'privacy-count-label', text: 'ads blocked' }),
+      ]),
+      ctx.element('div', { class: 'privacy-figure' }, [
+        ctx.element('span', { class: 'privacy-count', text: compact(life.trackers) }),
+        ctx.element('span', { class: 'privacy-count-label', text: 'trackers blocked' }),
+      ]),
     ]);
 
     const stats = ctx.element('div', { class: 'privacy-stats' }, [
+      statRow(range.label || 'This period', compact(totals.ads + totals.trackers)),
       statRow('Ads', compact(totals.ads)),
       statRow('Trackers', compact(totals.trackers)),
       statRow('HTTPS upgrades', compact(totals.https)),
