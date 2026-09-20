@@ -208,6 +208,102 @@ async function run(browser) {
     check('typing in the scratchpad creates a real note',
       bodies.includes('typed into the widget'), bodies.slice(0, 4).join(' | '));
 
+    // ---- customise mode ---------------------------------------------------
+    // Order and visibility are what this edits. Free resizing is deliberately
+    // not offered: it would mean storing pixel geometry per widget, which
+    // breaks as soon as the window changes size or the page opens on another
+    // display - the layout would need repairing rather than just rendering.
+    browser.settings.update({ newTab: { widgets: ['clock', 'privacy', 'reading'] } });
+    wc.reload();
+    for (let i = 0; i < 40 && wc.isLoading(); i++) await wait(200);
+    await wait(1600);
+
+    const off = await wc.executeJavaScript(`({
+      hidden: document.getElementById('customise-bar').hidden,
+      draggable: document.querySelectorAll('.widget.is-draggable').length,
+    })`);
+    check('customise controls are hidden until asked for',
+      off.hidden === true && off.draggable === 0, JSON.stringify(off));
+
+    await wc.executeJavaScript("document.getElementById('customise-open').click()");
+    await wait(800);
+    const on = await wc.executeJavaScript(`({
+      hidden: document.getElementById('customise-bar').hidden,
+      mode: document.body.classList.contains('customising'),
+      chips: document.querySelectorAll('.customise-chip').length,
+      chipsOn: [...document.querySelectorAll('.customise-chip.is-on')].map(c => c.textContent),
+      presets: document.querySelectorAll('.customise-preset').length,
+      draggable: document.querySelectorAll('.widget.is-draggable').length,
+    })`);
+    check('customise mode opens', on.hidden === false && on.mode === true, JSON.stringify(on));
+    // One chip per registered widget. Zero here meant shared/widgets.js was
+    // never loaded on the page - the registry was empty and Reset silently
+    // fell back to a stub layout.
+    check('a chip per registered widget',
+      on.chips === Object.keys(require('../src/shared/widgets').WIDGETS).length,
+      on.chips + ' chips');
+    check('chips show which widgets are on',
+      on.chipsOn.length === 3, on.chipsOn.join(', '));
+    check('cards become draggable', on.draggable === 3, on.draggable + ' draggable');
+
+    await wc.executeJavaScript(`(() => {
+      const chip = [...document.querySelectorAll('.customise-chip')]
+        .find((c) => c.textContent === 'Recently closed');
+      if (chip) chip.click();
+    })()`);
+    await wait(1100);
+    check('a chip adds a widget to the saved layout',
+      browser.settings.value.newTab.widgets.includes('recent'),
+      JSON.stringify(browser.settings.value.newTab.widgets));
+
+    await wc.executeJavaScript(`(() => {
+      const preset = [...document.querySelectorAll('.customise-preset')]
+        .find((p) => p.textContent === 'Minimal');
+      if (preset) preset.click();
+    })()`);
+    await wait(1100);
+    check('a preset replaces the layout',
+      JSON.stringify(browser.settings.value.newTab.widgets) === '["clock"]',
+      JSON.stringify(browser.settings.value.newTab.widgets));
+
+    await wc.executeJavaScript(
+      "document.querySelector('.customise-preset.is-reset').click()");
+    await wait(1100);
+    const defaults = require('../src/shared/widgets').DEFAULT_LAYOUT;
+    check('reset restores the real default layout',
+      JSON.stringify(browser.settings.value.newTab.widgets) === JSON.stringify(defaults),
+      JSON.stringify(browser.settings.value.newTab.widgets));
+
+    // Dragging must persist through settings, not just move the DOM.
+    browser.settings.update({ newTab: { widgets: ['clock', 'privacy', 'reading'] } });
+    await wait(1200);
+    await wc.executeJavaScript(`(() => {
+      const cards = document.querySelectorAll('#widgets .widget');
+      const dt = new DataTransfer();
+      cards[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
+      cards[2].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      cards[2].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    })()`);
+    await wait(1200);
+    // Assert the MOVE, not a fixed array: which widgets are present depends on
+    // when the preceding settings update propagated to the page, and pinning
+    // the exact ids made this fail on correct behaviour.
+    const moved = browser.settings.value.newTab.widgets;
+    check('dragging a card reorders the saved layout',
+      moved.length === 3 && moved[2] === 'clock' && moved[0] !== 'clock',
+      JSON.stringify(moved) + ' (expected clock moved from first to last)');
+
+    await wc.executeJavaScript(
+      "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");
+    await wait(700);
+    const closed = await wc.executeJavaScript(`({
+      hidden: document.getElementById('customise-bar').hidden,
+      mode: document.body.classList.contains('customising'),
+    })`);
+    check('Escape leaves customise mode',
+      closed.hidden === true && closed.mode === false, JSON.stringify(closed));
+
+
 
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');

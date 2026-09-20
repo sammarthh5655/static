@@ -598,3 +598,104 @@ button.util-card:hover {
   cursor: pointer;
 }
 .widget-link:hover { text-decoration: underline; }
+
+/* ---- customise mode -------------------------------------------------------
+   A rare action, so the entry point stays quiet and the controls only appear
+   once asked for.                                                           */
+
+.customise-open {
+  display: block;
+  margin: 26px auto 0;
+  padding: 5px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.customise-open:hover { color: var(--text-dim); border-color: var(--border-soft); }
+.customise-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.customise-bar { width: 100%; max-width: 900px; margin: 26px auto 0; }
+
+.customise {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.customise-head { display: flex; align-items: center; gap: 10px; }
+.customise-title {
+  flex: 1;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.customise-done {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.customise-done:hover { background: var(--surface-hover); }
+
+.customise-chips, .customise-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.customise-chip, .customise-preset {
+  padding: 4px 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.customise-chip:hover, .customise-preset:hover { color: var(--text); border-color: var(--border); }
+/* A widget that is currently shown reads as switched on. */
+.customise-chip.is-on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+.customise-chip:focus-visible, .customise-preset:focus-visible,
+.customise-done:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.customise-preset.is-reset { color: var(--text-faint); }
+
+.customise-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-right: 2px;
+}
+.customise-hint { margin: 0; font-size: 12px; color: var(--text-faint); }
+
+/* Cards while arranging. The dashed outline says "this moves" without
+   redrawing the card itself, so the page still looks like the page. */
+.customising .widget.is-draggable { cursor: grab; border-style: dashed; }
+.customising .widget.is-dragging { opacity: 0.45; cursor: grabbing; }
+.customising .widget.is-over { border-color: var(--accent); border-style: solid; }
+
+@media (prefers-reduced-motion: reduce) {
+  .customising .widget { transition: none; }
+}

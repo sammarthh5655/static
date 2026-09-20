@@ -215,6 +215,34 @@ function renderFrequent() {
  * the layout in settings was inert. This is the render path that was missing.
  */
 let mounted = [];
+let customising = false;
+
+/** The layout the user has chosen, or the default for a fresh profile. */
+function currentLayout() {
+  const chosen = state.settings?.newTab?.widgets;
+  return Array.isArray(chosen) && chosen.length
+    ? [...chosen]
+    : [...((window.widgets && window.widgets.DEFAULT_LAYOUT) || [])];
+}
+
+/**
+ * Persist a layout.
+ *
+ * Main validates it - unknown ids are dropped and duplicates removed - and
+ * pushes new state back, which re-renders through onState. Nothing here
+ * updates the DOM directly, so what is on screen is always what was saved.
+ */
+function saveLayout(next) {
+  invoke('settings:update', { newTab: { widgets: next } }).catch((error) => {
+    console.error('could not save layout:', error.message);
+  });
+}
+
+function setCustomising(on) {
+  customising = on;
+  document.body.classList.toggle('customising', on);
+  renderWidgets();
+}
 
 function renderWidgets() {
   // Widgets own timers and listeners; dropping the nodes without disposing
@@ -263,6 +291,26 @@ function renderWidgets() {
     }
   }
   host.replaceChildren(...nodes);
+
+  // Customise mode: the bar mounts above the grid and the cards become
+  // draggable. Both are rebuilt on every render so they always reflect the
+  // saved layout rather than a stale copy.
+  const tools = (window.widgetRenderers || {}).__customise;
+  const bar = $('#customise-bar');
+  if (bar) {
+    if (customising && tools) {
+      bar.replaceChildren(tools.build(ctx, {
+        getLayout: currentLayout,
+        setLayout: saveLayout,
+        onExit: () => setCustomising(false),
+      }));
+      bar.hidden = false;
+      tools.makeDraggable(host, { getLayout: currentLayout, setLayout: saveLayout });
+    } else {
+      bar.replaceChildren();
+      bar.hidden = true;
+    }
+  }
 }
 
 function plural(count, noun) {
@@ -293,6 +341,13 @@ window.addEventListener('pagehide', () => {
       try { node.dispose(); } catch { /* tearing down anyway */ }
     }
   }
+});
+
+$('#customise-open').addEventListener('click', () => setCustomising(!customising));
+
+// Escape leaves customise mode, matching how AI mode already behaves.
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && customising) setCustomising(false);
 });
 
 queryInput.focus();
