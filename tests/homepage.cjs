@@ -405,6 +405,43 @@ async function run(browser) {
     check('the status strip is pinned to the viewport and leaves room to scroll past',
       cover.ok === true, JSON.stringify(cover));
 
+    // The homepage must FIT. It used to overflow as soon as more than three
+    // widgets were on, which meant scrolling to reach your own widgets.
+    browser.settings.update({ newTab: {
+      widgets: ['clock', 'privacy', 'shortcuts', 'reading', 'notes', 'recent'],
+      widgetSize: 'compact',
+    } });
+    browser.push();
+    await wait(1200);
+
+    const fit = await wc.executeJavaScript(`({
+      scrollH: document.documentElement.scrollHeight,
+      clientH: document.documentElement.clientHeight,
+      widgets: document.querySelectorAll('.widget').length,
+      customise: (function(){
+        var b = document.getElementById('customise-open');
+        if (!b) return null;
+        var r = b.getBoundingClientRect();
+        return { right: window.innerWidth - r.right, bottom: window.innerHeight - r.bottom,
+                 fixed: getComputedStyle(b).position };
+      })(),
+    })`);
+    check('six widgets still fit without scrolling',
+      fit.scrollH <= fit.clientH + 4,
+      fit.widgets + ' widgets, ' + fit.scrollH + 'px content in ' + fit.clientH + 'px');
+    check('the customise button is pinned bottom-right',
+      fit.customise && fit.customise.fixed === 'fixed' &&
+      fit.customise.right < 40 && fit.customise.bottom < 40,
+      JSON.stringify(fit.customise));
+
+    // And widget size really changes the layout.
+    browser.settings.update({ newTab: { widgetSize: 'large' } });
+    browser.push();
+    await wait(900);
+    const large = await wc.executeJavaScript(
+      `getComputedStyle(document.body).getPropertyValue('--widget-min').trim()`);
+    check('widget size is adjustable', large === '300px', '--widget-min = ' + large);
+
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');
     app.exit(fails ? 1 : 0);

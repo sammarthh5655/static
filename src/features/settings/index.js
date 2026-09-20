@@ -39,6 +39,8 @@ const DEFAULTS = {
     backgroundValue: '',
     // '12', '24', or 'system' to follow the OS locale.
     clockFormat: 'system',
+    // How large widget cards are: compact, comfortable or large.
+    widgetSize: 'comfortable',
     // The strip along the bottom of the homepage.
     showStatusStrip: true,
     // Per-widget appearance overrides, keyed by widget id. Anything absent
@@ -93,6 +95,8 @@ class Settings {
         ? source.backgroundValue.slice(0, 2048) : '',
       clockFormat: ['12', '24', 'system'].includes(source.clockFormat)
         ? source.clockFormat : DEFAULTS.newTab.clockFormat,
+      widgetSize: ['compact', 'comfortable', 'large'].includes(source.widgetSize)
+        ? source.widgetSize : DEFAULTS.newTab.widgetSize,
       showStatusStrip: typeof source.showStatusStrip === 'boolean'
         ? source.showStatusStrip : DEFAULTS.newTab.showStatusStrip,
       widgetStyles: normaliseWidgetStyles(source.widgetStyles),

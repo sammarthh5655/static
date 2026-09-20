@@ -14,9 +14,12 @@ body.newtab {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  min-height: 100vh;
+  height: 100vh;
   padding: 0;
+  /* The page is designed to fit. Anything that genuinely does not fit (a very
+     short window, a great many widgets) scrolls rather than being cut off. */
   overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
 }
 
@@ -40,13 +43,23 @@ body.newtab {
 
 /* ---- layout --------------------------------------------------------------- */
 
+/* The homepage fits the window. Nothing here scrolls: the top block is sized
+   in viewport units so it shrinks on a short screen, and the widget grid takes
+   whatever is left rather than pushing the page taller. */
 .stage {
   width: 100%;
   max-width: 600px;
-  padding: 17vh 28px 72px;
+  /* Was a fixed 17vh top padding plus 72px at the bottom, which overflowed as
+     soon as more than three widgets were on. */
+  padding: clamp(16px, 7vh, 64px) 28px clamp(48px, 7vh, 72px);
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* Exactly the viewport, never more: the grid below is what flexes. */
+  height: 100vh;
+  box-sizing: border-box;
+  justify-content: center;
+  overflow: hidden;
 }
 
 /* ---- mark ----------------------------------------------------------------- */
@@ -396,14 +409,33 @@ button.util-card:hover {
    auto-fitting so a layout of one, two or four cards all look deliberate
    rather than stretched.                                                     */
 
+/* The widget grid.
+   --widget-min is the smallest a card may be, and the user sets it (Compact /
+   Comfortable / Large in Customise). Cards then fill the row, so choosing a
+   size changes how many fit rather than leaving gaps. */
 .widgets {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(var(--widget-min, 230px), 1fr));
+  gap: clamp(8px, 1.4vh, 14px);
   width: 100%;
   max-width: 900px;
-  margin: 34px auto 0;
+  margin: clamp(14px, 3vh, 34px) auto 0;
+  /* The grid takes the space that is left after the search block, and its own
+     rows are sized to fit rather than to their content. A fixed row height is
+     what pushed the page past the viewport once more than three widgets were
+     on. */
+  min-height: 0;
+  flex: 0 1 auto;
+  grid-auto-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
+/* Cards scroll their own content rather than growing the page. */
+.widgets .widget { min-height: 0; overflow: hidden; }
+.widgets .widget > *:last-child { overflow-y: auto; }
+/* Sizes, set from the saved preference on <body>. */
+body[data-widget-size="compact"]     { --widget-min: 170px; }
+body[data-widget-size="comfortable"] { --widget-min: 230px; }
+body[data-widget-size="large"]       { --widget-min: 300px; }
 
 .widget {
   display: flex;
@@ -626,10 +658,18 @@ button.util-card:hover {
    A rare action, so the entry point stays quiet and the controls only appear
    once asked for.                                                           */
 
+/* Bottom right, out of the way of everything. It is a rare action and must
+   not take a place in the reading order of the page. */
 .customise-open {
+  position: fixed;
+  right: 16px;
+  bottom: 14px;
+  z-index: 3;
   display: block;
-  margin: 26px auto 0;
-  padding: 5px 14px;
+  margin: 0;
+  padding: 6px 14px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid transparent;
   border-radius: 999px;
   background: none;

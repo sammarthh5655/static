@@ -475,7 +475,55 @@ function commit(input) {
 /* ---- events -------------------------------------------------------------- */
 
 el.newtab.addEventListener('click', () => act('tab:new'));
-$('organise-tabs').addEventListener('click', () => act('open:organizer'));
+/**
+ * Organise in one click, right here.
+ *
+ * It used to open a whole page, which is a lot of ceremony for "tidy my
+ * tabs". Now it analyses and applies immediately and reports what it did on
+ * the button itself, with an undo that stays for ten seconds - fast by
+ * default, recoverable when it guesses wrong.
+ */
+const organiseButton = $('organise-tabs');
+let organiseTimer = null;
+let organiseUndo = false;
+
+function organiseLabel(text, undo) {
+  clearTimeout(organiseTimer);
+  organiseUndo = !!undo;
+  organiseButton.textContent = text;
+  organiseButton.classList.toggle('is-undo', !!undo);
+  if (text !== 'Organise Tabs') {
+    organiseTimer = setTimeout(() => organiseLabel('Organise Tabs', false), undo ? 10000 : 2600);
+  }
+}
+
+organiseButton.addEventListener('click', async () => {
+  // While the undo is showing, the button IS the undo.
+  if (organiseUndo) {
+    try { await invoke('organizer:undo'); organiseLabel('Put back', false); }
+    catch (error) { organiseLabel(String(error.message).slice(0, 28), false); }
+    return;
+  }
+
+  organiseButton.disabled = true;
+  organiseLabel('Organising…', false);
+  try {
+    const analysed = await invoke('organizer:analyze', {});
+    const groups = (analysed && analysed.plan && analysed.plan.groups) || [];
+    if (!groups.length) { organiseLabel('Nothing to group', false); return; }
+
+    await invoke('organizer:apply', {});
+    const tabs = groups.reduce((total, group) => total + group.ids.length, 0);
+    // Say what actually happened, in numbers that can be checked against the
+    // tab strip, rather than a generic "Done".
+    organiseLabel(groups.length + (groups.length === 1 ? ' group' : ' groups')
+      + ' · ' + tabs + ' tabs · Undo', true);
+  } catch (error) {
+    organiseLabel(String(error.message).slice(0, 30), false);
+  } finally {
+    organiseButton.disabled = false;
+  }
+});
 $('workspace-switch').addEventListener('click', () => toggleMenu($('workspace-switch'), [
   ...(state.organizer?.workspaces || []).map(w => ({ label: w.name, icon: 'grid',
     checked: w.id === state.organizer.activeWorkspace, action: action('organizer:select-workspace', { id: w.id }) })),

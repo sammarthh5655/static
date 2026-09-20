@@ -425,6 +425,8 @@ onState((next) => {
   renderHint();
   renderEngine();
   renderStatusStrip();
+  // Widget card size, chosen by the user.
+  document.body.dataset.widgetSize = state.settings?.newTab?.widgetSize || 'comfortable';
 });
 
 // Widgets run their own timers and clean them up in dispose().
