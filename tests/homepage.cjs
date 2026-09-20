@@ -156,6 +156,59 @@ async function run(browser) {
       /no blocking activity/i.test(empty.text || ''), empty.text);
     check('empty state shows no headline number', empty.headline === false);
 
+    // ---- scratchpad and reading queue -------------------------------------
+    // Both are backed by the REAL Notes feature and Organizer sessions, so a
+    // note added anywhere shows up here and one added here is a real note.
+    // Start from a clean store: leftovers from an earlier run otherwise look
+    // exactly like duplicates.
+    for (const note of browser.notes.list({ limit: 500 })) browser.notes.remove(note.id);
+    browser.settings.update({ newTab: {
+      widgets: ['clock', 'privacy', 'notes', 'reading', 'shortcuts'] } });
+    wc.reload();
+    for (let i = 0; i < 40 && wc.isLoading(); i++) await wait(200);
+    await wait(1800);
+
+    const blank = await wc.executeJavaScript(`({
+      scratch: (document.querySelector('.widget-scratch .widget-empty')||{}).textContent || '',
+      reading: (document.querySelector('.widget-reading .widget-empty')||{}).textContent || '',
+    })`);
+    check('scratchpad shows an empty state', /nothing saved/i.test(blank.scratch), blank.scratch);
+    check('reading queue shows an empty state', /no saved pages/i.test(blank.reading), blank.reading);
+
+    // Adding through the FEATURE must reach the widget, which is what the
+    // notes:changed subscription is for.
+    browser.notes.add({ kind: 'text', body: 'A real text note' });
+    browser.notes.add({ kind: 'link', url: 'https://example.com/a', title: 'A saved article' });
+    await wait(1600);
+    const filled = await wc.executeJavaScript(`({
+      scratch: [...document.querySelectorAll('.scratch-text')].map(n => n.textContent),
+      reading: [...document.querySelectorAll('.reading-title')].map(n => n.textContent),
+      host: (document.querySelector('.reading-sub')||{}).textContent || '',
+    })`);
+    check('scratchpad follows notes:changed',
+      filled.scratch.includes('A real text note'), JSON.stringify(filled.scratch));
+    check('reading queue shows saved links',
+      filled.reading.includes('A saved article'), JSON.stringify(filled.reading));
+    check('reading queue shows the source host', filled.host === 'example.com', filled.host);
+    // A saved LINK belongs in the reading queue only. Showing it in both made
+    // one saved article appear twice on the same page.
+    check('a link is not also listed in the scratchpad',
+      !filled.scratch.includes('A saved article'), JSON.stringify(filled.scratch));
+
+    // Typing in the widget must create a real note, not widget-local state.
+    await wc.executeJavaScript(`(async () => {
+      const input = document.querySelector('.scratch-input');
+      input.value = 'typed into the widget';
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      await new Promise(r => setTimeout(r, 900));
+      return true;
+    })()`, true);
+    await wait(900);
+    const bodies = browser.notes.list({ limit: 50 }).map((n) => n.title || n.body);
+    check('typing in the scratchpad creates a real note',
+      bodies.includes('typed into the widget'), bodies.slice(0, 4).join(' | '));
+
+
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');
     app.exit(fails ? 1 : 0);

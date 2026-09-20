@@ -234,6 +234,10 @@ function renderWidgets() {
 
   const ctx = {
     element, icon, favicon, openUrl, invoke, state,
+    // Subscribe to a main-process event. Returns an unsubscribe function,
+    // which the widget calls from dispose() - a widget that outlives its
+    // listener would keep re-rendering a detached node.
+    on: (channel, handler) => window.browser.on(channel, handler),
     // Whether AI is available in this build. The key itself never reaches the
     // renderer, so this only reports availability.
     credential: () => !!state.ai?.available,

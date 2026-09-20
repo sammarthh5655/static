@@ -42,6 +42,13 @@ const WIDGETS = {
     icon: 'bookmark',
     size: 'medium',
   },
+  reading: {
+    id: 'reading',
+    name: 'Reading queue',
+    description: 'Saved links and sessions to come back to.',
+    icon: 'bookmark',
+    size: 'medium',
+  },
   recent: {
     id: 'recent',
     name: 'Recently closed',
@@ -59,7 +66,7 @@ const WIDGETS = {
   notes: {
     id: 'notes',
     name: 'Scratchpad',
-    description: 'A quick note, saved locally.',
+    description: 'Quick notes, shared with Notes and Auto Notes.',
     icon: 'bookmark',
     size: 'medium',
   },

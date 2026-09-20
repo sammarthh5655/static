@@ -32,9 +32,30 @@ class JsonStore {
     // Small settings/bookmark writes are synchronous; history is debounced separately.
     const temporary = this.file + '.tmp';
     fs.writeFileSync(temporary, JSON.stringify(data, null, 2), { mode: 0o600 });
-    fs.renameSync(temporary, this.file);
-    this.data = data;
-    return data;
+
+    // Windows can fail the rename with EPERM/EBUSY when something else holds
+    // the file open for a moment - an antivirus scanner or the search indexer
+    // reacting to the write we just made. It is transient, and a single
+    // failure here would otherwise throw into the caller and lose the write.
+    // Retrying briefly turns a lost save into a slightly delayed one.
+    let lastError = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        fs.renameSync(temporary, this.file);
+        this.data = data;
+        return data;
+      } catch (error) {
+        lastError = error;
+        if (error.code !== 'EPERM' && error.code !== 'EBUSY' && error.code !== 'EACCES') break;
+        // Synchronous backoff: this path is already synchronous, and the
+        // alternative is returning before the data is durable.
+        const until = Date.now() + 20 * (attempt + 1);
+        while (Date.now() < until) { /* brief spin */ }
+      }
+    }
+    // Do not leave a stale temp file behind for the next save to trip over.
+    try { fs.unlinkSync(temporary); } catch { /* already gone */ }
+    throw lastError;
   }
 }
 /** Only plain objects are merged; arrays and class instances are not. */

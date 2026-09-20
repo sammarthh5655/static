@@ -117,26 +117,14 @@ RENDERERS.downloads = (ctx) => {
 
 /* ---- scratchpad ---------------------------------------------------------- */
 
-RENDERERS.notes = (ctx) => {
-  const area = ctx.element('textarea', {
-    class: 'notes-area',
-    placeholder: 'Jot something down…',
-    spellcheck: 'false',
-  });
-
-  ctx.invoke('newtab:notes', {}).then((text) => { area.value = text || ''; });
-
-  // Debounced: a keystroke should not mean a disk write.
-  let timer = null;
-  area.addEventListener('input', () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => ctx.invoke('newtab:notes', { text: area.value }), 400);
-  });
-
-  const node = card('Scratchpad', 'bookmark', area, ctx);
-  node.dispose = () => clearTimeout(timer);
-  return node;
-};
+/* ---- scratchpad ----------------------------------------------------------
+ * Implemented in widgets/scratchpad.js, backed by the real Notes feature.
+ *
+ * The version that lived here was a plain textarea over a separate
+ * `newtab:notes` blob. That meant a thought captured on the homepage was
+ * invisible to Notes, Auto Notes and the AI summaries - the wrong behaviour
+ * for a scratchpad, so it was replaced rather than kept alongside.
+ */
 
 /* ---- AI assistant (extension point) --------------------------------------
  * Deliberately inert: there is no provider wired up and no key configured.
