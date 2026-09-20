@@ -7,9 +7,19 @@
  * dismissible. The renderer makes no decisions: the step list, which step is
  * current, what each card says and whether the assistant can be offered all
  * come from the main process.
+ *
+ * The motion here is deliberate. This is the first thing anyone sees, so it
+ * has to feel like the product rather than a form: a drifting starfield that
+ * leans away from the pointer, a panel that tilts toward it, cards that light
+ * up under the cursor and ripple where they are clicked, and a staged rise as
+ * each step arrives. All of it is CSS and one canvas - no library, nothing the
+ * strict CSP has to accommodate, and everything switched off for anyone who
+ * has asked for reduced motion.
  */
 
 const { invoke, $, element } = window.page;
+
+const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 let state = null;
 
@@ -23,17 +33,156 @@ const LEDE = {
   done: '',
 };
 
+/* ---- starfield ----------------------------------------------------------- */
+
+/**
+ * A slow drift of particles that leans away from the pointer.
+ *
+ * Canvas rather than DOM nodes: a few hundred elements each with their own
+ * animation is a layout cost on every frame, and this has to stay free.
+ */
+function startStars() {
+  if (reduced) return;
+  const canvas = $('#stars');
+  const ctx = canvas.getContext('2d');
+  let width = 0;
+  let height = 0;
+  let particles = [];
+  const pointer = { x: 0.5, y: 0.5 };
+
+  const resize = () => {
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    width = canvas.width = Math.floor(innerWidth * ratio);
+    height = canvas.height = Math.floor(innerHeight * ratio);
+    canvas.style.width = innerWidth + 'px';
+    canvas.style.height = innerHeight + 'px';
+    // Density scales with area so a large window is not sparse and a small one
+    // is not a swarm.
+    const count = Math.min(190, Math.round((innerWidth * innerHeight) / 11000));
+    particles = Array.from({ length: count }, () => ({
+      x: Math.random() * width,
+      y: Math.random() * height,
+      r: (Math.random() * 1.5 + 0.35) * ratio,
+      vx: (Math.random() - 0.5) * 0.16 * ratio,
+      vy: (Math.random() - 0.5) * 0.16 * ratio,
+      a: Math.random() * 0.45 + 0.12,
+      phase: Math.random() * Math.PI * 2,
+    }));
+  };
+
+  // The accent, read from the theme rather than hard-coded, so the field
+  // matches whatever the user has chosen.
+  const accent = () => {
+    const value = getComputedStyle(document.body).getPropertyValue('--accent').trim();
+    return value || '#47baff';
+  };
+  let colour = accent();
+
+  let frame = 0;
+  const draw = () => {
+    frame++;
+    ctx.clearRect(0, 0, width, height);
+    // Pointer position in canvas space, for the lean.
+    const px = pointer.x * width;
+    const py = pointer.y * height;
+
+    for (const p of particles) {
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Gentle repulsion, so moving the mouse parts the field.
+      const dx = p.x - px;
+      const dy = p.y - py;
+      const distance = Math.hypot(dx, dy);
+      const reach = 170 * (window.devicePixelRatio || 1);
+      if (distance < reach && distance > 0.1) {
+        const push = (1 - distance / reach) * 0.55;
+        p.x += (dx / distance) * push;
+        p.y += (dy / distance) * push;
+      }
+
+      // Wrap rather than bounce: a bounce reads as a wall.
+      if (p.x < 0) p.x = width; else if (p.x > width) p.x = 0;
+      if (p.y < 0) p.y = height; else if (p.y > height) p.y = 0;
+
+      const twinkle = 0.65 + Math.sin(frame * 0.02 + p.phase) * 0.35;
+      ctx.globalAlpha = p.a * twinkle;
+      ctx.fillStyle = colour;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(draw);
+  };
+
+  addEventListener('resize', resize);
+  addEventListener('pointermove', (event) => {
+    pointer.x = event.clientX / innerWidth;
+    pointer.y = event.clientY / innerHeight;
+  });
+  // The theme can change under us (a profile choice does exactly that).
+  const observer = new MutationObserver(() => { colour = accent(); });
+  observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
+
+  resize();
+  requestAnimationFrame(draw);
+}
+
+/* ---- panel tilt ---------------------------------------------------------- */
+
+/** The panel leans a degree or two toward the pointer. Subtle on purpose. */
+function startTilt() {
+  if (reduced) return;
+  const panel = $('#panel');
+  addEventListener('pointermove', (event) => {
+    const x = event.clientX / innerWidth - 0.5;
+    const y = event.clientY / innerHeight - 0.5;
+    panel.style.setProperty('--tilt-y', (x * 3).toFixed(2));
+    panel.style.setProperty('--tilt-x', (-y * 2).toFixed(2));
+  });
+  addEventListener('pointerleave', () => {
+    panel.style.setProperty('--tilt-x', '0');
+    panel.style.setProperty('--tilt-y', '0');
+  });
+}
+
+/* ---- helpers ------------------------------------------------------------- */
+
 function show(message) {
   const existing = $('#body').querySelector('.welcome-error');
   if (existing) existing.textContent = message;
   else $('#body').append(element('p', { class: 'welcome-error', text: message }));
 }
 
+/** Give every child of a container its stagger index. */
+function stagger(container) {
+  let index = 0;
+  for (const node of container.children) {
+    node.classList.add('rise');
+    node.style.setProperty('--i', index++);
+  }
+}
+
 /** A choice card. The whole card is the button. */
 function choice(item, chosen, onPick) {
-  return element('button', {
+  const card = element('button', {
     class: 'welcome-choice' + (chosen ? ' is-chosen' : ''),
-    onclick: () => onPick(item.id),
+    onclick: (event) => {
+      if (!reduced) {
+        // A ripple from the exact point that was clicked.
+        const box = card.getBoundingClientRect();
+        const size = Math.max(box.width, box.height) * 2;
+        const ripple = element('span', { class: 'ripple' });
+        ripple.style.setProperty('width', size + 'px');
+        ripple.style.setProperty('height', size + 'px');
+        ripple.style.setProperty('left', (event.clientX - box.left) + 'px');
+        ripple.style.setProperty('top', (event.clientY - box.top) + 'px');
+        card.append(ripple);
+        setTimeout(() => ripple.remove(), 640);
+      }
+      onPick(item.id);
+    },
   }, [
     element('div', { class: 'welcome-choice-head' }, [
       element('span', { class: 'welcome-choice-name', text: item.name }),
@@ -43,17 +192,28 @@ function choice(item, chosen, onPick) {
     ]),
     element('div', { class: 'welcome-choice-summary', text: item.summary }),
   ]);
+
+  if (!reduced) {
+    card.addEventListener('pointermove', (event) => {
+      const box = card.getBoundingClientRect();
+      card.style.setProperty('--mx', (event.clientX - box.left) + 'px');
+      card.style.setProperty('--my', (event.clientY - box.top) + 'px');
+    });
+  }
+  return card;
 }
 
-function pick(channel, id) {
-  return async () => {
-    try {
-      state = await invoke(channel, { id });
-      render();
-    } catch (error) {
-      show(error.message);
-    }
-  };
+/** A feature line with its own pulsing dot. */
+function feature(index, title, rest) {
+  const dot = element('span', { class: 'welcome-dot' });
+  dot.style.setProperty('--i', index);
+  return element('li', {}, [
+    dot,
+    element('span', {}, [
+      element('strong', { text: title }),
+      element('span', { text: ' — ' + rest }),
+    ]),
+  ]);
 }
 
 /** Pick, then move on - choosing is the answer, so it should not need two clicks. */
@@ -62,26 +222,29 @@ async function pickAndAdvance(channel, id) {
     const chosen = await invoke(channel, { id });
     // Advancing returns a fresh state, which would drop any warning the choice
     // came back with. Carry it over so a partly-applied choice still says so.
-    state = { ...(await invoke('onboarding:next')), warning: chosen.warning || null };
-    render();
-    if (state.warning) show(state.warning);
+    const next = { ...(await invoke('onboarding:next')), warning: chosen.warning || null };
+    await transition(next);
+    if (next.warning) show(next.warning);
   } catch (error) {
     show(error.message);
   }
 }
 
+/* ---- step bodies --------------------------------------------------------- */
+
 function body() {
   const box = element('div');
 
   if (state.stepId === 'welcome') {
-    box.append(element('ul', { class: 'welcome-list' }, [
-      element('li', {}, [element('strong', { text: 'Ads and trackers blocked' }),
-        element('span', { text: ' — including on YouTube, using filter lists updated on this device.' })]),
-      element('li', {}, [element('strong', { text: 'Nothing leaves your machine' }),
-        element('span', { text: ' — history, notes and passwords are stored locally and encrypted by your system.' })]),
-      element('li', {}, [element('strong', { text: 'Tools that stay out of the way' }),
-        element('span', { text: ' — focus sessions, tab groups and an assistant you have to ask.' })]),
-    ]));
+    const list = element('ul', { class: 'welcome-list' }, [
+      feature(0, 'Ads and trackers blocked',
+        'including on YouTube, using filter lists updated on this device.'),
+      feature(1, 'Nothing leaves your machine',
+        'history, notes and passwords are stored locally and encrypted by your system.'),
+      feature(2, 'Tools that stay out of the way',
+        'focus sessions, tab groups and an assistant you have to ask.'),
+    ]);
+    box.append(list);
     return box;
   }
 
@@ -130,6 +293,18 @@ function body() {
   }
 
   // done
+  box.append(element('div', { class: 'welcome-seal' }, [(() => {
+    // A tick that draws itself in.
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M4 12.5 L9.5 18 L20 6.5');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.append(path);
+    return svg;
+  })()]));
+
   const summary = [];
   if (state.chosen.profile) {
     const profile = state.profiles.find((item) => item.id === state.chosen.profile);
@@ -149,10 +324,8 @@ function body() {
 
   box.append(element('ul', { class: 'welcome-list' },
     summary.length
-      ? summary.map(([label, value]) => element('li', {}, [
-        element('strong', { text: label + ': ' }), element('span', { text: value }),
-      ]))
-      : [element('li', { text: 'Nothing was changed. Static is running on its defaults.' })]));
+      ? summary.map(([label, value], index) => feature(index, label + ':', value))
+      : [feature(0, 'Nothing was changed', 'Static is running on its defaults.')]));
 
   // Honest about what was passed over, rather than implying it was answered.
   if (state.skipped.length) {
@@ -165,6 +338,8 @@ function body() {
     text: 'All of this is in Settings, and you can run this setup again from there.' }));
   return box;
 }
+
+/* ---- render -------------------------------------------------------------- */
 
 function render() {
   if (!state) return;
@@ -179,7 +354,14 @@ function render() {
 
   $('#title').textContent = state.stepTitle;
   $('#lede').textContent = LEDE[state.stepId] || '';
-  $('#body').replaceChildren(body());
+
+  const next = body();
+  $('#body').replaceChildren(next);
+  // Stagger the step's own content, and the choices within it, so the screen
+  // assembles rather than appearing.
+  stagger(next);
+  const choices = next.querySelector('.welcome-choices');
+  if (choices) stagger(choices);
 
   const back = $('#back');
   back.disabled = state.step === 0;
@@ -187,16 +369,33 @@ function render() {
   const skip = $('#skip');
   skip.hidden = !state.canSkip;
 
-  const next = $('#next');
-  next.textContent = state.isLast ? 'Start browsing' : 'Continue';
+  const button = $('#next');
+  button.textContent = state.isLast ? 'Start browsing' : 'Continue';
   // The profile step is the one real question, so Continue waits for it.
-  next.disabled = state.stepId === 'profile' && !state.chosen.profile;
+  button.disabled = state.stepId === 'profile' && !state.chosen.profile;
+}
+
+/**
+ * Move to a new state with the outgoing step dropping away first.
+ *
+ * Without this the content swaps instantly under a panel that is still, which
+ * is what made the original version feel like a form.
+ */
+async function transition(nextState) {
+  const panel = $('#panel');
+  if (reduced) { state = nextState; render(); return; }
+  panel.classList.add('is-leaving');
+  // Short enough that the flow never feels gated on an animation - the whole
+  // out-and-in reads as one motion rather than a wait.
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  panel.classList.remove('is-leaving');
+  state = nextState;
+  render();
 }
 
 async function step(channel) {
   try {
-    state = await invoke(channel);
-    render();
+    await transition(await invoke(channel));
   } catch (error) {
     show(error.message);
   }
@@ -212,6 +411,8 @@ $('#next').addEventListener('click', async () => {
   step('onboarding:next');
 });
 
+startStars();
+startTilt();
 step('onboarding:state');
 
 })();

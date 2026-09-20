@@ -1,9 +1,12 @@
 /* First launch.
-   Centred, uncrowded, and with one question per screen. The flow has to feel
-   like the calmest part of the browser, because it is the first thing anyone
-   sees. */
+   This is the first thing anyone sees, so it has to earn the product. Depth,
+   motion and reaction to the pointer - never a flat stack of boxes.
+
+   Everything here is CSS and one canvas. No libraries, no WebGL dependency,
+   and nothing that breaks the page's strict CSP. */
 
 .welcome-body {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11,114 +14,434 @@
   margin: 0;
   padding: 24px 16px;
   box-sizing: border-box;
+  /* The aurora is fixed, so only the content needs to scroll. Clipping both
+     axes hid the actions on a short window. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* A deep vertical wash so the aurora has something to sit in. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+    var(--bg);
 }
+
+/* ---- aurora ------------------------------------------------------------- */
+
+/* Three slow, overlapping colour fields. Blurred far past their own size so
+   they read as light in fog rather than as shapes. */
+.welcome-aurora {
+  position: fixed;
+  inset: -25%;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(90px) saturate(1.25);
+  opacity: 0.85;
+}
+.welcome-blob {
+  position: absolute;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+.welcome-blob.one {
+  width: 46vw; height: 46vw; left: 8%; top: 6%;
+  background: radial-gradient(circle at 35% 35%, var(--accent), transparent 68%);
+  animation: drift-one 22s ease-in-out infinite;
+}
+.welcome-blob.two {
+  width: 40vw; height: 40vw; right: 6%; top: 18%;
+  background: radial-gradient(circle at 60% 40%, var(--accent-alt, #8c7cf0), transparent 68%);
+  animation: drift-two 28s ease-in-out infinite;
+}
+.welcome-blob.three {
+  width: 36vw; height: 36vw; left: 32%; bottom: 2%;
+  background: radial-gradient(circle at 50% 50%, var(--accent-alt, #8c7cf0), transparent 70%);
+  animation: drift-three 34s ease-in-out infinite;
+  opacity: 0.42;
+}
+
+@keyframes drift-one {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33%      { transform: translate3d(8vw, 5vh, 0) scale(1.14); }
+  66%      { transform: translate3d(-4vw, 9vh, 0) scale(0.92); }
+}
+@keyframes drift-two {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+  40%      { transform: translate3d(-9vw, 7vh, 0) scale(0.9); }
+  70%      { transform: translate3d(3vw, -5vh, 0) scale(1.18); }
+}
+@keyframes drift-three {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.95); }
+  50%      { transform: translate3d(6vw, -8vh, 0) scale(1.2); }
+}
+
+/* The starfield canvas sits above the aurora, below the content. */
+#stars { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+
+/* ---- shell -------------------------------------------------------------- */
 
 .welcome {
+  position: relative;
+  z-index: 2;
   width: 100%;
-  max-width: 720px;
+  max-width: 760px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
+  margin: auto;
 }
 
-/* Named steps, not a percentage. "Privacy level" tells you what is coming;
-   "60%" does not. */
+/* ---- progress ----------------------------------------------------------- */
+
+/* Named steps, not a percentage. The current one carries a travelling sheen so
+   the eye lands on it without needing a colour change. */
 .welcome-steps {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 12px;
-  color: var(--text-dim);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  justify-content: center;
 }
 .welcome-step {
-  padding: 4px 10px;
+  position: relative;
+  padding: 5px 13px;
   border-radius: 999px;
   border: 1px solid transparent;
   white-space: nowrap;
+  overflow: hidden;
+  transition: color 260ms ease, border-color 260ms ease, background 260ms ease;
 }
+.welcome-step.is-done { color: var(--text-dim); }
 .welcome-step.is-current {
-  border-color: var(--border);
-  background: var(--surface);
   color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 22%, transparent);
 }
-.welcome-step.is-done { color: var(--text); }
-.welcome-step.is-skipped { text-decoration: line-through; }
+.welcome-step.is-current::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 20%,
+    color-mix(in srgb, var(--accent) 34%, transparent) 50%, transparent 80%);
+  transform: translateX(-120%);
+  animation: sheen 2.8s ease-in-out infinite;
+}
+@keyframes sheen { 0% { transform: translateX(-120%); } 60%, 100% { transform: translateX(120%); } }
+.welcome-step.is-skipped { text-decoration: line-through; opacity: 0.55; }
 
+/* ---- panel -------------------------------------------------------------- */
+
+/* Glass, with a hairline top edge where the light would catch. The panel tilts
+   very slightly toward the pointer; the amount is set from JS. */
 .welcome-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  padding: 28px;
+  position: relative;
+  border-radius: 22px;
+  padding: 30px 32px;
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  backdrop-filter: blur(26px) saturate(1.5);
+  -webkit-backdrop-filter: blur(26px) saturate(1.5);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
+  transform: perspective(1200px)
+             rotateX(calc(var(--tilt-x, 0) * 1deg))
+             rotateY(calc(var(--tilt-y, 0) * 1deg));
+  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.welcome-panel h1 { font-size: 22px; margin: 0 0 6px; }
-.welcome-lede { color: var(--text-dim); margin: 0 0 20px; font-size: 13px; line-height: 1.5; }
+
+/* A slow conic light running the border, so the panel is never fully still. */
+.welcome-panel::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--angle, 0deg),
+    transparent 0turn,
+    color-mix(in srgb, var(--accent) 65%, transparent) 0.12turn,
+    transparent 0.3turn,
+    transparent 0.62turn,
+    color-mix(in srgb, var(--accent-alt, #8c7cf0) 55%, transparent) 0.78turn,
+    transparent 1turn);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: spin-border 8s linear infinite;
+  pointer-events: none;
+}
+@property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+@keyframes spin-border { to { --angle: 360deg; } }
+
+.welcome-panel h1 {
+  font-size: 30px;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+  /* Text carries the accent as a gradient rather than a flat fill. */
+  background: linear-gradient(100deg,
+    var(--text) 0%,
+    var(--text) 32%,
+    var(--accent) 78%,
+    var(--accent-alt, #8c7cf0) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.welcome-lede { color: var(--text-dim); margin: 0 0 18px; font-size: 13.5px; line-height: 1.6; }
 .welcome-lede:empty { display: none; }
 
-/* Choice cards. The whole card is the control, so there is no hunting for a
-   radio button. */
-.welcome-choices { display: flex; flex-direction: column; gap: 10px; }
+/* ---- staged entrance ---------------------------------------------------- */
+
+/* Every child of the step body rises in, one after another. --i is set in JS
+   so the stagger follows DOM order without hard-coded selectors. */
+.rise {
+  opacity: 0;
+  transform: translateY(14px);
+  animation: rise-in 560ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+@keyframes rise-in { to { opacity: 1; transform: none; } }
+
+/* Leaving a step drops it back out, so steps feel connected rather than cut. */
+.welcome-panel.is-leaving #body { animation: fall-out 120ms ease forwards; }
+@keyframes fall-out { to { opacity: 0; transform: translateY(-8px); } }
+
+/* ---- choice cards ------------------------------------------------------- */
+
+.welcome-choices { display: flex; flex-direction: column; gap: 9px; }
 
 .welcome-choice {
+  position: relative;
   display: block;
   width: 100%;
   text-align: left;
-  padding: 14px 16px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
+  padding: 14px 17px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 85%, transparent);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  overflow: hidden;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 240ms ease, background 240ms ease, box-shadow 240ms ease;
 }
-.welcome-choice:hover { background: var(--surface-hover); }
-.welcome-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* The chosen card is marked by border AND a stated word, never colour alone. */
-.welcome-choice.is-chosen { border-color: var(--accent); background: var(--surface-hover); }
+/* A pointer-following highlight. --mx/--my are set on pointermove. */
+.welcome-choice::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%);
+  opacity: 0;
+  transition: opacity 240ms ease;
+  pointer-events: none;
+}
+.welcome-choice:hover::before { opacity: 1; }
 
-.welcome-choice-head { display: flex; align-items: center; gap: 8px; }
-.welcome-choice-name { font-size: 14px; }
+.welcome-choice:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+.welcome-choice:active { transform: translateY(0) scale(0.995); }
+.welcome-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.welcome-choice.is-chosen {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
+              0 12px 40px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* The ripple a click leaves behind, positioned at the pointer. */
+.welcome-choice .ripple {
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%);
+  animation: ripple 620ms ease-out forwards;
+  pointer-events: none;
+}
+@keyframes ripple { to { transform: translate(-50%, -50%) scale(1); opacity: 0; } }
+
+.welcome-choice-head { display: flex; align-items: center; gap: 10px; }
+.welcome-choice-name { font-size: 14.5px; }
 .welcome-choice-mark {
-  font-size: 11px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--accent);
   margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  animation: pop 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+@keyframes pop { from { transform: scale(0.7); opacity: 0; } }
+
 .welcome-choice-summary {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-dim);
-  margin-top: 4px;
-  line-height: 1.5;
+  margin-top: 5px;
+  line-height: 1.55;
+}
+
+/* ---- feature list ------------------------------------------------------- */
+
+.welcome-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; }
+.welcome-list li {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  color: var(--text-dim);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.welcome-list strong { color: var(--text); font-weight: 500; }
+
+/* A small glowing dot per item, pulsing on its own offset. */
+.welcome-dot {
+  flex: none;
+  width: 8px; height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+  animation: pulse 2.6s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * 320ms);
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.82); }
+  50%      { opacity: 1;    transform: scale(1.15); }
 }
 
 .welcome-note {
   font-size: 12px;
-  color: var(--text-dim);
-  line-height: 1.5;
-  margin: 14px 0 0;
+  color: var(--text-faint);
+  line-height: 1.55;
+  margin: 16px 0 0;
 }
 
-.welcome-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
-.welcome-list li { color: var(--text-dim); }
-.welcome-list strong { color: var(--text); font-weight: 500; }
+/* ---- actions ------------------------------------------------------------ */
 
-.welcome-actions { display: flex; align-items: center; gap: 8px; }
+.welcome-actions { display: flex; align-items: center; gap: 10px; }
 .welcome-spacer { flex: 1; }
 
 .welcome-button {
-  padding: 8px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  position: relative;
+  padding: 10px 22px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+  overflow: hidden;
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
+              background 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
 }
-.welcome-button:hover:not(:disabled) { background: var(--surface-hover); }
-.welcome-button:disabled { opacity: 0.45; cursor: default; }
-.welcome-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text, #06131f); }
-.welcome-button.quiet { border-color: transparent; background: transparent; color: var(--text-dim); }
-.welcome-button.quiet:hover { color: var(--text); }
+.welcome-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--surface-hover) 80%, transparent);
+}
+.welcome-button:active:not(:disabled) { transform: translateY(0) scale(0.98); }
+.welcome-button:disabled { opacity: 0.38; cursor: default; }
+.welcome-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.welcome-error { color: var(--danger); font-size: 12px; margin: 10px 0 0; }
+.welcome-button.primary {
+  background: linear-gradient(120deg, var(--accent), var(--accent-alt, #2276ef));
+  border-color: transparent;
+  color: #04121d;
+  font-weight: 500;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.welcome-button.primary:hover:not(:disabled) {
+  box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* A sheen crosses the primary button on hover, once. */
+.welcome-button.primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  transform: translateX(-130%);
+  transition: transform 700ms ease;
+}
+.welcome-button.primary:hover:not(:disabled)::after { transform: translateX(130%); }
+
+.welcome-button.quiet { border-color: transparent; background: transparent; color: var(--text-faint); }
+.welcome-button.quiet:hover { color: var(--text); background: color-mix(in srgb, var(--surface) 50%, transparent); }
+
+.welcome-error {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin: 14px 0 0;
+  padding: 10px 13px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  animation: shake 420ms ease;
+}
 .welcome-error:empty { display: none; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-5px); }
+  75%      { transform: translateX(5px); }
+}
+
+/* ---- finale ------------------------------------------------------------- */
+
+/* The last step gets a confirming flourish rather than another list. */
+.welcome-seal {
+  width: 62px; height: 62px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt, #8c7cf0));
+  box-shadow: 0 0 46px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: seal 720ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes seal {
+  0%   { transform: scale(0) rotate(-120deg); opacity: 0; }
+  60%  { transform: scale(1.12) rotate(8deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+.welcome-seal svg { width: 30px; height: 30px; stroke: #04121d; stroke-width: 3; fill: none; }
+.welcome-seal path {
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: draw 460ms ease 380ms forwards;
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* ---- respect the system ------------------------------------------------- */
+
+/* Someone who has asked for less motion gets the design without the movement,
+   not a broken version of it. */
+@media (prefers-reduced-motion: reduce) {
+  .welcome-blob,
+  .welcome-step.is-current::after,
+  .welcome-panel::before,
+  .welcome-dot,
+  .rise,
+  .welcome-seal,
+  .welcome-seal path,
+  .welcome-error,
+  .welcome-choice .ripple {
+    animation: none !important;
+  }
+  .rise { opacity: 1; transform: none; }
+  .welcome-seal path { stroke-dashoffset: 0; }
+  .welcome-panel { transform: none !important; }
+  #stars { display: none; }
+}

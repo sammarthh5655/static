@@ -55,6 +55,28 @@ async function run(browser) {
     const click = (selector) => wc.executeJavaScript(
       `document.querySelector(${JSON.stringify(selector)}).click(), true`);
 
+    /** Click the nth choice card (1-based), by position in the card list. */
+    const clickChoice = (n) => wc.executeJavaScript(
+      `document.querySelectorAll('.welcome-choice')[${n - 1}].click(), true`);
+
+    /**
+     * Wait until the panel title matches, rather than sleeping a guessed
+     * interval. The flow does two IPC round-trips plus a transition per step,
+     * so a fixed wait either flakes or slows every run.
+     */
+    const until = async (pattern, label) => {
+      for (let i = 0; i < 50; i++) {
+        const title = await wc.executeJavaScript(`document.getElementById('title').textContent`);
+        if (pattern.test(title)) return title;
+        await wait(100);
+      }
+      return await wc.executeJavaScript(`document.getElementById('title').textContent`);
+    };
+
+    // The first paint needs an IPC round-trip for the state, so wait for the
+    // page to actually have content before reading it.
+    await until(/./, 'first render');
+
     // ---- welcome step -----------------------------------------------------
     let view = await read();
     check('welcome step renders with a title and the step list',
@@ -64,7 +86,7 @@ async function run(browser) {
     check('the first step is not skippable', view.skipHidden === true);
 
     await click('#next');
-    await wait(350);
+    await wait(600);
 
     // ---- profile step -----------------------------------------------------
     view = await read();
@@ -77,9 +99,8 @@ async function run(browser) {
     check('the required profile step cannot be skipped', view.skipHidden === true);
 
     // Choosing advances, because choosing IS the answer.
-    await click('.welcome-choice:nth-of-type(2)');
-    await wait(400);
-
+    await clickChoice(2);
+    await until(/homepage/i, 'homepage');
     view = await read();
     check('choosing a profile advances to the homepage step',
       /homepage/i.test(view.title), view.title);
@@ -91,9 +112,8 @@ async function run(browser) {
     check('optional steps show the skip control', view.skipHidden === false);
     check('homepage step offers layouts', view.choices.length >= 3, 'choices=' + view.choices.length);
 
-    await click('.welcome-choice:nth-of-type(1)');
-    await wait(400);
-
+    await clickChoice(1);
+    await until(/privacy/i, 'privacy');
     const widgets = browser.settings.value.newTab.widgets;
     check('the chosen layout really reached settings',
       Array.isArray(widgets) && widgets.length >= 1, JSON.stringify(widgets));
@@ -106,7 +126,7 @@ async function run(browser) {
 
     // Skip it, to prove skipping works and is recorded.
     await click('#skip');
-    await wait(400);
+    await until(/assistant/i, 'assistant');
     view = await read();
     check('skipping a step moves on', !/privacy/i.test(view.title), view.title);
     check('the skipped step is marked in the step list',
@@ -116,7 +136,7 @@ async function run(browser) {
     check('assistant step is reached', /assistant/i.test(view.title), view.title);
 
     await click('#next');
-    await wait(400);
+    await until(/set up|done/i, 'done');
 
     // ---- done step --------------------------------------------------------
     view = await read();

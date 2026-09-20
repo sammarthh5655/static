@@ -10,19 +10,29 @@
   <link rel="stylesheet" href="welcome.css">
 </head>
 <body class="welcome-body">
+  <!-- Three slow colour fields, blurred far past their own size so they read
+       as light in fog rather than as shapes. Pure CSS: no WebGL, no library,
+       and nothing the page's strict CSP has to make room for. -->
+  <div class="welcome-aurora" aria-hidden="true">
+    <div class="welcome-blob one"></div>
+    <div class="welcome-blob two"></div>
+    <div class="welcome-blob three"></div>
+  </div>
+
+  <!-- Drifting particles that lean away from the pointer. -->
+  <canvas id="stars" aria-hidden="true"></canvas>
+
   <main class="welcome" role="main">
-    <!-- Progress is shown as named steps rather than a bar, so it is always
-         clear what is being asked and what is still to come. -->
     <nav class="welcome-steps" id="steps" aria-label="Setup progress"></nav>
 
-    <section class="welcome-panel">
+    <section class="welcome-panel" id="panel">
       <h1 id="title"></h1>
       <p class="welcome-lede" id="lede"></p>
       <div id="body"></div>
     </section>
 
-    <!-- Skip is always visible on an optional step. A setup flow that hides
-         its exit is one people learn to distrust. -->
+    <!-- Skip stays visible on an optional step. A setup flow that hides its
+         exit is one people learn to distrust. -->
     <footer class="welcome-actions">
       <button id="back" class="welcome-button">Back</button>
       <span class="welcome-spacer"></span>

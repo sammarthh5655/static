@@ -12,3 +12,4 @@ tmp/
 
 # Test profiles created by the --flag probes.
 .test-profile/
+shots/
