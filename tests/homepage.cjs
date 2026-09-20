@@ -58,7 +58,12 @@ async function run(browser) {
     check('exactly three utility cards', page.utilCards === 3, page.utilCards);
     check('hint explains both keys', /Enter/.test(page.hint) && /Tab/.test(page.hint), page.hint);
     check('no panel on the homepage', page.toolsAbsent === true);
-    check('eclipse theme applied', page.accent === '#5ed3f0', page.accent);
+    // Read the expected accent from the theme registry rather than repeating
+    // the hex here. A hardcoded value went stale when the palette was retuned,
+    // and the suite then reported a failure against correct behaviour.
+    const eclipseAccent = require('../src/shared/theme').THEMES.eclipse.tokens.accent;
+    check('eclipse theme applied', page.accent === eclipseAccent,
+      page.accent + ' (expected ' + eclipseAccent + ')');
 
     const ai = await wc.executeJavaScript(`(async () => {
       const q = document.getElementById('query');
