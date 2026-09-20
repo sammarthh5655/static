@@ -80,6 +80,42 @@ test('every privacy level is a real shields patch', (t) => {
   assert.equal(applied[0].enabled, false, 'off really switches shields off');
 });
 
+test('a profile whose shield part fails is still recorded, and says so', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-onboarding-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const settings = new Settings(dir);
+  const onboarding = new Onboarding(dir, {
+    settings,
+    shields: { update() { throw new Error('vault busy'); } },
+  });
+
+  const result = onboarding.chooseProfile('private');
+  // The settings part landed and is visible, so the choice must not read as
+  // unmade - that would be the state lying about what the user can see.
+  assert.equal(result.chosen.profile, 'private');
+  assert.equal(settings.value.theme, 'midnight', 'the settings part did apply');
+  assert.match(result.warning, /shield settings could not be changed/);
+  assert.match(result.warning, /vault busy/, 'the real reason is passed through');
+});
+
+test('a profile that applies cleanly carries no warning', (t) => {
+  const { onboarding } = fixture(t);
+  assert.equal(onboarding.chooseProfile('private').warning, null);
+  assert.equal(onboarding.chooseProfile('everyday').warning, null);
+});
+
+test('a failed settings write records nothing at all', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-onboarding-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const onboarding = new Onboarding(dir, {
+    settings: { update() { throw new Error('settings rejected this'); } },
+    shields: { update() {} },
+  });
+
+  assert.throws(() => onboarding.chooseProfile('work'), /settings rejected this/);
+  assert.equal(onboarding.state().chosen.profile, '', 'nothing was recorded');
+});
+
 test('unknown choices are refused rather than silently ignored', (t) => {
   const { onboarding } = fixture(t);
   assert.throws(() => onboarding.chooseProfile('nope'), /No such profile/);

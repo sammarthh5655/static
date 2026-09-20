@@ -12,9 +12,15 @@ const RULES = [
   ['Work', /mail\.|outlook|notion|slack|teams\.|trello|asana|docs\.google|office\.|calendar/i],
 ];
 function webURL(value) { try { const u = new URL(value); return /^https?:$/.test(u.protocol) ? u : null; } catch { return null; } }
-function signature(tabs) { return JSON.stringify(tabs.filter(t => webURL(t.url)).map(t => [t.id, t.url, t.title]).sort()); }
+/**
+ * Tabs arrive from live browser state, which can hold a half-closed or
+ * not-yet-populated entry. Every entry point filters before dereferencing, so
+ * a tab closing mid-analysis cannot throw.
+ */
+function webTabs(tabs) { return Array.isArray(tabs) ? tabs.filter(t => t && webURL(t.url)) : []; }
+function signature(tabs) { return JSON.stringify(webTabs(tabs).map(t => [t.id, t.url, t.title]).sort()); }
 function analyze(tabs, now = Date.now()) {
-  const web = tabs.filter(t => webURL(t.url));
+  const web = webTabs(tabs);
   const groups = new Map(), urls = new Map(), domains = new Map();
   for (const tab of web) {
     const u = webURL(tab.url), text = tab.title + ' ' + u.hostname + u.pathname;
@@ -36,7 +42,7 @@ function analyze(tabs, now = Date.now()) {
     inactive: web.filter(t => !t.active && !t.pinned && now - t.lastActiveAt >= 30 * 60000).map(t => t.id),
     heavy: web.filter(t => t.memoryMb >= 350).map(t => t.id) };
 }
-function aiMetadata(tabs) { return tabs.filter(t => webURL(t.url)).slice(0, 200).map(t => ({ id: t.id, title: String(t.title).replace(/[\x00-\x1f]/g, ' ').slice(0, 160), domain: webURL(t.url).hostname })); }
+function aiMetadata(tabs) { return webTabs(tabs).slice(0, 200).map(t => ({ id: t.id, title: String(t.title).replace(/[\x00-\x1f]/g, ' ').slice(0, 160), domain: webURL(t.url).hostname })); }
 function parseGroups(text, tabs, fallback) {
   const parsed = JSON.parse(String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
   if (!Array.isArray(parsed.groups) || parsed.groups.length > 30) throw new Error('Invalid group response.');
@@ -53,4 +59,4 @@ function parseGroups(text, tabs, fallback) {
   for (const group of fallback) { const ids = group.ids.filter(id => !seen.has(id)); if (ids.length) groups.push({ ...group, ids }); }
   return groups;
 }
-module.exports = { CATEGORIES, COLORS, webURL, signature, analyze, aiMetadata, parseGroups };
+module.exports = { CATEGORIES, COLORS, webURL, webTabs, signature, analyze, aiMetadata, parseGroups };

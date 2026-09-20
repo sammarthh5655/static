@@ -137,7 +137,13 @@ class Sense {
   suggest(tabs = [], context = {}, now = Date.now()) {
     if (!this.config.enabled) return null;
 
-    const real = tabs.filter((tab) => tab.url && /^https?:/i.test(tab.url));
+    // Tabs arrive from live browser state, which can contain a half-closed or
+    // not-yet-populated entry. A suggestion engine must never be the thing
+    // that throws during a tab close race, so the input is filtered rather
+    // than trusted.
+    if (!Array.isArray(tabs)) return null;
+    const real = tabs.filter((tab) =>
+      tab && typeof tab.url === 'string' && /^https?:/i.test(tab.url));
     if (!real.length) return null;
 
     const candidates = [];

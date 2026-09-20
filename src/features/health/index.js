@@ -128,6 +128,24 @@ class Health {
     const config = this.shields?.config || {};
     const findings = [];
 
+    // Shields missing entirely is NOT the same as shields switched on. Without
+    // this, `config.enabled !== false` reads true for an absent module and the
+    // report cheerfully says "Shields on" for a browser that has none.
+    if (!this.shields) {
+      findings.push({
+        id: 'shields-unavailable', level: 'attention',
+        title: 'Blocking could not be checked',
+        detail: 'The shields module did not report any state, so nothing here can be confirmed.',
+      });
+      return {
+        enabled: null,
+        today: null, allTime: null, isEmpty: true,
+        ruleCount: null, cosmeticCount: null,
+        lastFetch: 0, exceptions: 0,
+        findings,
+      };
+    }
+
     if (config.enabled === false) {
       findings.push({
         id: 'shields-off', level: 'critical',
@@ -183,6 +201,18 @@ class Health {
   security() {
     const findings = [];
     let vault = { count: 0, available: false, reused: 0, weak: 0, checked: false };
+
+    // No vault module is not a clean bill of health: it means nothing here was
+    // checked, and the report must say that rather than reporting zero reused
+    // logins for a vault it never read.
+    if (!this.passwords) {
+      findings.push({
+        id: 'vault-unavailable', level: 'attention',
+        title: 'The password vault could not be checked',
+        detail: 'No vault reported any state, so saved logins were not inspected.',
+      });
+      return { vault, phishingWarnings: 0, findings };
+    }
 
     try {
       const state = this.passwords?.state?.() || {};

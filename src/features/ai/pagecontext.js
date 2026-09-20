@@ -141,13 +141,29 @@ const EXTRACT_SCRIPT = `(function(){
 
     // Clone so removing chrome does not alter the real page.
     var copy = pick.cloneNode(true);
+    // Tag names alone are not enough: Wikipedia's language list and table of
+    // contents are plain divs inside the article, and leaked into the summary
+    // ahead of the actual content. Roles and the common chrome class names
+    // catch what the tag selectors miss.
     var drop = copy.querySelectorAll(
-      'script,style,noscript,nav,footer,aside,form,input,textarea,select,button,svg,iframe');
+      'script,style,noscript,nav,footer,aside,form,input,textarea,select,button,svg,iframe,' +
+      '[role=navigation],[role=banner],[role=contentinfo],[role=search],[role=complementary],' +
+      '[aria-hidden=true],' +
+      '.sidebar,#toc,.toc,#siteSub,.mw-jump-link,.mw-editsection,.navbox,.vector-toc,' +
+      '.mw-portlet,.catlinks,.noprint,.skip-link,.screen-reader-text');
     for (var i = 0; i < drop.length; i++) {
       if (drop[i].parentNode) drop[i].parentNode.removeChild(drop[i]);
     }
 
-    var text = (copy.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
+    // innerText on a stripped clone still leaves runs of tabs and blank lines
+    // where the removed nodes were. Collapsing them before measuring means the
+    // character budget is spent on content rather than whitespace.
+    var text = (copy.innerText || '')
+      .replace(/[\\t\\u00a0]+/g, ' ')
+      .replace(/ {2,}/g, ' ')
+      .replace(/^ +/gm, '')
+      .replace(/\\n{3,}/g, '\\n\\n')
+      .trim();
     var limit = 24000;
     var truncated = text.length > limit;
     return {

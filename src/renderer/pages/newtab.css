@@ -841,8 +841,9 @@ button.util-card:hover {
   opacity: 0.5;
 }
 
-/* The strip is fixed, so the page needs room to scroll past it. */
-.newtab .stage { padding-bottom: 52px; }
+/* The strip is fixed, so the page needs room to scroll past it. The stage
+   already reserves 72px; the strip needs a little more than that. */
+.newtab .stage { padding-bottom: 96px; }
 
 /* When the AI badge is visible it takes the trailing position, so the engine
    selector steps left rather than sitting underneath it. */

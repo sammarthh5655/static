@@ -94,7 +94,10 @@ class Organizer {
         .filter(group => !keepGroups || keepGroups.has(group.name))
         .map(group => ({ ...group, ids: keepTabs ? group.ids.filter(id => keepTabs.has(id)) : group.ids }))
         .filter(group => group.ids.length);
-      if (!narrowed.length) throw new Error('Nothing was selected to group.');
+      // Rejected rather than thrown, so every organizer action fails the same
+      // way. A caller written as apply(x).catch(...) used to get an uncaught
+      // exception from this one method.
+      if (!narrowed.length) return Promise.reject(new Error('Nothing was selected to group.'));
       this.plan = { ...this.plan, groups: narrowed };
     }
 

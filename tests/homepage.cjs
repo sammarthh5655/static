@@ -375,6 +375,22 @@ async function run(browser) {
     check('search text cannot run under the engine selector', overlap.ok === true,
       JSON.stringify(overlap));
 
+    // The strip is position:fixed, so it legitimately floats over content that
+    // scrolls beneath it. What must hold is that it is pinned to the viewport
+    // bottom, and that the page reserves enough room to scroll the last
+    // element clear of it rather than leaving it permanently covered.
+    const cover = await wc.executeJavaScript(`(() => {
+      const strip = document.getElementById('status-strip');
+      if (!strip || strip.hidden) return { ok: true, reason: 'strip hidden' };
+      const s = strip.getBoundingClientRect();
+      const pinned = Math.abs(s.bottom - window.innerHeight) <= 1;
+      const stage = document.querySelector('.stage');
+      const reserved = parseFloat(getComputedStyle(stage).paddingBottom);
+      return { ok: pinned && reserved >= s.height, pinned, reserved, stripHeight: s.height };
+    })()`);
+    check('the status strip is pinned to the viewport and leaves room to scroll past',
+      cover.ok === true, JSON.stringify(cover));
+
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');
     app.exit(fails ? 1 : 0);

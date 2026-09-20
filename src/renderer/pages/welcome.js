@@ -59,9 +59,12 @@ function pick(channel, id) {
 /** Pick, then move on - choosing is the answer, so it should not need two clicks. */
 async function pickAndAdvance(channel, id) {
   try {
-    state = await invoke(channel, { id });
-    state = await invoke('onboarding:next');
+    const chosen = await invoke(channel, { id });
+    // Advancing returns a fresh state, which would drop any warning the choice
+    // came back with. Carry it over so a partly-applied choice still says so.
+    state = { ...(await invoke('onboarding:next')), warning: chosen.warning || null };
     render();
+    if (state.warning) show(state.warning);
   } catch (error) {
     show(error.message);
   }

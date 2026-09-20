@@ -226,8 +226,19 @@ class Onboarding {
     const profile = PROFILES[id];
     if (!profile) throw new Error('No such profile.');
 
+    // Settings first. If this throws, nothing has changed and nothing is
+    // recorded, so the flow is simply still on this step.
     this.settings.update({ ...profile.settings, newTab: profile.newTab });
-    if (profile.shields && this.shields) this.shields.update(profile.shields);
+
+    // Shields second, and separately. Once the settings above have landed the
+    // user can SEE the profile applied, so the choice is recorded even if the
+    // shield part fails - a state that said "no profile chosen" next to a
+    // visibly changed theme would be lying about what happened.
+    let shieldError = null;
+    if (profile.shields && this.shields) {
+      try { this.shields.update(profile.shields); }
+      catch (error) { shieldError = error.message; }
+    }
 
     this.store.data.profile = id;
     // A profile carries a homepage layout, so a skipped homepage step still
@@ -235,7 +246,12 @@ class Onboarding {
     this.store.data.layout = '';
     this.store.save();
     this.onChange();
-    return this.state();
+
+    // Reported rather than thrown: the profile did apply, and the page should
+    // say which part did not instead of discarding the whole step.
+    return { ...this.state(), warning: shieldError
+      ? 'Your profile was applied, but the shield settings could not be changed: ' + shieldError
+      : null };
   }
 
   chooseLayout(id) {

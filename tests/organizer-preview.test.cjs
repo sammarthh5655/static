@@ -115,10 +115,9 @@ test('unticking individual tabs leaves them ungrouped', async (t) => {
 test('a selection naming nothing real is refused rather than silently doing nothing', async (t) => {
   const { organizer } = fixture(t, TABS);
   organizer.localAnalysis();
-  // apply() validates before it starts any work, so this throws synchronously
-  // rather than rejecting. Either is fine for a caller that awaits it; the
-  // point is that it refuses instead of quietly clearing every group.
-  assert.throws(
+  // It must REJECT rather than throw synchronously, so every organizer action
+  // fails the same way and a caller's .catch() works on all of them.
+  await assert.rejects(
     () => organizer.apply({ groups: ['Not a real group'], ids: [] }),
     /Nothing was selected/,
   );
@@ -149,4 +148,33 @@ test('undo restores the grouping that existed before a selective apply', async (
   for (const id of ['t1', 't2', 't3', 't4']) {
     assert.equal(manager.tabs.get(id).groupId, null, id + ' is ungrouped again');
   }
+});
+
+/* ---- malformed input ------------------------------------------------------ */
+
+const { analyze, aiMetadata, signature } = require('../src/features/organizer/classify');
+
+test('analysis never throws on live tab state that is mid-change', () => {
+  // A tab closing during analysis leaves a null or half-populated entry.
+  const junk = [null, undefined, {}, { url: null }, { url: 'not a url' }, { title: 'no url' }];
+  assert.equal(analyze(junk).groups.length, 0);
+  assert.equal(aiMetadata(junk).length, 0);
+  assert.equal(analyze(null).groups.length, 0);
+  assert.equal(analyze(undefined).groups.length, 0);
+  assert.equal(signature(null), '[]');
+});
+
+test('junk mixed into real tabs does not stop grouping', () => {
+  const real = { id: 't1', url: 'https://github.com/a', title: 'Repo', lastActiveAt: Date.now(), memoryMb: 0 };
+  const plan = analyze([real, null, { url: null }]);
+  assert.equal(plan.groups.length, 1, 'the real tab was still grouped');
+  assert.deepEqual(plan.groups[0].ids, ['t1']);
+});
+
+test('non-web schemes are never grouped', () => {
+  const plan = analyze([
+    { id: 'a', url: 'browser://newtab', title: 'New tab', lastActiveAt: 0, memoryMb: 0 },
+    { id: 'b', url: 'file:///etc/passwd', title: 'File', lastActiveAt: 0, memoryMb: 0 },
+  ]);
+  assert.equal(plan.groups.length, 0);
 });

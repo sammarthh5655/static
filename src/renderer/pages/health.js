@@ -126,13 +126,16 @@ function render(report) {
 
   const privacy = report.sections.privacy;
   $('#privacy').replaceChildren(
-    row('Shields', privacy.enabled ? 'On' : 'Off'),
+    // null means it could not be checked, which is not the same as Off -
+    // showing "Off" here would be reporting a measurement that was never made.
+    row('Shields', privacy.enabled === null ? 'Not checked' : (privacy.enabled ? 'On' : 'Off')),
     row('Blocked today', privacy.isEmpty ? 'No activity yet'
       : Number(privacy.today && privacy.today.total || 0).toLocaleString()),
     row('Blocked all time', privacy.isEmpty ? 'No activity yet'
       : Number(privacy.allTime && privacy.allTime.total || 0).toLocaleString()),
-    row('Filter rules', Number(privacy.ruleCount).toLocaleString() + ' network - ' +
-      Number(privacy.cosmeticCount).toLocaleString() + ' cosmetic'),
+    row('Filter rules', privacy.ruleCount === null ? 'Not checked'
+      : Number(privacy.ruleCount).toLocaleString() + ' network - ' +
+        Number(privacy.cosmeticCount).toLocaleString() + ' cosmetic'),
     row('Site exceptions', privacy.exceptions || 'None'),
     actionRow('Update filter lists',
       privacy.lastFetch
