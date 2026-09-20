@@ -326,6 +326,96 @@ function hostOf(url) {
 $('#mark-glyph').append(icon('sparkle', { size: 30 }));
 setMode(false);
 
+/* ---- search engine ------------------------------------------------------- */
+
+/** Engines a plain search can use. Matches shared/urls.js#ENGINES. */
+const ENGINE_NAMES = { google: 'Google', brave: 'Brave' };
+
+function renderEngine() {
+  const select = $('#search-engine');
+  if (!select) return;
+  const current = state.settings?.searchEngine || 'google';
+
+  // Rebuilt only when the options are missing, so reopening the select while
+  // a state push arrives does not snap it shut.
+  if (select.options.length !== Object.keys(ENGINE_NAMES).length) {
+    select.replaceChildren(...Object.entries(ENGINE_NAMES).map(([id, name]) =>
+      element('option', { value: id, text: name })));
+  }
+  if (select.value !== current) select.value = current;
+}
+
+$('#search-engine')?.addEventListener('change', async (event) => {
+  const engine = event.target.value;
+  try {
+    await invoke('settings:update', { searchEngine: engine });
+  } catch {
+    // Put it back to what actually stuck rather than showing a choice that
+    // was not saved.
+    renderEngine();
+  }
+});
+
+/* ---- status strip -------------------------------------------------------- */
+
+/**
+ * A quiet line of facts the browser already knows.
+ *
+ * Every figure here is counted, never estimated, and anything not yet
+ * measured is left out rather than shown as a zero - a strip that says
+ * "0 blocked" on a fresh profile reads as broken rather than new.
+ */
+function renderStatusStrip() {
+  const strip = $('#status-strip');
+  if (!strip) return;
+
+  if (state.settings?.newTab?.showStatusStrip === false) {
+    strip.hidden = true;
+    return;
+  }
+
+  const parts = [];
+
+  const shields = state.features?.shields;
+  if (shields) {
+    if (shields.enabled === false) {
+      parts.push(['Shields off', 'browser://shields']);
+    } else {
+      const blocked = Number(shields.totalBlocked || 0);
+      if (blocked > 0) {
+        parts.push([blocked.toLocaleString() + ' blocked', 'browser://shields']);
+      }
+      const rules = Number(shields.ruleCount || 0);
+      if (rules > 0) parts.push([rules.toLocaleString() + ' filter rules', 'browser://shields']);
+    }
+  }
+
+  const tabs = Array.isArray(state.tabs) ? state.tabs.length : 0;
+  if (tabs > 1) parts.push([tabs + ' tabs open', 'browser://organizer']);
+
+  const focus = state.features?.focus;
+  if (focus?.active) {
+    const left = Math.ceil((focus.remainingMs || 0) / 60000);
+    parts.push(['Focus · ' + left + (left === 1 ? ' minute left' : ' minutes left'), 'browser://focus']);
+  }
+
+  const memory = state.features?.resources?.totals?.totalMemoryMb;
+  if (memory) parts.push([memory + ' MB in use', 'browser://resources']);
+
+  if (!parts.length) {
+    strip.hidden = true;
+    return;
+  }
+
+  strip.hidden = false;
+  strip.replaceChildren(...parts.map(([text, url]) => element('button', {
+    class: 'status-item',
+    type: 'button',
+    text,
+    onclick: (event) => openUrl(url, event),
+  })));
+}
+
 onState((next) => {
   state = next;
   renderActions();
@@ -333,6 +423,8 @@ onState((next) => {
   renderWidgets();
   renderSense();
   renderHint();
+  renderEngine();
+  renderStatusStrip();
 });
 
 // Widgets run their own timers and clean them up in dispose().

@@ -25,6 +25,9 @@
       <input id="query" type="text" spellcheck="false" autocomplete="off" autofocus
              placeholder="Search the web or press Tab for AI">
       <span class="search-badge" id="search-badge" hidden>AI</span>
+      <!-- Which engine a plain search uses. Here rather than in Settings,
+           because it is a decision about the box it sits in. -->
+      <select class="search-engine" id="search-engine" aria-label="Search engine"></select>
     </form>
 
     <p class="keyhint" id="keyhint"></p>
@@ -64,6 +67,11 @@
          should not compete with the search box. -->
     <button class="customise-open" id="customise-open">Customise</button>
   </main>
+
+  <!-- Status strip. Facts the browser already knows, stated plainly. It sits
+       outside the stage so it stays at the bottom of the window rather than
+       moving with the widget grid. -->
+  <footer class="status-strip" id="status-strip" hidden></footer>
 
   <script src="../../shared/theme.js"></script>
   <script src="../../shared/modes.js"></script>

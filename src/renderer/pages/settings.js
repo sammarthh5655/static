@@ -33,6 +33,10 @@ $('#reduce-motion').addEventListener('change', event => update({ animations: !ev
 
 $('#showMostVisited').addEventListener('change', (e) =>
   update({ newTab: { showMostVisited: e.target.checked } }));
+$('#showStatusStrip').addEventListener('change', (e) =>
+  update({ newTab: { showStatusStrip: e.target.checked } }));
+$('#clockFormat').addEventListener('change', (e) =>
+  update({ newTab: { clockFormat: e.target.value } }));
 
 $('#open-newtab').addEventListener('click', () =>
   invoke('tabs:new', { url: 'browser://newtab' }));
@@ -180,6 +184,8 @@ onState((state) => {
   if (document.activeElement !== $('#fontSize')) $('#fontSize').value = s.fontSize || 13;
   if (document.activeElement !== $('#accentCustom')) $('#accentCustom').value = s.accentCustom || '#47baff';
   $('#showMostVisited').checked = s.newTab?.showMostVisited !== false;
+  $('#showStatusStrip').checked = s.newTab?.showStatusStrip !== false;
+  $('#clockFormat').value = s.newTab?.clockFormat || 'system';
 
   // Shields. Read from state.features, which carries the raw config flags -
   // state.modes carries display strings for the dashboard and cannot drive a

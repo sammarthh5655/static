@@ -37,19 +37,50 @@ RENDERERS.clock = (ctx) => {
   const time = ctx.element('div', { class: 'clock-time' });
   const date = ctx.element('div', { class: 'clock-date' });
 
+  /**
+   * 12/24 hour.
+   *
+   * 'system' follows the OS locale, which is the right default: most people
+   * never think about this, and the one they are used to is the one their
+   * machine already uses. The toggle is for the minority who want the other.
+   */
+  const format = () => ctx.state?.settings?.newTab?.clockFormat || 'system';
+
   const tick = () => {
     const now = new Date();
-    time.textContent = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const chosen = format();
+    time.textContent = now.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(chosen === 'system' ? {} : { hour12: chosen === '12' }),
+    });
     date.textContent = now.toLocaleDateString(undefined, {
       weekday: 'long', month: 'long', day: 'numeric',
     });
   };
+
+  // Clicking the time cycles the format and saves it, so the setting is where
+  // the thing it changes is rather than buried three pages away.
+  const button = ctx.element('button', {
+    class: 'clock-toggle',
+    type: 'button',
+    title: 'Switch between 12 and 24 hour',
+    'aria-label': 'Switch between 12 and 24 hour time',
+    onclick: async () => {
+      const order = ['system', '12', '24'];
+      const next = order[(order.indexOf(format()) + 1) % order.length];
+      try {
+        await ctx.invoke('settings:update', { newTab: { clockFormat: next } });
+      } catch { /* the state push will show whatever actually stuck */ }
+    },
+  }, [time]);
+
   tick();
   // Cleared by the page when the widget is removed, so a hidden widget does
   // not keep a timer alive.
   const timer = setInterval(tick, 1000);
 
-  const node = ctx.element('div', { class: 'widget widget-clock' }, [time, date]);
+  const node = ctx.element('div', { class: 'widget widget-clock' }, [button, date]);
   node.dispose = () => clearInterval(timer);
   return node;
 };

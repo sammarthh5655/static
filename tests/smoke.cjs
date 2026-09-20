@@ -42,11 +42,15 @@ async function run(browser) {
       assert.strictEqual(browser.tabs.order.length, 1);
     });
 
-    await step('new tab page loads', async () => {
+    await step('the first page loads', async () => {
       const tab = browser.tabs.active;
       assert.ok(tab, 'no active tab');
-      await until('newtab committed', () => !tab.view.webContents.isLoading());
-      assert.strictEqual(tab.state.displayUrl, 'browser://newtab');
+      await until('first page committed', () => !tab.view.webContents.isLoading());
+      // A profile that has never been set up opens the welcome flow; one that
+      // has opens the new tab page. Both are correct, so this asserts the rule
+      // rather than one of its two outcomes.
+      const expected = browser.onboarding?.due ? 'browser://welcome' : 'browser://newtab';
+      assert.strictEqual(tab.state.displayUrl, expected);
     });
 
     await step('second launches restore the window without colliding with Focus Mode', async () => {

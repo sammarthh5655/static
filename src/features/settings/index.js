@@ -30,6 +30,10 @@ const DEFAULTS = {
     showMostVisited: true,
     background: 'plain',
     backgroundValue: '',
+    // '12', '24', or 'system' to follow the OS locale.
+    clockFormat: 'system',
+    // The strip along the bottom of the homepage.
+    showStatusStrip: true,
     // Per-widget appearance overrides, keyed by widget id. Anything absent
     // falls through to the global theme - see theme.js#widgetVariables.
     widgetStyles: {},
@@ -80,6 +84,10 @@ class Settings {
       background: BACKGROUNDS[source.background] ? source.background : DEFAULTS.newTab.background,
       backgroundValue: typeof source.backgroundValue === 'string'
         ? source.backgroundValue.slice(0, 2048) : '',
+      clockFormat: ['12', '24', 'system'].includes(source.clockFormat)
+        ? source.clockFormat : DEFAULTS.newTab.clockFormat,
+      showStatusStrip: typeof source.showStatusStrip === 'boolean'
+        ? source.showStatusStrip : DEFAULTS.newTab.showStatusStrip,
       widgetStyles: normaliseWidgetStyles(source.widgetStyles),
     };
   }

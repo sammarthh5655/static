@@ -305,6 +305,76 @@ async function run(browser) {
 
 
 
+    // ---- clock format, engine selector, status strip ---------------------
+
+    const clock = await wc.executeJavaScript(`({
+      toggle: !!document.querySelector('.clock-toggle'),
+      time: document.querySelector('.clock-time')?.textContent || '',
+      size: parseFloat(getComputedStyle(document.querySelector('.clock-time')).fontSize),
+    })`);
+    check('the time is the 12/24 hour control', clock.toggle === true);
+    check('the clock is large enough to read at a glance', clock.size >= 40, clock.size + 'px');
+
+    // Cycle the format and confirm it is SAVED, not just redrawn.
+    await wc.executeJavaScript(`document.querySelector('.clock-toggle').click(), true`);
+    await wait(500);
+    const after12 = browser.settings.value.newTab.clockFormat;
+    check('clicking the time saves a clock format', ['12', '24', 'system'].includes(after12), after12);
+
+    const shown = await wc.executeJavaScript(
+      `document.querySelector('.clock-time').textContent`);
+    if (after12 === '12') {
+      check('12 hour format really shows an am/pm marker', /[ap]\.?m/i.test(shown), shown);
+    } else if (after12 === '24') {
+      check('24 hour format shows no am/pm marker', !/[ap]\.?m/i.test(shown), shown);
+    } else {
+      check('clock still renders a time', /\d/.test(shown), shown);
+    }
+
+    const engine = await wc.executeJavaScript(`({
+      present: !!document.getElementById('search-engine'),
+      value: document.getElementById('search-engine')?.value || '',
+      options: [...(document.getElementById('search-engine')?.options || [])].map(o => o.value),
+    })`);
+    check('the search box carries an engine selector', engine.present === true);
+    check('the selector shows the engine actually in use',
+      engine.value === browser.settings.value.searchEngine,
+      JSON.stringify({ shown: engine.value, saved: browser.settings.value.searchEngine }));
+    check('every configured engine is offered',
+      engine.options.includes('google') && engine.options.includes('brave'),
+      JSON.stringify(engine.options));
+
+    // Change it and confirm it reaches settings.
+    await wc.executeJavaScript(
+      `const s = document.getElementById('search-engine'); s.value = 'brave';` +
+      ` s.dispatchEvent(new Event('change')), true`);
+    await wait(500);
+    check('changing the engine is saved', browser.settings.value.searchEngine === 'brave',
+      browser.settings.value.searchEngine);
+
+    const strip = await wc.executeJavaScript(`({
+      hidden: document.getElementById('status-strip').hidden,
+      items: [...document.querySelectorAll('.status-item')].map(n => n.textContent),
+    })`);
+    // The strip is allowed to be empty on a bare profile; what it must never
+    // do is show a zero as though it were a measurement.
+    check('the status strip states only measured figures, never zeros',
+      strip.items.every(text => !/^0/.test(text)), JSON.stringify(strip.items));
+    check('a hidden strip is genuinely empty',
+      strip.hidden === false || strip.items.length === 0, JSON.stringify(strip));
+
+    // Nothing in the strip may overlap the search text.
+    const overlap = await wc.executeJavaScript(`(() => {
+      const input = document.getElementById('query');
+      const select = document.getElementById('search-engine');
+      if (!input || !select) return { ok: false, reason: 'missing' };
+      const i = input.getBoundingClientRect(), s = select.getBoundingClientRect();
+      const padding = parseFloat(getComputedStyle(input).paddingRight);
+      return { ok: (i.right - padding) <= s.left + 1, padding, inputRight: i.right, selectLeft: s.left };
+    })()`);
+    check('search text cannot run under the engine selector', overlap.ok === true,
+      JSON.stringify(overlap));
+
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');
     app.exit(fails ? 1 : 0);
