@@ -39,6 +39,18 @@ function setInteractive(open) {
 
 /** Turn a serialised item into one the menu builder can use. */
 function hydrate(item) {
+  // The brand row carries an action too (switch profile), so it is given the
+  // same treatment rather than passed through untouched.
+  if (item && item.brand && item.profile && item.profile.action) {
+    const act = item.profile.action;
+    return {
+      ...item,
+      profile: {
+        ...item.profile,
+        onOpen: () => { setInteractive(false); invoke(act.channel, act.payload); },
+      },
+    };
+  }
   if (!item || item.separator || item.heading || item.brand) return item;
   return {
     ...item,

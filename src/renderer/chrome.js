@@ -121,9 +121,14 @@ function mainMenuItems() {
   const s = state.settings || {};
   return [
     // The brand row carries the active profile and opens the picker.
+    //
+    // DATA ONLY: this whole structure crosses IPC to the overlay, and a
+    // function in it fails structured cloning - which threw "An object could
+    // not be cloned" and left the menu completely empty. The action is named
+    // here and dispatched by the overlay like any other menu action.
     { brand: true, profile: {
       name: state.profiles?.active?.name || 'Profile',
-      onOpen: () => invoke('tabs:navigate', { input: 'browser://profiles' }),
+      action: action('tabs:navigate', { input: 'browser://profiles' }),
     } },
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
     { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },

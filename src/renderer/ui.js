@@ -117,7 +117,9 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
         text.setAttribute('role', 'button');
         text.setAttribute('tabindex', '0');
         text.title = 'Choose a different profile';
-        const open = () => { closeMenu(); item.profile.onOpen(); };
+        // onOpen is attached by the overlay when it hydrates the item; the
+        // payload that crossed IPC carried only data.
+        const open = () => { closeMenu(); item.profile.onOpen?.(); };
         text.addEventListener('click', open);
         text.addEventListener('keydown', (event) => {
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }

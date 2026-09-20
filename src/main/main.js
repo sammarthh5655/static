@@ -3,7 +3,7 @@ const path = require('node:path');
 app.setName('static');
 
 // Test modes run against a throwaway profile so they never touch real user data.
-const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--ytreal', '--ytstats', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--adcheck', '--omnibox'];
+const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--omnibox', '--menu', '--ytdeep'];
 TEST_FLAGS.push('--productivity');
 const testFlag = !app.isPackaged && process.argv.find(arg => TEST_FLAGS.includes(arg));
 if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
@@ -40,17 +40,16 @@ else {
     else if (testFlag === '--homepage') await require('../../tests/homepage.cjs').run(browser);
     else if (testFlag === '--modes') await require('../../tests/modes.cjs').run(browser);
     else if (testFlag === '--aipage') await require('../../tests/aipage.cjs').run(browser);
-    else if (testFlag === '--ytstats') await require('../../tests/ytstats.cjs').run(browser);
     else if (testFlag === '--counters') await require('../../tests/counters.cjs').run(browser);
     else if (testFlag === '--planetarium') await require('../../tests/planetarium.cjs').run(browser);
-    else if (testFlag === '--adcheck') await require('../../tests/adcheck.cjs').run(browser);
+    else if (testFlag === '--menu') await require('../../tests/menu.cjs').run(browser);
     else if (testFlag === '--organise') await require('../../tests/organise.cjs').run(browser);
+    else if (testFlag === '--ytdeep') await require('../../tests/ytdeep.cjs').run(browser);
     else if (testFlag === '--omnibox') await require('../../tests/omnibox.cjs').run(browser);
     else if (testFlag === '--bravejs') await require('../../tests/bravejs.cjs').run(browser);
     else if (testFlag === '--sidebar') await require('../../tests/sidebar.cjs').run(browser);
     else if (testFlag === '--picker') await require('../../tests/picker.cjs').run(browser);
     else if (testFlag === '--planets') await require('../../tests/planets.cjs').run(browser);
-    else if (testFlag === '--ytreal') await require('../../tests/ytreal.cjs').run(browser);
     else if (testFlag === '--extract') await require('../../tests/extract.cjs').run(browser);
     else if (testFlag === '--welcome') await require('../../tests/welcome.cjs').run(browser);
     else if (testFlag === '--ai') await require('../../tests/ai.cjs').run(browser);

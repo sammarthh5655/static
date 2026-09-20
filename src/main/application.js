@@ -24,6 +24,7 @@ const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
+const { youtubeCosmetic: braveCosmetic } = require('../features/shields/brave');
 const { Profiles } = require('../features/profiles');
 const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
@@ -1912,7 +1913,12 @@ class BrowserApplication {
       // what covers the rest of the web. The lists were previously parsed and
       // thrown away, so ad containers stayed visible everywhere but YouTube.
       const fromLists = this.shields.engine.cosmeticFor(wanted);
-      const css = fromLists ? COSMETIC_CSS + '\n' + fromLists : COSMETIC_CSS;
+      // Brave's own YouTube rules hide the ad SLOTS: the sidebar ad, the merch
+      // shelf, the masthead banner and the promoted rows in search. The
+      // scriptlets deal with the video ad; these deal with everything else on
+      // the page, which is most of what a person actually sees.
+      const fromBrave = isYouTubeHost(wanted) ? braveCosmetic() : '';
+      const css = [COSMETIC_CSS, fromLists, fromBrave].filter(Boolean).join('\n');
       try {
         cosmeticKey = await contents.insertCSS(css);
         cosmeticHost = wanted;

@@ -279,7 +279,40 @@ function youtubeBundle() {
 /** How many of Brave's YouTube rules are actually runnable here. */
 function youtubeRuleCount() { return youtubeRules().length; }
 
+/**
+ * Brave's YouTube cosmetic rules, as one CSS rule.
+ *
+ * These hide the ad SLOTS - the sidebar ad, the merch shelf, the masthead
+ * banner, the promoted rows in search. The scriptlets deal with the video ad;
+ * these deal with everything else on the page, which is most of what a person
+ * actually sees.
+ *
+ * Procedural selectors (:has-text and friends) are excluded at import time,
+ * because insertCSS only takes real CSS and one invalid selector invalidates
+ * the entire rule - which would silently disable every other selector too.
+ */
+let youtubeCss = null;
+
+function youtubeCosmetic() {
+  if (youtubeCss !== null) return youtubeCss;
+  try {
+    const file = path.join(__dirname, 'youtube-cosmetic.json');
+    const selectors = JSON.parse(fs.readFileSync(file, 'utf8'));
+    youtubeCss = selectors.length
+      ? selectors.join(', ') + ' { display: none !important; }'
+      : '';
+  } catch { youtubeCss = ''; }
+  return youtubeCss;
+}
+
+function youtubeCosmeticCount() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'youtube-cosmetic.json'), 'utf8')).length;
+  } catch { return 0; }
+}
+
 module.exports = {
+  youtubeCosmetic, youtubeCosmeticCount,
   library, has, count, scriptFor, bundle, splitArgs, unquote,
   youtubeBundle, youtubeRuleCount, youtubeRules,
 };
