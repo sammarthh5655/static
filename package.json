@@ -16,6 +16,7 @@
     "check": "node scripts/check.cjs",
     "test:smoke": "npm run build && node scripts/start.cjs --smoke",
     "test:store": "npm run build && node scripts/start.cjs --smoke-store",
+    "test:welcome": "npm run build && node scripts/start.cjs --welcome",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",

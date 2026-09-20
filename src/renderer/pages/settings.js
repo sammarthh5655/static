@@ -231,7 +231,27 @@ onState((state) => {
 
   renderModes();
 
+  // First-time setup. The line says what was chosen last time, so running it
+  // again is an informed decision rather than a leap.
+  const setup = features.onboarding;
+  if (setup) {
+    const parts = [];
+    if (setup.profile) parts.push(setup.profile + ' profile');
+    if (setup.privacy) parts.push(setup.privacy + ' privacy');
+    $('#setup-state').textContent = setup.completed
+      ? (parts.length
+        ? 'You chose the ' + parts.join(' and ') + '. Running setup again lets you change them.'
+        : 'Setup was dismissed without any choices. Static is running on its defaults.')
+      : 'Setup has not been completed on this profile.';
+  }
+
   applying = false;
+});
+
+$('#rerun-setup')?.addEventListener('click', async () => {
+  // Navigates this tab to the welcome page, so there is no dead end and no
+  // second window to find.
+  try { await invoke('onboarding:restart'); } catch { /* the page will say */ }
 });
 
 })();

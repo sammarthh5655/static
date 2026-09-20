@@ -1,0 +1,124 @@
+/* First launch.
+   Centred, uncrowded, and with one question per screen. The flow has to feel
+   like the calmest part of the browser, because it is the first thing anyone
+   sees. */
+
+.welcome-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.welcome {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Named steps, not a percentage. "Privacy level" tells you what is coming;
+   "60%" does not. */
+.welcome-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.welcome-step {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.welcome-step.is-current {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.welcome-step.is-done { color: var(--text); }
+.welcome-step.is-skipped { text-decoration: line-through; }
+
+.welcome-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: 28px;
+}
+.welcome-panel h1 { font-size: 22px; margin: 0 0 6px; }
+.welcome-lede { color: var(--text-dim); margin: 0 0 20px; font-size: 13px; line-height: 1.5; }
+.welcome-lede:empty { display: none; }
+
+/* Choice cards. The whole card is the control, so there is no hunting for a
+   radio button. */
+.welcome-choices { display: flex; flex-direction: column; gap: 10px; }
+
+.welcome-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.welcome-choice:hover { background: var(--surface-hover); }
+.welcome-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The chosen card is marked by border AND a stated word, never colour alone. */
+.welcome-choice.is-chosen { border-color: var(--accent); background: var(--surface-hover); }
+
+.welcome-choice-head { display: flex; align-items: center; gap: 8px; }
+.welcome-choice-name { font-size: 14px; }
+.welcome-choice-mark {
+  font-size: 11px;
+  color: var(--accent);
+  margin-left: auto;
+}
+.welcome-choice-summary {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.welcome-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: 14px 0 0;
+}
+
+.welcome-list { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.8; }
+.welcome-list li { color: var(--text-dim); }
+.welcome-list strong { color: var(--text); font-weight: 500; }
+
+.welcome-actions { display: flex; align-items: center; gap: 8px; }
+.welcome-spacer { flex: 1; }
+
+.welcome-button {
+  padding: 8px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.welcome-button:hover:not(:disabled) { background: var(--surface-hover); }
+.welcome-button:disabled { opacity: 0.45; cursor: default; }
+.welcome-button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text, #06131f); }
+.welcome-button.quiet { border-color: transparent; background: transparent; color: var(--text-dim); }
+.welcome-button.quiet:hover { color: var(--text); }
+
+.welcome-error { color: var(--danger); font-size: 12px; margin: 10px 0 0; }
+.welcome-error:empty { display: none; }

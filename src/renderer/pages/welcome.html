@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Welcome to Static</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="welcome.css">
+</head>
+<body class="welcome-body">
+  <main class="welcome" role="main">
+    <!-- Progress is shown as named steps rather than a bar, so it is always
+         clear what is being asked and what is still to come. -->
+    <nav class="welcome-steps" id="steps" aria-label="Setup progress"></nav>
+
+    <section class="welcome-panel">
+      <h1 id="title"></h1>
+      <p class="welcome-lede" id="lede"></p>
+      <div id="body"></div>
+    </section>
+
+    <!-- Skip is always visible on an optional step. A setup flow that hides
+         its exit is one people learn to distrust. -->
+    <footer class="welcome-actions">
+      <button id="back" class="welcome-button">Back</button>
+      <span class="welcome-spacer"></span>
+      <button id="skip" class="welcome-button quiet">Skip this</button>
+      <button id="next" class="welcome-button primary">Continue</button>
+    </footer>
+  </main>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="../../shared/modes.js"></script>
+  <script src="common.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

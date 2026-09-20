@@ -23,6 +23,7 @@ const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Health } = require('../features/health');
+const { Onboarding } = require('../features/onboarding');
 const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
@@ -163,6 +164,17 @@ class BrowserApplication {
       history: this.history,
       downloads: this.downloads,
       getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
+    });
+
+    // First launch. Onboarding writes THROUGH settings and shields rather than
+    // to any store of its own, so a preset cannot set a value those modules
+    // would reject. Whether the assistant can be offered is read here rather
+    // than assumed, so the flow never offers something that would fail.
+    this.onboarding = new Onboarding(this.dir, {
+      settings: this.settings,
+      shields: this.shields,
+      aiAvailable: gemini.hasKey(),
+      onChange: () => this.push(),
     });
 
     // Filter lists refresh in the background: a first run should not wait on
@@ -422,6 +434,11 @@ class BrowserApplication {
   }
 
   #startUrl() {
+    // A profile that has never been set up opens the welcome flow instead of
+    // the homepage. It is a normal tab: it can be closed, navigated away from
+    // and reopened, because a setup screen that traps the window is worse than
+    // no setup screen.
+    if (this.onboarding?.due) return 'browser://welcome';
     const s = this.settings.value;
     return s.newTabBehavior === 'homepage' ? s.homepage : NEW_TAB;
   }
@@ -584,6 +601,13 @@ class BrowserApplication {
           totals: this.resourceTotals(),
         },
         focus: this.focus.state(),
+        // What setup settled on, so Settings can say so rather than offering
+        // to re-run something with no stated consequence.
+        onboarding: this.onboarding ? {
+          completed: this.onboarding.completed,
+          profile: this.onboarding.data.profile,
+          privacy: this.onboarding.data.privacy,
+        } : null,
       },
       catalog: {
         widgets: Object.values(WIDGETS),
@@ -889,6 +913,32 @@ class BrowserApplication {
       'sense:silence': (_sender, payload) => { this.sense.silence(String(payload?.id || '')); return true; },
       'sense:state': () => this.sense.state(),
       'sense:enabled': (_sender, payload) => this.sense.setEnabled(payload?.enabled !== false),
+
+      // ---- first launch ----------------------------------------------------
+      // Each of these returns the whole onboarding state, so the page never
+      // has to work out what changed or which step follows.
+      'onboarding:state': () => this.onboarding.state(),
+      'onboarding:next': () => this.onboarding.next(),
+      'onboarding:back': () => this.onboarding.back(),
+      'onboarding:skip': () => this.onboarding.skip(),
+      'onboarding:profile': (_sender, payload) => this.onboarding.chooseProfile(String(payload?.id || '')),
+      'onboarding:layout': (_sender, payload) => this.onboarding.chooseLayout(String(payload?.id || '')),
+      'onboarding:privacy': (_sender, payload) => this.onboarding.choosePrivacy(String(payload?.id || '')),
+      'onboarding:ai': (_sender, payload) => this.onboarding.chooseAI(payload?.id === 'on'),
+      /**
+       * Finish or dismiss. Both mark it complete and then leave the welcome
+       * page, because a setup flow you cannot get out of is a trap.
+       */
+      'onboarding:complete': (_sender, _payload) => {
+        const state = this.onboarding.complete();
+        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://newtab');
+        return state;
+      },
+      'onboarding:restart': () => {
+        const state = this.onboarding.restart();
+        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://welcome');
+        return state;
+      },
 
       'health:report': () => this.health.report(),
       /**
@@ -1825,6 +1875,8 @@ class BrowserApplication {
     this.shields.flush();
     this.passwords.flush();
     this.resources.flush();
+    this.onboarding?.flush();
+    this.sense?.flush();
   }
 }
 
