@@ -20,7 +20,7 @@ test('sidebar preference validates, persists and repairs stale values', t => {
 });
 test('appearance reset keeps browsing preferences and rejects unknown scopes', t => {
   const { settings } = setup(t);
-  settings.update({ theme: 'light', fontSize: 20, sidebarMode: 'off', homepage: 'https://example.com', bookmarksBar: false });
+  settings.update({ theme: 'sun', fontSize: 20, sidebarMode: 'off', homepage: 'https://example.com', bookmarksBar: false });
   assert.throws(() => settings.reset('everything-on-disk'));
   settings.reset('appearance');
   assert.equal(settings.value.theme, DEFAULTS.theme);

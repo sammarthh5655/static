@@ -13,7 +13,12 @@ async function run(browser) {
   const check = (n, ok, d) => { console.log((ok?'  ok  ':'FAIL  ')+n+(d?' :: '+d:'')); if(!ok) fails++; };
   browser.window.show();
   await wait(1800);
+  browser.tabs.navigate(browser.tabs.activeId, 'browser://newtab');
   const wc = browser.tabs.active.view.webContents;
+  for (let i = 0; i < 60; i++) {
+    if (await wc.executeJavaScript("!!document.getElementById('query')").catch(() => false)) break;
+    await wait(100);
+  }
   const errs = [];
   wc.on('console-message', (e) => { if (e?.level==='error'||e?.level===3) errs.push(e.message.slice(0,120)); });
 
@@ -27,9 +32,9 @@ async function run(browser) {
     q.dispatchEvent(new KeyboardEvent('keydown', { key:'Tab', bubbles:true, cancelable:true }));
     await new Promise(r=>setTimeout(r,200));
     return {
-      aiMode: document.body.classList.contains('ai-mode'),
-      badge: !document.getElementById('ai-badge').hidden,
-      hint: document.getElementById('search-hint').textContent,
+      aiMode: document.body.classList.contains('ai'),
+      badge: !document.getElementById('search-badge').hidden,
+      hint: document.getElementById('keyhint').textContent,
       stillFocused: document.activeElement === q,
     };
   })()`);
@@ -41,7 +46,7 @@ async function run(browser) {
     const q = document.getElementById('query');
     q.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
     await new Promise(r=>setTimeout(r,200));
-    return document.body.classList.contains('ai-mode');
+    return document.body.classList.contains('ai');
   })()`);
   check('Escape leaves AI mode', back === false);
 
@@ -56,8 +61,8 @@ async function run(browser) {
     document.getElementById('search').requestSubmit();
     for (let i=0;i<60;i++){
       await new Promise(r=>setTimeout(r,500));
-      const t = document.getElementById('ai-answer').textContent;
-      if (t && t !== 'Thinking\u2026') return { text: t.slice(0,160), panel: !document.getElementById('ai-panel').hidden };
+      const t = document.getElementById('answer-text').textContent;
+      if (t && t !== 'Thinking\u2026') return { text: t.slice(0,160), panel: !document.getElementById('answer').hidden };
     }
     return { text: 'TIMEOUT', panel:false };
   })()`, true);

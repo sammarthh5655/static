@@ -15,7 +15,7 @@ async function run(browser) {
   const output = path.join(app.getAppPath(), '.test-output');
   fs.mkdirSync(output, { recursive: true });
   browser.window.setSize(1400, 1000);
-  browser.settings.update({ theme: 'eclipse', radius: 'rounded', animations: false, sidebarMode: 'on' });
+  browser.settings.update({ theme: 'neptune', radius: 'rounded', animations: false, sidebarMode: 'on' });
   browser.push();
   const id = browser.tabs.create({ url: 'browser://settings' });
   const wc = browser.tabs.tabs.get(id).view.webContents;
@@ -87,7 +87,7 @@ async function run(browser) {
   await until('about deep link', () => js("location.hash === '#about' && document.querySelector('[data-section=about]')?.hidden === false").catch(() => false));
   assert.equal(await js("document.querySelector('#app-version').textContent"), 'Version ' + app.getVersion());
   await js("document.querySelector('[data-category=start]').click()");
-  browser.settings.update({ theme: 'light' }); browser.push();
+  browser.settings.update({ theme: 'sun' }); browser.push();
   await until('light theme reaches settings', () => js("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#f2f3f5'"));
   // CSS state can update before Chromium presents the next compositor frame.
   await wait(300);
@@ -96,7 +96,7 @@ async function run(browser) {
   await wait(250);
   assert.equal(await js("document.documentElement.scrollWidth <= innerWidth && document.querySelector('.settings-main').scrollWidth <= document.querySelector('.settings-main').clientWidth"), true);
   fs.writeFileSync(path.join(output, 'settings-reference-compact.png'), (await wc.capturePage()).toPNG());
-  browser.settings.update({ theme: 'eclipse', sidebarMode: 'on', homepage: 'browser://newtab', bookmarksBar: true }); browser.push();
+  browser.settings.update({ theme: 'neptune', sidebarMode: 'on', homepage: 'browser://newtab', bookmarksBar: true }); browser.push();
   console.log('  ok  branded menu, live fonts/colors, settings search, reset confirmation, sidebar modes, keyboard controls, deep links, light and compact layouts');
 }
 module.exports = { run };

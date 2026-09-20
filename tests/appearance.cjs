@@ -22,12 +22,12 @@ async function run(browser) {
 
   // Theme switching must repaint the chrome, not just store a value.
   const darkBg = await read('--bg');
-  browser.settings.update({ theme: 'light' }); browser.push();
+  browser.settings.update({ theme: 'sun' }); browser.push();
   await wait(400);
   const lightBg = await read('--bg');
   check('theme switch repaints chrome', darkBg !== lightBg, darkBg + ' -> ' + lightBg);
 
-  browser.settings.update({ theme: 'midnight' }); browser.push();
+  browser.settings.update({ theme: 'pluto' }); browser.push();
   await wait(400);
   check('third theme applies', (await read('--bg')) === '#0f1117', await read('--bg'));
 
@@ -88,7 +88,7 @@ async function run(browser) {
   check('Ctrl+W works with a web page focused', browser.tabs.order.length === afterNew - 1,
     afterNew + ' -> ' + browser.tabs.order.length);
 
-  browser.settings.update({ theme: 'dark', radius: 'rounded' });
+  browser.settings.update({ theme: 'mercury', radius: 'rounded' });
   await require('./settings-design.cjs').run(browser);
   console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll appearance checks passed.\n');
   app.exit(fails ? 1 : 0);

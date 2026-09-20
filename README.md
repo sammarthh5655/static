@@ -69,8 +69,6 @@ never touch real browsing data.
 
 ---
 
-## Packaging installers
-
 ## Organizer and Screen Time
 
 Use **Organise Tabs** in the tab strip (Ctrl/Cmd+Shift+O), or open

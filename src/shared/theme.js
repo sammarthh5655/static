@@ -9,119 +9,391 @@
 // This file is required by main (to validate settings) and loaded as a plain
 // script by renderers, so it must stay free of Electron and Node imports.
 
+/**
+ * Themes, as planets.
+ *
+ * Each planet is a complete palette taken from what the body actually looks
+ * like - Mars is iron oxide, Neptune is methane blue, Saturn is pale ammonia
+ * gold. They are deliberately LOW SATURATION: a planet photographed from space
+ * is muted, and muted is what reads as elegant rather than as a neon developer
+ * theme.
+ *
+ * Every planet must define the same token set. `cssVariables` reads these
+ * directly, so a missing key would render as an invalid CSS value rather than
+ * falling back - the shape is the contract, and a test holds it.
+ *
+ * `luminous: true` marks a light theme, so anything drawn on top (glass,
+ * shadows, the starfield) can pick sensible contrast.
+ */
 const THEMES = {
-  dark: {
-    id: 'dark', name: 'Dark',
+  mercury: {
+    id: 'mercury', name: 'Mercury', order: 1,
+    blurb: 'Bare rock and iron. Quiet greys, close to the metal.',
     tokens: {
-      'bg': '#161718',
-      'bg-raised': '#1e1f21',
-      'bg-strip': '#101112',
-      'surface': '#242628',
-      'surface-hover': '#2e3033',
-      'surface-active': '#383a3e',
-      'text': '#e9eaec',
-      'text-dim': '#9498a0',
-      'text-faint': '#6b6f77',
-      'border': '#303236',
-      'border-soft': '#26282b',
-      'accent': '#7aa2f7',
-      'accent-dim': '#3d5a94',
-      'danger': '#f7768e',
-      'success': '#9ece6a',
-      'warn': '#e0af68',
-      'menu-bg': 'rgba(30, 31, 33, 0.82)',
-      'menu-bg-solid': '#1e1f21',
-      'shadow': '0 10px 34px rgba(0, 0, 0, 0.5)',
-      'accent-alt': '#a78bfa',
-      'tab-active': '#242628',
-      'field': '#202123',
+      'bg': '#131313',
+      'bg-raised': '#1a1a1b',
+      'bg-strip': '#0d0d0e',
+      'surface': '#1f2021',
+      'surface-hover': '#292a2c',
+      'surface-active': '#333436',
+      'text': '#eceded',
+      'text-dim': '#9b9d9f',
+      'text-faint': '#6d6f72',
+      'border': '#2e2f31',
+      'border-soft': '#242526',
+      'accent': '#b9a78c',
+      'accent-dim': '#4a4237',
+      'accent-alt': '#8f8d84',
+      'danger': '#e3707f',
+      'success': '#8ec99b',
+      'warn': '#d9b271',
+      'menu-bg': 'rgba(26, 26, 27, 0.84)',
+      'menu-bg-solid': '#1a1a1b',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.55)',
+      'tab-active': '#1f2021',
+      'field': '#1b1b1c',
     },
   },
-  light: {
-    id: 'light', name: 'Light',
+
+  venus: {
+    id: 'venus', name: 'Venus', order: 2, luminous: true,
+    blurb: 'Sulphur cloud and haze. Warm gold over cream.',
     tokens: {
-      'bg': '#f2f3f5',
-      'bg-raised': '#ffffff',
-      'bg-strip': '#e6e8ea',
+      'bg': '#f6f1e7',
+      'bg-raised': '#fbf7f0',
+      'bg-strip': '#ece5d7',
       'surface': '#ffffff',
-      'surface-hover': '#eceef1',
-      'surface-active': '#e0e3e7',
-      'text': '#1b1d21',
-      'text-dim': '#5f636b',
-      'text-faint': '#8b9098',
-      'border': '#d6d9dd',
-      'border-soft': '#e4e6e9',
-      'accent': '#3b6fd4',
-      'accent-dim': '#a8c0ec',
-      'danger': '#d1435b',
-      'success': '#3f8f3f',
-      'warn': '#b4761c',
-      'menu-bg': 'rgba(255, 255, 255, 0.78)',
-      'menu-bg-solid': '#ffffff',
-      'shadow': '0 10px 34px rgba(20, 22, 28, 0.18)',
-      'accent-alt': '#7c5cd6',
+      'surface-hover': '#f3ece0',
+      'surface-active': '#e9dfcd',
+      'text': '#2b2620',
+      'text-dim': '#6d6355',
+      'text-faint': '#948977',
+      'border': '#ded3c0',
+      'border-soft': '#ebe3d5',
+      'accent': '#b8863b',
+      'accent-dim': '#e6d3b0',
+      'accent-alt': '#8a6b2f',
+      'danger': '#c2453f',
+      'success': '#4c7a4a',
+      'warn': '#b07d15',
+      'menu-bg': 'rgba(251, 247, 240, 0.9)',
+      'menu-bg-solid': '#fbf7f0',
+      'shadow': '0 10px 30px rgba(90, 74, 48, 0.16)',
       'tab-active': '#ffffff',
       'field': '#ffffff',
     },
   },
-  eclipse: {
-    id: 'eclipse', name: 'Eclipse',
+
+  earth: {
+    id: 'earth', name: 'Earth', order: 3,
+    blurb: 'Ocean and forest from orbit. Deep green over slate.',
     tokens: {
-      // Deep black base with a midnight-blue lift, cyan primary and violet
-      // secondary. Kept low-saturation so the glow reads as light rather than
-      // neon - saturated accents on black are what make a UI look cheap.
-      'bg': '#080e18',
-      'bg-raised': '#0c1420',
-      'bg-strip': '#060c14',
-      'surface': '#101a28',
-      'surface-hover': '#16273b',
-      'surface-active': '#193655',
-      'text': '#eef1f6',
-      'text-dim': '#99afcb',
-      'text-faint': '#7288a5',
-      'border': '#2b3c54',
-      'border-soft': '#1b2a3d',
-      'accent': '#47baff',
-      'accent-dim': '#153957',
-      'accent-alt': '#2276ef',
-      'danger': '#f4718c',
-      'success': '#6fe0b0',
-      'warn': '#f0c268',
-      'menu-bg': 'rgba(9, 16, 26, 0.92)',
-      'menu-bg-solid': '#0c1420',
-      'shadow': '0 18px 48px rgba(0, 0, 0, 0.7)',
-      'tab-active': '#101a28',
-      'field': '#0c1420',
+      'bg': '#0c1412',
+      'bg-raised': '#111b18',
+      'bg-strip': '#080f0d',
+      'surface': '#16221e',
+      'surface-hover': '#1d2e28',
+      'surface-active': '#264038',
+      'text': '#e8f0ec',
+      'text-dim': '#94aba2',
+      'text-faint': '#6a8077',
+      'border': '#26362f',
+      'border-soft': '#1a2823',
+      'accent': '#4fc08a',
+      'accent-dim': '#1b4433',
+      'accent-alt': '#3fa7d6',
+      'danger': '#ef7285',
+      'success': '#68d79b',
+      'warn': '#e0b465',
+      'menu-bg': 'rgba(17, 27, 24, 0.84)',
+      'menu-bg-solid': '#111b18',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.55)',
+      'tab-active': '#16221e',
+      'field': '#121d19',
     },
   },
-  midnight: {
-    id: 'midnight', name: 'Midnight',
+
+  mars: {
+    id: 'mars', name: 'Mars', order: 4,
+    blurb: 'Iron oxide and dust. Warm rust on a dark plain.',
     tokens: {
-      'bg': '#0f1117',
-      'bg-raised': '#161923',
-      'bg-strip': '#0a0c11',
-      'surface': '#1b1f2b',
-      'surface-hover': '#232838',
-      'surface-active': '#2c3244',
-      'text': '#e4e7f0',
-      'text-dim': '#8d93a8',
-      'text-faint': '#5f6478',
-      'border': '#262b3a',
-      'border-soft': '#1d2130',
-      'accent': '#8c7cf0',
-      'accent-dim': '#413a75',
-      'danger': '#f2657a',
-      'success': '#7fd88f',
-      'warn': '#e2b164',
-      'menu-bg': 'rgba(22, 25, 35, 0.8)',
-      'menu-bg-solid': '#161923',
+      'bg': '#150f0d',
+      'bg-raised': '#1d1512',
+      'bg-strip': '#0f0a09',
+      'surface': '#241a16',
+      'surface-hover': '#31231d',
+      'surface-active': '#412d24',
+      'text': '#f2e8e3',
+      'text-dim': '#b09a90',
+      'text-faint': '#816d65',
+      'border': '#3a2a23',
+      'border-soft': '#2a1e19',
+      'accent': '#e07a52',
+      'accent-dim': '#5a2e1e',
+      'accent-alt': '#c6553f',
+      'danger': '#f06d72',
+      'success': '#93c47d',
+      'warn': '#e2a95c',
+      'menu-bg': 'rgba(29, 21, 18, 0.85)',
+      'menu-bg-solid': '#1d1512',
       'shadow': '0 10px 34px rgba(0, 0, 0, 0.6)',
-      'accent-alt': '#8c7cf0',
-      'tab-active': '#1b1f2b',
-      'field': '#161923',
+      'tab-active': '#241a16',
+      'field': '#1f1714',
+    },
+  },
+
+  jupiter: {
+    id: 'jupiter', name: 'Jupiter', order: 5,
+    blurb: 'Banded cloud and the great storm. Amber and cream.',
+    tokens: {
+      'bg': '#16120e',
+      'bg-raised': '#1f1913',
+      'bg-strip': '#100d0a',
+      'surface': '#271f18',
+      'surface-hover': '#342a20',
+      'surface-active': '#44372a',
+      'text': '#f5ede2',
+      'text-dim': '#b6a48d',
+      'text-faint': '#867763',
+      'border': '#3b3025',
+      'border-soft': '#2a221a',
+      'accent': '#e3a857',
+      'accent-dim': '#5c4426',
+      'accent-alt': '#c9705a',
+      'danger': '#ec6f78',
+      'success': '#9cc47a',
+      'warn': '#edbb62',
+      'menu-bg': 'rgba(31, 25, 19, 0.85)',
+      'menu-bg-solid': '#1f1913',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.6)',
+      'tab-active': '#271f18',
+      'field': '#211a14',
+    },
+  },
+
+  saturn: {
+    id: 'saturn', name: 'Saturn', order: 6,
+    blurb: 'Pale ammonia gold and the shadow of the rings.',
+    tokens: {
+      'bg': '#14120c',
+      'bg-raised': '#1c1a12',
+      'bg-strip': '#0e0d08',
+      'surface': '#242117',
+      'surface-hover': '#302c1f',
+      'surface-active': '#3f3929',
+      'text': '#f4efdf',
+      'text-dim': '#b3aa8d',
+      'text-faint': '#847c63',
+      'border': '#383322',
+      'border-soft': '#282518',
+      'accent': '#d8c27a',
+      'accent-dim': '#564d2c',
+      'accent-alt': '#b09a58',
+      'danger': '#e87484',
+      'success': '#a3c583',
+      'warn': '#e0be68',
+      'menu-bg': 'rgba(28, 26, 18, 0.85)',
+      'menu-bg-solid': '#1c1a12',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.58)',
+      'tab-active': '#242117',
+      'field': '#1e1c14',
+    },
+  },
+
+  uranus: {
+    id: 'uranus', name: 'Uranus', order: 7,
+    blurb: 'Methane ice. Pale cyan, cold and even.',
+    tokens: {
+      'bg': '#0b1416',
+      'bg-raised': '#101c1f',
+      'bg-strip': '#070f11',
+      'surface': '#152327',
+      'surface-hover': '#1c3035',
+      'surface-active': '#254147',
+      'text': '#e6f2f3',
+      'text-dim': '#92adb1',
+      'text-faint': '#688186',
+      'border': '#233639',
+      'border-soft': '#18282b',
+      'accent': '#71d3d8',
+      'accent-dim': '#1f4a4d',
+      'accent-alt': '#5aa9d6',
+      'danger': '#ee7585',
+      'success': '#6fd3a8',
+      'warn': '#ddb771',
+      'menu-bg': 'rgba(16, 28, 31, 0.84)',
+      'menu-bg-solid': '#101c1f',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.55)',
+      'tab-active': '#152327',
+      'field': '#111e21',
+    },
+  },
+
+  neptune: {
+    id: 'neptune', name: 'Neptune', order: 8,
+    blurb: 'Deep methane blue. The default, and the calmest.',
+    tokens: {
+      'bg': '#0a1018',
+      'bg-raised': '#0f1722',
+      'bg-strip': '#070b12',
+      'surface': '#131e2c',
+      'surface-hover': '#1a2a3d',
+      'surface-active': '#233852',
+      'text': '#e7eef7',
+      'text-dim': '#93a6bd',
+      'text-faint': '#697c94',
+      'border': '#223047',
+      'border-soft': '#182334',
+      'accent': '#5aa7f0',
+      'accent-dim': '#1c3c5f',
+      'accent-alt': '#7d8ef2',
+      'danger': '#f0738b',
+      'success': '#63d2a4',
+      'warn': '#e4b968',
+      'menu-bg': 'rgba(15, 23, 34, 0.85)',
+      'menu-bg-solid': '#0f1722',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.6)',
+      'tab-active': '#131e2c',
+      'field': '#101a26',
+    },
+  },
+
+  pluto: {
+    id: 'pluto', name: 'Pluto', order: 9,
+    blurb: 'Nitrogen ice at the edge. Dim violet and distant light.',
+    tokens: {
+      'bg': '#111016',
+      'bg-raised': '#18161f',
+      'bg-strip': '#0b0a0f',
+      'surface': '#1f1c28',
+      'surface-hover': '#292434',
+      'surface-active': '#372f47',
+      'text': '#ece9f2',
+      'text-dim': '#a099b4',
+      'text-faint': '#746d86',
+      'border': '#2f2a3b',
+      'border-soft': '#221e2c',
+      'accent': '#a48ce0',
+      'accent-dim': '#3f3459',
+      'accent-alt': '#c08fc8',
+      'danger': '#ee7490',
+      'success': '#7fd0a6',
+      'warn': '#deb46e',
+      'menu-bg': 'rgba(24, 22, 31, 0.85)',
+      'menu-bg-solid': '#18161f',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.6)',
+      'tab-active': '#1f1c28',
+      'field': '#1a1822',
+    },
+  },
+
+  sun: {
+    id: 'sun', name: 'Sun', order: 10, luminous: true,
+    blurb: 'Full daylight. The bright one.',
+    tokens: {
+      'bg': '#f7f8fa',
+      'bg-raised': '#ffffff',
+      'bg-strip': '#eceef2',
+      'surface': '#ffffff',
+      'surface-hover': '#f0f2f6',
+      'surface-active': '#e3e7ee',
+      'text': '#1b1f26',
+      'text-dim': '#5d6572',
+      'text-faint': '#8a93a1',
+      'border': '#d8dde5',
+      'border-soft': '#e7eaf0',
+      'accent': '#c98a1e',
+      'accent-dim': '#f2e0bd',
+      'accent-alt': '#d9622f',
+      'danger': '#c43d3d',
+      'success': '#2f7d4f',
+      'warn': '#b07d15',
+      'menu-bg': 'rgba(255, 255, 255, 0.92)',
+      'menu-bg-solid': '#ffffff',
+      'shadow': '0 10px 30px rgba(27, 31, 38, 0.13)',
+      'tab-active': '#ffffff',
+      'field': '#ffffff',
+    },
+  },
+
+  moon: {
+    id: 'moon', name: 'Moon', order: 11,
+    blurb: 'Regolith and shadow. Monochrome, no colour at all.',
+    tokens: {
+      'bg': '#0e0e0f',
+      'bg-raised': '#151516',
+      'bg-strip': '#090909',
+      'surface': '#1b1b1d',
+      'surface-hover': '#242426',
+      'surface-active': '#2f2f32',
+      'text': '#ededee',
+      'text-dim': '#9a9a9d',
+      'text-faint': '#6e6e72',
+      'border': '#2a2a2d',
+      'border-soft': '#1f1f21',
+      'accent': '#c8c8cc',
+      'accent-dim': '#45454a',
+      'accent-alt': '#9a9aa0',
+      'danger': '#d98a93',
+      'success': '#a6bfa9',
+      'warn': '#cbb48a',
+      'menu-bg': 'rgba(21, 21, 22, 0.86)',
+      'menu-bg-solid': '#151516',
+      'shadow': '0 10px 34px rgba(0, 0, 0, 0.6)',
+      'tab-active': '#1b1b1d',
+      'field': '#171718',
     },
   },
 };
+
+/** The planet a fresh profile starts on. */
+const DEFAULT_THEME = 'neptune';
+
+/**
+ * Build a custom planet from one colour.
+ *
+ * The user picks an accent and a base darkness; every other token is derived
+ * so a custom planet is as complete and as consistent as a built-in one. It is
+ * NOT stored as a partial override - it is expanded into the full token set,
+ * so nothing downstream has to know it was custom.
+ */
+function customPlanet(accentHex, { name = 'Custom', light = false } = {}) {
+  const accent = normalizeHex(accentHex) || THEMES[DEFAULT_THEME].tokens.accent;
+  // Mix toward black (or white) to build a family from the one colour, so the
+  // surfaces carry a hint of the accent rather than being neutral grey.
+  const base = light ? '#ffffff' : '#000000';
+  const ink = light ? '#12141a' : '#ffffff';
+  const mix = (amount) => mixHex(accent, base, amount);
+
+  return {
+    id: 'custom', name, order: 99, luminous: !!light, custom: true,
+    blurb: 'Your own world.',
+    tokens: {
+      'bg': mix(light ? 0.05 : 0.94),
+      'bg-raised': mix(light ? 0.02 : 0.9),
+      'bg-strip': mix(light ? 0.09 : 0.96),
+      'surface': mix(light ? 0.0 : 0.86),
+      'surface-hover': mix(light ? 0.08 : 0.8),
+      'surface-active': mix(light ? 0.14 : 0.72),
+      'text': light ? ink : mixHex(ink, accent, 0.08),
+      'text-dim': mixHex(ink, base, light ? 0.45 : 0.42),
+      'text-faint': mixHex(ink, base, light ? 0.62 : 0.58),
+      'border': mix(light ? 0.18 : 0.74),
+      'border-soft': mix(light ? 0.1 : 0.82),
+      'accent': accent,
+      'accent-dim': mix(light ? 0.72 : 0.62),
+      'accent-alt': mixHex(accent, light ? '#000000' : '#ffffff', 0.22),
+      'danger': light ? '#c43d3d' : '#ef7285',
+      'success': light ? '#2f7d4f' : '#68d79b',
+      'warn': light ? '#b07d15' : '#e0b465',
+      'menu-bg': mix(light ? 0.02 : 0.9),
+      'menu-bg-solid': mix(light ? 0.02 : 0.9),
+      'shadow': light ? '0 10px 30px rgba(20, 24, 32, 0.14)' : '0 10px 34px rgba(0, 0, 0, 0.6)',
+      'tab-active': mix(light ? 0.0 : 0.86),
+      'field': mix(light ? 0.02 : 0.88),
+    },
+  };
+}
 
 /** Menu/dropdown background treatments, selectable in Settings. */
 const SURFACE_STYLES = {
@@ -272,12 +544,29 @@ const MOTION = {
  * or apply it directly to an element.
  */
 function cssVariables(appearance = {}) {
-  const theme = THEMES[appearance.theme] || THEMES.dark;
+  // A custom planet arrives as a full token map rather than an id, because it
+  // does not live in THEMES. Anything unrecognised falls back to the default
+  // planet: an undefined theme here would produce 'undefined' in real CSS.
+  const theme = (appearance.customTheme && appearance.customTheme.tokens)
+    ? appearance.customTheme
+    : (THEMES[appearance.theme] || THEMES[DEFAULT_THEME]);
   const radius = RADIUS[appearance.radius] || RADIUS.rounded;
   const motionOn = appearance.animations !== false;
 
   const vars = {};
   for (const [key, value] of Object.entries(theme.tokens)) vars['--' + key] = value;
+
+  // Shadows on a light planet must be softer and warmer than on a dark one;
+  // a hardcoded rgba(0,0,0,.4) reads as dirt on a cream background. Pages use
+  // --shadow-colour rather than picking their own black.
+  vars['--shadow-colour'] = theme.luminous
+    ? 'rgba(40, 34, 24, 0.14)'
+    : 'rgba(0, 0, 0, 0.34)';
+  vars['--shadow-colour-strong'] = theme.luminous
+    ? 'rgba(40, 34, 24, 0.22)'
+    : 'rgba(0, 0, 0, 0.5)';
+  // Whether this planet is a light one, for anything that must branch in CSS.
+  vars['--luminous'] = theme.luminous ? '1' : '0';
 
   vars['--radius'] = radius.value + 'px';
   vars['--radius-sm'] = Math.max(2, Math.round(radius.value * 0.6)) + 'px';
@@ -407,7 +696,8 @@ function cssText(appearance) {
 }
 
 const shared = {
-  THEMES, SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY, ALIGNMENTS, WIDGET_SPANS,
+  THEMES, DEFAULT_THEME, customPlanet,
+  SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY, ALIGNMENTS, WIDGET_SPANS,
   ICONS, MOTION, cssVariables, cssText, widgetVariables, normalizeHex, mixHex,
 };
 

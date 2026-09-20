@@ -105,7 +105,7 @@ async function run(browser) {
     check('choosing a profile advances to the homepage step',
       /homepage/i.test(view.title), view.title);
     check('the chosen profile really reached settings',
-      browser.settings.value.density === 'compact' || browser.settings.value.theme === 'midnight',
+      browser.settings.value.density === 'compact' || browser.settings.value.theme === 'pluto',
       JSON.stringify({ theme: browser.settings.value.theme, density: browser.settings.value.density }));
 
     // ---- homepage step ----------------------------------------------------

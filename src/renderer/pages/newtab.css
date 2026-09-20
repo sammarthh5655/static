@@ -108,7 +108,7 @@ body.newtab {
   font: inherit;
   font-size: 15.5px;
   outline: none;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+  box-shadow: 0 10px 34px var(--shadow-colour);
   transition: border-color var(--motion-base) var(--ease),
               box-shadow var(--motion-base) var(--ease),
               background var(--motion-base) var(--ease);
@@ -117,7 +117,7 @@ body.newtab {
 
 .search input:focus {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32),
+  box-shadow: 0 10px 34px var(--shadow-colour),
               0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
@@ -126,7 +126,7 @@ body.newtab {
 body.ai .search input {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--surface) 85%, transparent);
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.32),
+  box-shadow: 0 10px 34px var(--shadow-colour),
               0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent),
               0 0 32px color-mix(in srgb, var(--accent) 22%, transparent);
 }

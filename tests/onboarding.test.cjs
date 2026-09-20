@@ -40,7 +40,7 @@ test('a profile actually changes the settings it names', (t) => {
   const { onboarding, settings } = fixture(t);
   onboarding.chooseProfile('work');
   assert.equal(settings.value.density, 'compact');
-  assert.equal(settings.value.theme, 'midnight');
+  assert.equal(settings.value.theme, 'pluto');
   assert.deepEqual(settings.value.newTab.widgets, PROFILES.work.newTab.widgets);
   assert.equal(settings.value.newTab.showMostVisited, true);
 });
@@ -93,7 +93,7 @@ test('a profile whose shield part fails is still recorded, and says so', (t) => 
   // The settings part landed and is visible, so the choice must not read as
   // unmade - that would be the state lying about what the user can see.
   assert.equal(result.chosen.profile, 'private');
-  assert.equal(settings.value.theme, 'midnight', 'the settings part did apply');
+  assert.equal(settings.value.theme, 'pluto', 'the settings part did apply');
   assert.match(result.warning, /shield settings could not be changed/);
   assert.match(result.warning, /vault busy/, 'the real reason is passed through');
 });

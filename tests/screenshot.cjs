@@ -88,7 +88,7 @@ async function run(browser) {
 
     // A light-theme pass, to confirm the theme reaches every surface rather
     // than only the variables.
-    browser.settings.update({ theme: 'light', surfaceStyle: 'shadow', radius: 'sharp' });
+    browser.settings.update({ theme: 'sun', surfaceStyle: 'shadow', radius: 'sharp' });
     browser.push();
     await wait(1200);
     await shotView(browser.chrome.webContents, 'chrome-light');
@@ -96,7 +96,7 @@ async function run(browser) {
       "document.getElementById('app-menu').click()");
     await wait(1200);
     await shotWindow('menu-light');
-    browser.settings.update({ theme: 'dark', surfaceStyle: 'frosted', radius: 'rounded' });
+    browser.settings.update({ theme: 'mercury', surfaceStyle: 'frosted', radius: 'rounded' });
 
     // AI page, with a real conversation in it.
     const aiTab = browser.tabs.create({ url: 'browser://ai' });

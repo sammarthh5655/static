@@ -30,7 +30,7 @@ async function run(browser) {
   time.update({ enabled: true, allowlist: [] }); time.config.rules = []; time.config.unlocks = {}; time.clearUsage();
   org.store.data.sessions = []; org.store.data.workspaces = [{ id: 'main', name: 'Main' }];
   browser.focus.finish('test'); browser.focus.update({ allowlist: [], customDomains: [], blocked: [] });
-  browser.settings.update({ theme: 'dark' });
+  browser.settings.update({ theme: 'mercury' });
   browser.window.show(); browser.window.focus();
   await until(() => browser.tabs.active);
   const open = async (url, background = false) => {
@@ -108,6 +108,11 @@ async function run(browser) {
       assert.equal(org.plan.source, 'local');
     } finally { org.ai = original; }
   });
+  if (process.argv.includes('--live-gemini')) await check('Gemini 3 Flash Preview returns real organizer groups', async () => {
+    await org.analyze(true);
+    assert.equal(org.plan.source, 'gemini');
+    assert.ok(org.plan.groups.length);
+  });
   await check('sessions persist groups/pins/workspaces and restore alongside current tabs', async () => {
     org.saveSession({ name: 'Integration research' });
     const restored = new Organizer(browser.dir, { getTabs: () => browser.tabs, resources: browser.resources, ai: org.ai });
@@ -180,9 +185,18 @@ async function run(browser) {
     assert.equal(await page.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
     assert.deepEqual(errors, []);
     const output = path.join(app.getAppPath(), '.test-output'); fs.mkdirSync(output, { recursive: true });
-    fs.writeFileSync(path.join(output, 'organizer.png'), (await page.capturePage(undefined, { stayAwake: true })).toPNG());
+    // A reattached native surface can lag the DOM/compositor on Windows.
+    const capture = async wc => {
+      let error;
+      for (let i = 0; i < 8; i++) {
+        try { return (await wc.capturePage(undefined, { stayAwake: true })).toPNG(); }
+        catch (failure) { error = failure; await wait(300); }
+      }
+      throw error;
+    };
+    fs.writeFileSync(path.join(output, 'organizer.png'), await capture(page));
     browser.tabs.select(timeId); timePage.focus(); await wait(800);
-    fs.writeFileSync(path.join(output, 'screentime.png'), (await timePage.capturePage(undefined, { stayAwake: true })).toPNG());
+    fs.writeFileSync(path.join(output, 'screentime.png'), await capture(timePage));
   });
   server.close(); browser.productivity.stop(); browser.flush();
   console.log(fails ? fails + ' productivity checks failed.' : 'All productivity integration checks passed.');
