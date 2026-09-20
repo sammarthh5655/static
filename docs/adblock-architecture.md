@@ -102,6 +102,49 @@ a solved problem.
 
 ---
 
+## 1.3 Brave's scriptlets, merged in
+
+`src/features/shields/brave/` carries Brave's own scriptlet library, taken from
+brave/adblock-rust under MPL-2.0 and reduced to the 195 JavaScript scriptlets.
+Alongside it, `youtube-rules.json` holds the 14 rules from Brave's main list
+that target YouTube and that this browser can actually run.
+
+What was deliberately NOT taken:
+
+- **The Rust engine.** It makes rule matching faster. It does not block
+  anything the current matcher cannot, and the ads that survive on YouTube are
+  not a matching problem. It also needs a Rust toolchain in the build.
+- **Rules needing response rewriting** — `trusted-replace-fetch-response`,
+  `json-prune-fetch-response`, `no-xhr-if` and the rest. Electron cannot
+  rewrite a response body (§3.1), so shipping them would inject code that
+  silently does nothing.
+
+Two things had to be right for the scriptlets to work at all, and both failed
+silently when they were not:
+
+1. **Dependencies.** uBlock scriptlets are split into a scriptlet plus `.fn`
+   helper modules — `json-prune` alone calls `safeSelf`, `objectPruneFn` and
+   `proxyApplyFn`. Injecting the scriptlet alone throws a ReferenceError that
+   its own try/catch swallows: the page looks normal and nothing is blocked.
+   Helpers are now resolved transitively and shipped inside each wrapper.
+2. **The sandbox.** The preload cannot read `resources.json` at runtime, so
+   building the bundle there produced an empty string. It is pre-built by
+   `scripts/build.cjs` into a module the preload imports.
+
+Measured on a real YouTube page after the merge:
+
+```
+adPlacements: absent   adSlots: absent   playerAds: absent
+adShowing: false       videoTime: 5.96   readyState: 4
+```
+
+`set-constant` installs accessors on `ytInitialPlayerResponse.adPlacements`
+and friends before the page's own `var` assigns them — the same technique as
+our own trap, arriving first. Our trap now reports `varTrap: 0` on a clean
+load, because there is nothing left for it to strip.
+
+---
+
 ## 2. What Brave does that we do not
 
 Brave's advantage is not better filter lists — it is the same lists, applied by

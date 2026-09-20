@@ -13,3 +13,4 @@ tmp/
 # Test profiles created by the --flag probes.
 .test-profile/
 shots/
+src/features/shields/brave/youtube-bundle.js

@@ -1,0 +1,114 @@
+[
+ {
+  "domains": [
+   "m.youtube.com",
+   "music.youtube.com",
+   "tv.youtube.com",
+   "www.youtube.com",
+   "youtubekids.com",
+   "youtube-nocookie.com"
+  ],
+  "spec": "set, ytInitialPlayerResponse.playerAds, undefined"
+ },
+ {
+  "domains": [
+   "m.youtube.com",
+   "music.youtube.com",
+   "tv.youtube.com",
+   "www.youtube.com",
+   "youtubekids.com",
+   "youtube-nocookie.com"
+  ],
+  "spec": "set, ytInitialPlayerResponse.adPlacements, undefined"
+ },
+ {
+  "domains": [
+   "m.youtube.com",
+   "music.youtube.com",
+   "tv.youtube.com",
+   "www.youtube.com",
+   "youtubekids.com",
+   "youtube-nocookie.com"
+  ],
+  "spec": "set, ytInitialPlayerResponse.adSlots, undefined"
+ },
+ {
+  "domains": [
+   "m.youtube.com",
+   "music.youtube.com",
+   "tv.youtube.com",
+   "www.youtube.com",
+   "youtubekids.com",
+   "youtube-nocookie.com"
+  ],
+  "spec": "set, playerResponse.adPlacements, undefined"
+ },
+ {
+  "domains": [
+   "m.youtube.com",
+   "music.youtube.com",
+   "youtubekids.com",
+   "youtube-nocookie.com"
+  ],
+  "spec": "json-prune, playerResponse.adPlacements playerResponse.playerAds playerResponse.adSlots adPlacements playerAds adSlots important"
+ },
+ {
+  "domains": [
+   "m.youtube.com",
+   "music.youtube.com",
+   "tv.youtube.com",
+   "www.youtube.com",
+   "youtubekids.com",
+   "youtube-nocookie.com"
+  ],
+  "spec": "json-prune, entries.[-].command.reelWatchEndpoint.adClientParams.isAd"
+ },
+ {
+  "domains": [
+   "www.youtube.com"
+  ],
+  "spec": "set, ytcfg.data_.EXPERIMENT_FLAGS.all_web_enable_network_machine, false"
+ },
+ {
+  "domains": [
+   "www.youtube.com"
+  ],
+  "spec": "set, ytcfg.data_.EXPERIMENT_FLAGS.all_web_network_machine_raw_request, false"
+ },
+ {
+  "domains": [
+   "www.youtube.com"
+  ],
+  "spec": "nano-stb, [native code], 17000, 0.001"
+ },
+ {
+  "domains": [
+   "youtube.com"
+  ],
+  "spec": "brave-video-bg-play"
+ },
+ {
+  "domains": [
+   "youtube.*"
+  ],
+  "spec": "brave-youtube-theater-fix"
+ },
+ {
+  "domains": [
+   "m.youtube.com"
+  ],
+  "spec": "trusted-click-element, button.yt-spec-button-shape-next[aria-label=\"Close\"][aria-disabled=\"false\"], , 2000"
+ },
+ {
+  "domains": [
+   "youtube.*"
+  ],
+  "spec": "brave-youtube-navigation-fix"
+ },
+ {
+  "domains": [
+   "www.youtube.*"
+  ],
+  "spec": "brave-youtube-playback-speed-fix"
+ }
+]
