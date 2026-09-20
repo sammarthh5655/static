@@ -21,7 +21,7 @@ const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
-const { isYouTubeHost } = require('../features/shields/youtube');
+const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -1171,16 +1171,76 @@ class BrowserApplication {
       inject(url);
     });
 
+    /**
+     * Re-assert the YouTube ad hooks on single-page navigations.
+     *
+     * The preload injects at document-start, which is the only moment the var
+     * trap can be installed - but it runs ONCE PER DOCUMENT. YouTube never
+     * loads a new document when you click from one video to the next, so an
+     * hour of watching is all one document, and everything rests on the fetch
+     * hook surviving untouched for that entire session. It does not have to:
+     * the page's own code or an extension's content script can reassign
+     * window.fetch at any point and silently unhook it for good.
+     *
+     * PAGE_SCRIPT is re-entrant - it re-installs only what is missing - so
+     * running it again here is cheap and idempotent.
+     */
+    contents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+      if (!isMainFrame) return;
+      if (!this.shields.config.enabled || !this.shields.config.blockVideoAds) return;
+      let host = '';
+      try { host = new URL(contents.getURL()).hostname; } catch { return; }
+      if (!isYouTubeHost(host) || !this.shields.activeFor(host)) return;
+      // Reset the per-video counters first, so each video's numbers stand on
+      // their own rather than accumulating across the session.
+      contents.executeJavaScript(
+        'if (window.__staticAdReset) window.__staticAdReset();', true).catch(() => {});
+      contents.executeJavaScript(PAGE_SCRIPT, true).catch(() => {});
+    });
+
     // Cosmetic CSS hides the box an ad would have occupied. It goes in at
     // dom-ready rather than document-start because insertCSS needs a document,
     // and it persists for the lifetime of that document - so ads rendered
     // later by the page's own JavaScript are covered too.
-    const insertCosmetic = () => {
-      if (!this.shields.config.enabled || !this.shields.config.hideAdSlots) return;
+    // The key of the stylesheet currently inserted in this tab, and its host,
+    // so a repeat call for the same site does not insert a second copy.
+    // insertCSS returns a key that must be handed back to removeInsertedCSS;
+    // without that, every SPA navigation stacked another identical sheet and a
+    // long YouTube session ended up with hundreds.
+    let cosmeticKey = null;
+    let cosmeticHost = null;
+
+    const insertCosmetic = async () => {
       let host = '';
-      try { host = new URL(contents.getURL()).hostname; } catch { return; }
-      if (!this.shields.activeFor(host)) return;
-      contents.insertCSS(COSMETIC_CSS).catch(() => {});
+      try { host = new URL(contents.getURL()).hostname; } catch { /* about:blank */ }
+
+      const wanted = host && this.shields.config.enabled &&
+                     this.shields.config.hideAdSlots &&
+                     this.shields.activeFor(host) ? host : null;
+
+      // Same site as the sheet already inserted: nothing to do.
+      if (wanted && wanted === cosmeticHost && cosmeticKey) return;
+
+      if (cosmeticKey) {
+        try { await contents.removeInsertedCSS(cosmeticKey); } catch { /* document gone */ }
+        cosmeticKey = null;
+        cosmeticHost = null;
+      }
+      if (!wanted) return;
+
+      // Two sources: the hand-written rules for sites needing specific care,
+      // and the cosmetic rules from the downloaded filter lists, which are
+      // what covers the rest of the web. The lists were previously parsed and
+      // thrown away, so ad containers stayed visible everywhere but YouTube.
+      const fromLists = this.shields.engine.cosmeticFor(wanted);
+      const css = fromLists ? COSMETIC_CSS + '\n' + fromLists : COSMETIC_CSS;
+      try {
+        cosmeticKey = await contents.insertCSS(css);
+        cosmeticHost = wanted;
+      } catch {
+        cosmeticKey = null;
+        cosmeticHost = null;
+      }
     };
 
     contents.on('dom-ready', insertCosmetic);
@@ -1188,6 +1248,12 @@ class BrowserApplication {
     // dom-ready, and the stylesheet does not always survive them, so reapply.
     contents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
       if (isMainFrame) insertCosmetic();
+    });
+    // A full navigation drops the old document's stylesheet with it, so the
+    // key we are holding is already dead - forget it rather than trying to
+    // remove it from a document that no longer exists.
+    contents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+      if (isMainFrame) { cosmeticKey = null; cosmeticHost = null; }
     });
   }
 

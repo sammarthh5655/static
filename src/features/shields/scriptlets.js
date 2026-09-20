@@ -43,94 +43,35 @@ const POSTAMBLE = `
 `;
 
 /**
- * YouTube video ads.
+ * YouTube: last-resort ad skipping only.
  *
- * The player fetches a JSON blob describing the video. Ad placements live in
- * `adPlacements`, `playerAds` and `adSlots`. Emptying those before the player
- * reads them means it has no ads to play - no skipping, no waiting, because
- * the player never learns an ad exists.
+ * WHY THIS NO LONGER TOUCHES fetch OR XMLHttpRequest
  *
- * Two interception points are needed because YouTube uses both paths:
- *   - `ytInitialPlayerResponse`, written into the HTML on first load
- *   - `/youtubei/v1/player` fetch responses, used for later navigations
+ * It used to. So does features/shields/youtube.js, which runs from the tab
+ * preload at document-start. Both wrapped `window.fetch`, and because this
+ * scriptlet is injected LATER (from main, after the document exists), its
+ * wrapper replaced the preload's - silently, and only in real use.
+ *
+ * That was the bug behind "ads still appear in YouTube". Testing hid it: the
+ * assertions checked that ad keys were absent from the player response, which
+ * the document-start var-trap achieves on its own, so first load always looked
+ * clean. The damage was to LATER videos, whose player response arrives over
+ * fetch - and the surviving wrapper was the older one, which reassigns
+ * `data.adPlacements = []` instead of emptying the array in place. The player
+ * can already hold a reference to the original array, in which case the ads
+ * it sees are untouched.
+ *
+ * One stripper now owns those two hooks: features/shields/youtube.js. What is
+ * left here is the part that does not conflict with it.
  */
 const YOUTUBE = `
-  var stripAds = function(data){
-    if (!data || typeof data !== 'object') return data;
-    try {
-      if (data.adPlacements && data.adPlacements.length) { data.adPlacements = []; mark('placements'); }
-      if (data.playerAds && data.playerAds.length) { data.playerAds = []; mark('playerads'); }
-      if (data.adSlots && data.adSlots.length) { data.adSlots = []; mark('adslots'); }
-      if (data.adBreakHeartbeatParams) { delete data.adBreakHeartbeatParams; }
-    } catch (e) {}
-    return data;
-  };
-
-  // The initial page load is already clean: features/shields/youtube.js
-  // strips the embedded player response before the renderer parses it, which
-  // is the only way to get ahead of a top-level \`var\` declaration.
-  //
-  // What remains for this scriptlet is the SPA case: clicking from one video
-  // to the next fetches a fresh player response without a page load, and that
-  // response never passes through the HTML filter.
-
-  // XHR is the path the player actually uses for those fetches.
-  try {
-    var XHR = window.XMLHttpRequest;
-    var origOpen = XHR.prototype.open;
-    var origSend = XHR.prototype.send;
-
-    XHR.prototype.open = function(method, url){
-      this.__staticUrl = String(url || '');
-      return origOpen.apply(this, arguments);
-    };
-
-    XHR.prototype.send = function(){
-      var xhr = this;
-      if (xhr.__staticUrl && xhr.__staticUrl.indexOf('/youtubei/v1/player') !== -1) {
-        xhr.addEventListener('readystatechange', function(){
-          if (xhr.readyState !== 4) return;
-          try {
-            var cleaned = JSON.stringify(stripAds(JSON.parse(xhr.responseText)));
-            Object.defineProperty(xhr, 'responseText', {
-              configurable: true, get: function(){ return cleaned; },
-            });
-            Object.defineProperty(xhr, 'response', {
-              configurable: true, get: function(){ return cleaned; },
-            });
-          } catch (e) {}
-        }, false);
-      }
-      return origSend.apply(this, arguments);
-    };
-  } catch (e) {}
-
-  // And fetch, for the paths that use it.
-  try {
-    var origFetch = window.fetch;
-    window.fetch = function(input){
-      var url = (typeof input === 'string') ? input : (input && input.url) || '';
-      var promise = origFetch.apply(this, arguments);
-      if (url.indexOf('/youtubei/v1/player') === -1) return promise;
-      return promise.then(function(response){
-        return response.clone().json().then(function(data){
-          return new Response(JSON.stringify(stripAds(data)), {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers,
-          });
-        }).catch(function(){ return response; });
-      });
-    };
-  } catch (e) {}
-
-  // Last resort: if an ad does start despite the above, click its skip button.
+  // If an ad starts anyway, click its skip button.
   //
   // This DELIBERATELY does not seek or change playback rate. An earlier
-  // version did, and with the HTML filter in place it fought the player on
-  // ad-free videos - one never started at all and another took five seconds.
-  // Clicking a button that only exists during an ad cannot affect normal
-  // playback, so this is the version that is safe to leave running.
+  // version did, and it fought the player on ad-free videos - one never
+  // started at all and another took five seconds. Clicking a button that only
+  // exists during an ad cannot affect normal playback, so this is the version
+  // that is safe to leave running.
   try {
     var tidy = function(){
       var player = document.getElementById('movie_player');

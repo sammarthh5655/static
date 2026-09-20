@@ -8,12 +8,16 @@
  *              anchors, * wildcards, $third-party, $script/$image/$xhr and the
  *              other common type options, $domain=a.com|~b.com, and @@
  *              exception rules.
- *   Not supported: cosmetic filters (##selector), scriptlet injection,
- *              $redirect, $csp, regex rules.
+ *   Also supported: cosmetic filters (##selector and domain##selector), which
+ *              hide the element an ad would have occupied.
+ *   Not supported: scriptlet injection, $redirect, $csp, regex rules, and the
+ *              procedural cosmetic syntax (#?# :has(), :matches-css()).
  *
- * That gap is real and worth stating plainly: without cosmetic filtering the
- * ad NETWORK is blocked but an empty box may remain where the ad was. uBlock
- * Origin and Brave Shields both do that part; this does not.
+ * Cosmetic filtering matters as much as network blocking for what a person
+ * actually sees. Blocking the request stops the ad loading, but without
+ * hiding the container the page is left with an empty reserved box, often
+ * still labelled "Advertisement". Discarding these rules was why ads still
+ * looked present on ordinary sites even with blocking on.
  *
  * Performance matters because this runs on every request. Rules are bucketed
  * by a token drawn from the pattern, so a request only tests the handful of
@@ -233,6 +237,7 @@ function parseRule(line) {
   const text = line.trim();
   if (!text || text.startsWith('!') || text.startsWith('[')) return null;
   // Cosmetic filters are out of scope - see the note at the top of this file.
+  // Cosmetic rules are handled separately by parseCosmetic, not here.
   if (text.includes('##') || text.includes('#@#') || text.includes('#?#')) return null;
 
   let body = text;
@@ -262,6 +267,50 @@ function parseRule(line) {
 /**
  * A compiled list of rules, bucketed by token.
  */
+/**
+ * Parse a cosmetic rule.
+ *
+ * Handles the two plain forms:
+ *   ##.ad-banner            generic - applies everywhere
+ *   example.com##.sponsor   domain-scoped, comma-separated domain list
+ *
+ * Returns null for anything else, which deliberately includes:
+ *   #@#  exception rules (unhiding), which need the generic set resolved first
+ *   #?#  and #$# procedural/style rules, whose syntax is not plain CSS and
+ *        would throw if handed to insertCSS
+ *
+ * A selector is rejected unless it looks like plain CSS. Anything from a
+ * downloaded list ends up inside a stylesheet this app injects, so a
+ * malformed or hostile selector must not be able to break out of it - hence
+ * no braces, no at-rules, no comment sequences.
+ */
+function parseCosmetic(line) {
+  const text = String(line).trim();
+  if (!text || text.startsWith('!') || text.startsWith('[')) return null;
+  if (text.includes('#@#') || text.includes('#?#') || text.includes('#$#')) return null;
+
+  const at = text.indexOf('##');
+  if (at === -1) return null;
+
+  const selector = text.slice(at + 2).trim();
+  if (!selector || selector.length > 400) return null;
+  // Must be plain CSS: no rule-set punctuation, no at-rules, no comments.
+  if (/[{}]/.test(selector)) return null;
+  if (selector.includes('/*') || selector.includes('@') || selector.includes('\\')) return null;
+
+  const scope = text.slice(0, at).trim();
+  if (!scope) return { selector, domains: null };
+
+  // A domain list may contain exclusions (~a.com). Those only make sense
+  // alongside an included domain, and treating one as an inclusion would hide
+  // the element on exactly the site the list meant to spare - so skip them.
+  const domains = scope.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+  if (!domains.length || domains.some((d) => d.startsWith('~'))) return null;
+  if (domains.some((d) => !/^[a-z0-9.*-]+$/.test(d))) return null;
+
+  return { selector, domains };
+}
+
 class FilterEngine {
   constructor() {
     this.blockBuckets = new Map();
@@ -269,10 +318,34 @@ class FilterEngine {
     this.allowBuckets = new Map();
     this.allowGeneric = [];
     this.count = 0;
+    /** Selectors that apply to every site. */
+    this.cosmeticGeneric = new Set();
+    /** domain -> Set of selectors that apply only on that domain. */
+    this.cosmeticByDomain = new Map();
+    this.cosmeticCount = 0;
+    /** host -> built CSS, so a repeat visit does not rebuild the string. */
+    this.cosmeticCache = new Map();
   }
 
   addList(text) {
     for (const line of String(text).split('\n')) {
+      // Cosmetic rules outnumber network rules several times over in these
+      // lists, so test for them first and skip the network parse entirely.
+      if (line.includes('##')) {
+        const cosmetic = parseCosmetic(line);
+        if (cosmetic) {
+          if (cosmetic.domains) {
+            for (const domain of cosmetic.domains) {
+              if (!this.cosmeticByDomain.has(domain)) this.cosmeticByDomain.set(domain, new Set());
+              this.cosmeticByDomain.get(domain).add(cosmetic.selector);
+            }
+          } else {
+            this.cosmeticGeneric.add(cosmetic.selector);
+          }
+          this.cosmeticCount++;
+        }
+        continue;
+      }
       const rule = parseRule(line);
       if (!rule) continue;
       const buckets = rule.isException ? this.allowBuckets : this.blockBuckets;
@@ -334,6 +407,39 @@ class FilterEngine {
                                 tokens, lower, host, page, type, isThird);
     return hit ? { blocked: true, rule: hit.raw } : { blocked: false, rule: null };
   }
+
+  /**
+   * CSS hiding every ad container known for this host.
+   *
+   * Generic rules plus those scoped to the host or any parent domain, so a
+   * rule written for `example.com` also applies on `news.example.com`.
+   *
+   * The result is cached per host: the generic set alone runs to tens of
+   * thousands of selectors, and rebuilding that string on every navigation
+   * would be pure waste.
+   */
+  cosmeticFor(host) {
+    const clean = String(host || '').toLowerCase().replace(/^www\./, '');
+    if (!clean) return '';
+    const cached = this.cosmeticCache.get(clean);
+    if (cached !== undefined) return cached;
+
+    const selectors = new Set(this.cosmeticGeneric);
+    const parts = clean.split('.');
+    for (let i = 0; i < parts.length - 1; i++) {
+      const domain = parts.slice(i).join('.');
+      const scoped = this.cosmeticByDomain.get(domain);
+      if (scoped) for (const selector of scoped) selectors.add(selector);
+    }
+
+    // One rule rather than one per selector: a single selector list is both
+    // smaller and faster for the engine to apply than thousands of rule sets.
+    const css = selectors.size
+      ? [...selectors].join(',\n') + ' { display: none !important; }'
+      : '';
+    this.cosmeticCache.set(clean, css);
+    return css;
+  }
 }
 
-module.exports = { FilterEngine, parseRule, Rule, tokenOf, TYPE_MAP };
+module.exports = { FilterEngine, parseRule, parseCosmetic, Rule, tokenOf, TYPE_MAP };
