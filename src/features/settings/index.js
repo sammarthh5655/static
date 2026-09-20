@@ -3,11 +3,15 @@ const { resolveInput } = require('../../shared/urls');
 const { THEMES, SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY,
         ALIGNMENTS, WIDGET_SPANS, normalizeHex } = require('../../shared/theme');
 const { WIDGETS, BACKGROUNDS, DEFAULT_LAYOUT } = require('../../shared/widgets');
+const { MODES } = require('../../shared/modes');
 
 const DEFAULTS = {
   searchEngine: 'google',
   bookmarksBar: true,
   sidebarMode: 'on',
+  // Which modes appear in the sidebar rail, in order. Absent means "use the
+  // default"; an empty array is a real choice meaning "show none".
+  sidebarModes: null,
   homepage: 'browser://newtab',
   newTabBehavior: 'newtab',
 
@@ -102,6 +106,17 @@ class Settings {
       if (key === 'searchEngine' && ['google', 'brave'].includes(value)) next[key] = value;
       else if (key === 'bookmarksBar' && typeof value === 'boolean') next[key] = value;
       else if (key === 'sidebarMode' && ['on', 'autohide', 'off'].includes(value)) next[key] = value;
+      // Validated against the real mode registry: an internal page is still
+      // web content, so it cannot write an arbitrary id in here.
+      else if (key === 'sidebarModes') {
+        if (value === null) next[key] = null;
+        else if (Array.isArray(value)) {
+          const seen = new Set();
+          next[key] = value
+            .filter((id) => typeof id === 'string' && MODES[id] && !seen.has(id) && seen.add(id))
+            .slice(0, 30);
+        } else throw new Error('Invalid setting: sidebarModes');
+      }
       else if (key === 'newTabBehavior' && ['newtab', 'homepage'].includes(value)) next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
       else if (key === 'theme' && (THEMES[value] || value === 'custom')) next[key] = value;

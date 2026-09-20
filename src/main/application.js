@@ -450,6 +450,9 @@ class BrowserApplication {
     this.chrome.webContents.once('did-finish-load', () => {
       this.layout();
       if (!this.tabs.order.length) this.tabs.create({ url: this.#startUrl() });
+      // Honour the saved sidebar setting on startup rather than always
+      // beginning closed.
+      this.applySidebarMode();
       this.window.show();
       this.push();
     });
@@ -525,8 +528,36 @@ class BrowserApplication {
     return this.sidebar;
   }
 
+  /**
+   * Apply the sidebarMode setting.
+   *
+   * This setting existed in three places in the UI - the menu, Settings and
+   * the store - and was read by NOTHING, which is why switching it to "On"
+   * appeared to do nothing at all. The sidebar only ever followed its own
+   * toggle.
+   *
+   *   on       the sidebar is open and stays open
+   *   autohide it is closed, and the user opens it when they want it
+   *   off      it is closed and the toggle will not open it
+   */
+  applySidebarMode() {
+    const mode = this.settings?.value?.sidebarMode || 'on';
+    if (mode === 'on') {
+      if (!this.sidebarOpen) this.toggleSidebar(true);
+    } else if (this.sidebarOpen) {
+      this.toggleSidebar(false);
+    }
+    return mode;
+  }
+
   /** Open, close or toggle the sidebar. */
   toggleSidebar(open) {
+    // "Off" means off: a toggle must not be able to reopen it, or the setting
+    // is a suggestion rather than a setting.
+    if (this.settings?.value?.sidebarMode === 'off') {
+      if (this.sidebarOpen) { this.sidebarOpen = false; this.layout(); this.push(); }
+      return false;
+    }
     const next = typeof open === 'boolean' ? open : !this.sidebarOpen;
     if (next) this.ensureSidebar();
     this.sidebarOpen = next;
@@ -710,6 +741,12 @@ class BrowserApplication {
 
   /** Push state to the chrome renderer and any open internal pages. */
   push() {
+    // Modules construct in order and some of them report a change as they are
+    // built - Profiles creates the first profile on a fresh install, which
+    // fired onChange before Settings or Shields existed and crashed
+    // state(). There is nothing to push to before start() runs anyway.
+    if (!this.settings) return;
+
     const payload = this.state();
     if (this.chrome && !this.chrome.webContents.isDestroyed()) {
       this.chrome.webContents.send('app:state', payload);
@@ -846,6 +883,8 @@ class BrowserApplication {
 
       'settings:update': (_sender, payload) => {
         const next = this.settings.update(payload);
+        // The sidebar setting has to actually reach the sidebar.
+        if (payload && 'sidebarMode' in payload) this.applySidebarMode();
         this.layout(); // bookmarks bar toggle changes the chrome height
         this.push();
         return next;

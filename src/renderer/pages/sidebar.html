@@ -4,11 +4,28 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
-  <title>AI sidebar</title>
+  <title>Sidebar</title>
   <link rel="stylesheet" href="pages.css">
   <link rel="stylesheet" href="sidebar.css">
 </head>
 <body class="sidebar">
+  <!-- The modes rail. Which modes appear, and in what order, is the user's
+       choice - Customise opens the picker below. -->
+  <nav class="side-rail" id="rail" aria-label="Modes">
+    <div class="side-rail-items" id="rail-items"></div>
+    <button class="side-rail-edit" id="rail-edit" title="Choose which modes appear here"
+            aria-label="Customise the sidebar">Customise</button>
+  </nav>
+
+  <!-- The customise sheet, hidden until asked for. -->
+  <section class="side-customise" id="customise" hidden aria-label="Choose sidebar modes">
+    <div class="side-customise-head">
+      <span>Show in the sidebar</span>
+      <button class="side-tool" id="customise-done">Done</button>
+    </div>
+    <div class="side-customise-list" id="customise-list"></div>
+  </section>
+
   <header class="side-head">
     <span class="side-title">AI</span>
     <button class="side-tool" id="new-chat" title="New chat">New</button>
@@ -36,6 +53,7 @@
 
   <script src="../../shared/theme.js"></script>
   <script src="common.js"></script>
+  <script src="../../shared/modes.js"></script>
   <script src="sidebar.js"></script>
 </body>
 </html>

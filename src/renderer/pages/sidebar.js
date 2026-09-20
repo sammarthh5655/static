@@ -17,7 +17,7 @@
  * requires confirmation for every request. Nothing is remembered as consent.
  */
 
-const { invoke, onState, $, element } = window.page;
+const { invoke, onState, $, element, icon } = window.page;
 
 /** Rendered conversation. Kept in memory: this is a scratch conversation. */
 let turns = [];
@@ -218,6 +218,89 @@ $('#new-chat').addEventListener('click', () => { turns = []; renderTranscript();
 $('#open-full').addEventListener('click', () => invoke('tabs:navigate', { input: 'browser://ai' }));
 $('#close').addEventListener('click', () => invoke('sidebar:toggle', { open: false }));
 
+/* ---- the modes rail -------------------------------------------------------
+   The sidebar is the fastest way into a mode, so the modes live here rather
+   than only in the menu. WHICH modes appear is the user's choice: the
+   Customise sheet writes the list to settings, and the rail follows it. */
+
+/** Modes shown when the user has not chosen, kept short on purpose. */
+const DEFAULT_RAIL = ['dashboard', 'ai', 'notes', 'focus', 'organizer', 'shields'];
+
+let railChoice = null;
+let activeMode = null;
+/** The saved list as it was last rendered, so a change to it is noticed. */
+let railSignature = null;
+
+function railList(settings) {
+  const chosen = settings?.sidebarModes;
+  // An empty array is a real choice ("show none"), so only a missing value
+  // falls back to the default.
+  if (Array.isArray(chosen)) return chosen;
+  return DEFAULT_RAIL;
+}
+
+function renderRail(settings) {
+  const items = $('#rail-items');
+  if (!items || !window.modes) return;
+
+  const all = window.modes.MODES;
+  const chosen = railList(settings).filter((id) => all[id]);
+
+  items.replaceChildren(...chosen.map((id) => {
+    const mode = all[id];
+    const button = element('button', {
+      class: 'side-rail-item' + (activeMode === id ? ' is-active' : ''),
+      title: mode.name + ' — ' + mode.tagline,
+      'aria-label': mode.name,
+      onclick: () => invoke('tabs:navigate', { input: mode.page }),
+    }, [icon(mode.icon, { size: 17 })]);
+    return button;
+  }));
+
+  if (!chosen.length) {
+    items.append(element('span', { class: 'side-rail-empty', text: 'None' }));
+  }
+}
+
+function renderCustomise(settings) {
+  const list = $('#customise-list');
+  if (!list || !window.modes) return;
+  const chosen = new Set(railList(settings));
+
+  list.replaceChildren(...window.modes.orderedModes().map((mode) => {
+    const on = chosen.has(mode.id);
+    const row = element('button', {
+      class: 'side-customise-item' + (on ? ' is-on' : ''),
+      onclick: async () => {
+        const next = new Set(railList(settings));
+        if (next.has(mode.id)) next.delete(mode.id); else next.add(mode.id);
+        // Ordered by the registry so the rail reads consistently however the
+        // user toggled things on and off.
+        const ordered = window.modes.orderedModes()
+          .map((item) => item.id).filter((id) => next.has(id));
+        try {
+          railChoice = ordered;
+          await invoke('settings:update', { sidebarModes: ordered });
+        } catch (error) {
+          railChoice = null;
+          console.error('sidebar: could not save', error.message);
+        }
+      },
+    }, [
+      icon(mode.icon, { size: 15 }),
+      element('span', { class: 'side-customise-name', text: mode.name }),
+      element('span', { class: 'side-customise-mark', text: on ? 'On' : '' }),
+    ]);
+    return row;
+  }));
+}
+
+$('#rail-edit')?.addEventListener('click', () => {
+  const sheet = $('#customise');
+  sheet.hidden = !sheet.hidden;
+});
+$('#customise-done')?.addEventListener('click', () => { $('#customise').hidden = true; });
+
 // The permission line must follow the page, so it is re-read whenever the
 // active tab or its URL changes.
 let lastUrl = null;
@@ -227,9 +310,26 @@ onState((state) => {
     lastUrl = url;
     refreshPermission();
   }
+  // Highlight the mode the active tab is currently on.
+  const page = url.startsWith('browser://') ? url.replace('browser://', '') : '';
+  const next = page && window.modes ? window.modes.modeForPage(page) : null;
+  const settings = state.settings || {};
+  // Re-render when the highlighted mode changes OR when the saved list does.
+  // Watching only the active mode meant choosing different modes in the
+  // customise sheet left the rail showing the old set.
+  const signature = JSON.stringify(railList(settings));
+  if (next !== activeMode || signature !== railSignature) {
+    activeMode = next;
+    railSignature = signature;
+    railChoice = null;
+    renderRail(settings);
+  }
+  renderCustomise(settings);
 });
 
 renderTranscript();
 refreshPermission();
+renderRail({});
+renderCustomise({});
 
 })();
