@@ -44,6 +44,19 @@ wastes context and could mislead on a page with heavier chrome.
 **Fix direction:** also drop `[role=navigation]`, `.sidebar`, `#toc`,
 `.mw-jump-link`, and collapse runs of tabs/newlines before measuring length.
 
+### 3. `Organizer.apply()` throws synchronously but every other action rejects
+**Status:** OPEN
+**Found:** writing the selective-apply tests.
+
+`apply()` validates the selection before entering `action()`, so a bad
+selection throws synchronously while every other organizer method returns a
+rejected promise. A caller written as `organizer.apply(x).catch(...)` gets an
+uncaught exception instead of the catch. The renderer happens to `await`
+inside a `try`, so it is not user-visible today.
+
+**Fix direction:** make the validation happen inside the `action()` callback,
+or wrap the method body so it always returns a promise.
+
 ---
 
 ## Fixed

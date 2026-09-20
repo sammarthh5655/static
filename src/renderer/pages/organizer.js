@@ -45,6 +45,123 @@
     });
     return node;
   }
+  /**
+   * Show what applying the plan would do, and let the user narrow it, BEFORE
+   * anything changes.
+   *
+   * The rule this follows: a bulk action over someone's tabs is not allowed to
+   * be a surprise. The dialog states the counts in words first ("4 groups, 11
+   * tabs"), lists every group with the tabs it would take, and applies only
+   * what is still ticked. Untick everything and the apply button is disabled
+   * rather than silently doing nothing.
+   */
+  function previewGroups() {
+    const plan = state?.plan;
+    if (!plan || !plan.groups.length) return;
+
+    // Only tabs that are actually still open can be moved, so the preview
+    // counts the same set the engine would.
+    const live = new Set(state.tabs.map(t => t.id));
+    const groups = plan.groups
+      .map(group => ({ ...group, ids: group.ids.filter(id => live.has(id)) }))
+      .filter(group => group.ids.length);
+    if (!groups.length) return;
+
+    // Name -> Set of ids still ticked. Everything starts ticked, because the
+    // plan is a proposal the user asked for, not something to opt into twice.
+    const picked = new Map(groups.map(group => [group.name, new Set(group.ids)]));
+    const already = state.tabs.filter(t => t.groupId).length;
+
+    modal('Review the grouping', (body, close, submit) => {
+      const summary = e('p', { class: 'p-preview-summary' });
+      const list = e('div', { class: 'p-preview-list' });
+
+      const tally = () => {
+        const liveGroups = [...picked.values()].filter(ids => ids.size);
+        const tabs = liveGroups.reduce((total, ids) => total + ids.size, 0);
+        return { groups: liveGroups.length, tabs };
+      };
+
+      const retally = () => {
+        const { groups: groupCount, tabs } = tally();
+        summary.textContent = groupCount
+          ? 'We found ' + groupCount + (groupCount === 1 ? ' group' : ' groups')
+            + ' covering ' + tabs + (tabs === 1 ? ' tab' : ' tabs') + '.'
+            + (already ? ' ' + already + ' already-grouped tabs will be regrouped.' : '')
+          : 'Nothing is selected, so nothing will change.';
+        submit.disabled = !groupCount;
+      };
+
+      for (const group of groups) {
+        const chosen = picked.get(group.name);
+        const count = e('span', { class: 'p-tag' });
+        const tabsBox = e('div', { class: 'p-preview-tabs' });
+
+        const refreshCount = () => {
+          count.textContent = chosen.size + ' of ' + group.ids.length;
+          retally();
+        };
+
+        const head = e('label', { class: 'p-preview-head' }, [
+          e('input', {
+            type: 'checkbox', checked: '',
+            onchange: event => {
+              // Toggling a group toggles every tab in it, so the header and the
+              // rows can never disagree about what is about to happen.
+              const on = event.target.checked;
+              chosen.clear();
+              if (on) for (const id of group.ids) chosen.add(id);
+              for (const box of tabsBox.querySelectorAll('input')) box.checked = on;
+              refreshCount();
+            },
+          }),
+          e('strong', { text: group.name }),
+          count,
+        ]);
+
+        for (const id of group.ids) {
+          const tab = state.tabs.find(t => t.id === id);
+          let host = '';
+          try { host = new URL(tab.url).hostname.replace(/^www\./, ''); } catch {}
+          tabsBox.append(e('label', { class: 'p-preview-tab' }, [
+            e('input', {
+              type: 'checkbox', checked: '',
+              onchange: event => {
+                event.target.checked ? chosen.add(id) : chosen.delete(id);
+                head.querySelector('input').checked = chosen.size === group.ids.length;
+                head.querySelector('input').indeterminate = chosen.size > 0 && chosen.size < group.ids.length;
+                refreshCount();
+              },
+            }),
+            e('span', { class: 'p-preview-title', text: tab?.title || tab?.url || 'Tab', title: tab?.url || '' }),
+            e('span', { class: 'p-preview-host', text: host }),
+          ]));
+        }
+
+        const box = e('section', { class: 'p-preview-group' }, [head, tabsBox]);
+        if (group.color) box.style.setProperty('--group-color', group.color);
+        list.append(box);
+        refreshCount();
+      }
+
+      body.append(
+        summary,
+        muted('Grouping only rearranges tabs. Nothing is closed, and Undo puts it back.'),
+        list,
+      );
+
+      retally();
+
+      return async () => {
+        const selection = {
+          groups: [...picked].filter(([, ids]) => ids.size).map(([name]) => name),
+          ids: [...picked.values()].flatMap(ids => [...ids]),
+        };
+        await run('organizer:apply', { selection });
+      };
+    }, 'Apply grouping');
+  }
+
   let selectionBar = null;
   function renderSelection() {
     if (!selectionBar || !state) return;
@@ -112,7 +229,7 @@
     const suggestions = card(plan ? 'Suggestions · ' + (plan.source === 'gemini' ? 'Gemini' : 'On-device') : 'Ready when you are', [
       plan ? row(plan.groups.map(g => e('span', { class: 'p-tag', text: g.name + ' · ' + g.ids.length }))) : muted('Open a few web pages, then choose Organise Tabs. Suggestions also refresh automatically when eight or more web tabs are open.'),
       plan ? muted('Groups use page titles and domains. ' + plan.sameDomain.length + ' sets share a domain. Review before applying; important, audible and edited tabs are protected during cleanup.') : null,
-      plan ? row([command('Apply groups', 'organizer:apply', {}, true, !plan.groups.length),
+      plan ? row([button('Review and apply groups', previewGroups, true, !plan.groups.length || !!state.busy),
         button('Close ' + duplicateCount + ' duplicates', () => confirm('Close duplicate tabs?', 'Active, pinned, playing and edited tabs are kept. Undo reopens URLs; it cannot restore form state or navigation history.',
           () => run('organizer:close-duplicates')), false, !duplicateCount),
         command('Sleep inactive tabs', 'organizer:sleep', { ids: plan.inactive }, false, !plan.inactive.length),

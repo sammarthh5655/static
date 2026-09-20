@@ -83,7 +83,7 @@ class Productivity {
     return {
       'organizer:state': () => org.state(),
       'organizer:analyze': (_sender, p) => org.analyze(p?.ai === true),
-      'organizer:apply': () => org.apply(),
+      'organizer:apply': (_sender, p) => org.apply(p?.selection),
       'organizer:group': (_sender, p) => org.group(p),
       'organizer:move': (_sender, p) => org.move(p),
       'organizer:workspace': (_sender, p) => org.workspace(p?.name),

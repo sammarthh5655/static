@@ -74,8 +74,30 @@ class Organizer {
     }
     return this.state();
   }
-  apply() {
+  /**
+   * Apply the current plan, optionally narrowed to a subset the user approved
+   * in the preview.
+   *
+   * `selection` is what the preview dialog sends back: the group names still
+   * ticked, and the tab ids still ticked within them. It is a FILTER over the
+   * existing plan, never a new plan - the renderer cannot invent a grouping
+   * the engine did not propose, and anything it names that is no longer in the
+   * plan is dropped rather than trusted.
+   */
+  apply(selection) {
     if (!this.plan || this.plan.signature !== signature(this.detail())) this.localAnalysis();
+
+    if (selection && typeof selection === 'object') {
+      const keepGroups = Array.isArray(selection.groups) ? new Set(selection.groups) : null;
+      const keepTabs = Array.isArray(selection.ids) ? new Set(selection.ids) : null;
+      const narrowed = this.plan.groups
+        .filter(group => !keepGroups || keepGroups.has(group.name))
+        .map(group => ({ ...group, ids: keepTabs ? group.ids.filter(id => keepTabs.has(id)) : group.ids }))
+        .filter(group => group.ids.length);
+      if (!narrowed.length) throw new Error('Nothing was selected to group.');
+      this.plan = { ...this.plan, groups: narrowed };
+    }
+
     return this.action('Group tabs', async () => {
       const webIds = new Set(this.plan.groups.flatMap(g => g.ids));
       for (const tab of this.tabs().tabs.values()) if (webIds.has(tab.id)) tab.groupId = null;

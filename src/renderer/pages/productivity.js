@@ -14,7 +14,9 @@
     const form = e('form', { method: 'dialog' }), message = e('p', { class: 'p-error', role: 'alert' });
     const body = e('div'), submit = e('button', { type: 'submit', class: 'p-button primary', text: submitText });
     const close = () => { dialog.close(); dialog.remove(); };
-    const handler = build(body, close);
+    // The builder receives the submit button so a dialog whose validity depends
+    // on what is ticked inside it can enable and disable it directly.
+    const handler = build(body, close, submit);
     form.append(e('h2', { text: title }), body, message, row([
       e('button', { type: 'button', class: 'p-button', text: 'Cancel', onclick: close }), submit,
     ]));

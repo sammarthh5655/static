@@ -52,3 +52,59 @@
 .p-days label { font-size: 12px; display: flex; align-items: center; gap: 4px; }
 .p-schedule { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 12px; }
 @media (max-width: 850px) { .p-metrics { grid-template-columns: repeat(2, 1fr); } .p-hero { padding: 22px; } }
+
+/* Grouping preview.
+   A bulk change to someone's tabs is shown in full before it happens: the
+   counts in words at the top, then every group with the tabs it would take,
+   each one individually removable. */
+.p-preview-summary { font-size: 14px; margin: 0 0 4px; }
+
+.p-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 46vh;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding-right: 4px;
+}
+
+.p-preview-group {
+  border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+  border-left: 3px solid var(--group-color, var(--border, rgba(255, 255, 255, 0.14)));
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.p-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg-raised, rgba(255, 255, 255, 0.04));
+  cursor: pointer;
+}
+.p-preview-head strong { flex: 1; font-size: 13px; }
+
+.p-preview-tabs { display: flex; flex-direction: column; }
+
+.p-preview-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 30px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.p-preview-tab:hover { background: var(--surface-hover, rgba(255, 255, 255, 0.05)); }
+
+/* The title can be long; the host must stay readable, so the title is what
+   truncates. */
+.p-preview-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.p-preview-host { flex: none; color: var(--text-dim, rgba(255, 255, 255, 0.55)); }
