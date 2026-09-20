@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Organizer and Screen Time
+
+- Organizer Mode with local topic suggestions and optional Gemini 3 Flash Preview
+  refinement, duplicate/unused/heavy/same-domain detection, editable coloured
+  groups, tab-strip collapse, drag-and-drop moves, pinned tabs, and tab workspaces.
+- One-click local session saving, restoration alongside current tabs, title-based
+  AI session overviews, and undo for organizer tab actions.
+- Chromium lifecycle tab sleep with automatic wake on selection. Cleanup protects
+  active, pinned, audible, loading and edited pages and leaves existing debuggers alone.
+- Screen Time with foreground website accounting, daily and seven-day reports,
+  daily allowances, multiple local-time schedules, advance warnings, a friendly
+  block page, five-minute emergency exceptions and a shared Focus allowlist policy.
+- Study, Work, Gaming, Legal Research and Custom presets; YouTube remains
+  unrestricted unless the user explicitly adds a rule.
+- Organizer/Screen Time dashboard cards, sidebar and command-bar entries, browser
+  menu links, an Organise Tabs strip button, and Ctrl/Cmd+Shift+O / Shift+U shortcuts.
+- Unit coverage for clock boundaries, overnight schedules, allowances, exceptions
+  and metadata validation; native Electron tests for guarded IPC, grouping,
+  drag/drop, undo, sleep/wake, sessions, forms and request blocking.
+
+### Fixed — Tab and Focus integration
+
+- Background tabs no longer steal focus when the extension bridge registers them,
+  including during session restoration.
+- Shared renderer-process memory is counted once in resource totals.
+- Focus blocks now load the actual local Screen Time page instead of redirecting
+  to an unhandled network protocol. Internal query parameters survive routing.
+
 ### Fixed
 
 - Fixed live font/accent propagation to chrome, menus and internal pages.

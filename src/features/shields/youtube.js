@@ -69,7 +69,6 @@ const PAGE_SCRIPT = `
   // So instead of returning early when already present, re-assert anything
   // that is missing. State lives on the window object so it survives
   // re-injection.
-  var first = !window.__staticYt;
   window.__staticYt = true;
   var KEYS = ${JSON.stringify(AD_KEYS)};
 
@@ -82,24 +81,28 @@ const PAGE_SCRIPT = `
   // navigations and passed through untouched on others.
   function isAdBearing(url) {
     if (!url) return false;
-    // Only /player, and that is a tested conclusion rather than an oversight.
+    // BOTH /player and /get_watch.
     //
-    // uBlock's rules also target get_watch, playlist and reel_watch_sequence,
-    // so widening to them looked like an obvious win. It is not, HERE: uBlock
-    // rewrites the response BYTES at the network layer, whereas this rebuilds
-    // a new Response object in the page. Rebuilding get_watch and playlist
-    // responses left the video loaded (readyState 4) and unpaused but stuck at
-    // currentTime 0 - it never started. Reverting to /player alone restored
-    // playback immediately, twice.
+    // Measured, not assumed: clicking from one video to the next in the SPA
+    // fetches /youtubei/v1/get_watch, NOT /player. Covering only /player meant
+    // the var trap caught the first video of a session and every later one was
+    // served its ads untouched - which is exactly the "works sometimes"
+    // this fixes.
     //
-    // /browse and /search are excluded for a different reason: they carry FEED
-    // ads, which the cosmetic stylesheet hides far more cheaply, and cloning
-    // plus re-serialising those large payloads on every scroll and keystroke
-    // is real cost for no gain.
+    // An earlier attempt at get_watch DID break playback (video at readyState
+    // 4, unpaused, stuck at currentTime 0), which is why the comment here used
+    // to rule it out. The cause was the fix, not the endpoint: that version
+    // REBUILT the Response from re-serialised JSON, which loses the streaming
+    // body the player depends on. The wrapper below no longer rebuilds
+    // anything - it patches .json() on the original Response - so the payload
+    // the player receives is the same object it would have received.
     //
-    // The endpoints left uncovered here are handled at the network layer
-    // instead - see the response filter in features/shields.
-    return url.indexOf('/youtubei/v1/player') !== -1;
+    // /browse and /search stay excluded: they carry FEED ads, which the
+    // cosmetic stylesheet hides far more cheaply, and walking those large
+    // payloads on every scroll and keystroke is real cost for no gain.
+    return url.indexOf('/youtubei/v1/player') !== -1 ||
+           url.indexOf('/youtubei/v1/get_watch') !== -1 ||
+           url.indexOf('/youtubei/v1/reel_watch_sequence') !== -1;
   }
 
   // Counters split by source, and reset per video.
@@ -173,12 +176,21 @@ const PAGE_SCRIPT = `
       });
     } catch (e) {}
   }
-  // Only on a fresh document: after document-start the var has already run,
-  // and re-trapping would replace a live value with an accessor for nothing.
-  if (first) {
-    trap('ytInitialPlayerResponse');
-    trap('playerResponse');
+  // Re-assert whenever the accessor is not currently installed, rather than
+  // only on a fresh document.
+  //
+  // The 'first' guard that used to be here assumed the trap, once installed,
+  // stays installed for the session. It does not: YouTube's SPA can replace
+  // the property with a plain data value on a later navigation, and from that
+  // point every subsequent video's player response was read without ever
+  // passing through the setter. trap() already prunes an existing value before
+  // re-installing, so re-asserting is safe and idempotent.
+  function trapped(name) {
+    var d = Object.getOwnPropertyDescriptor(window, name);
+    return !!(d && typeof d.set === 'function');
   }
+  if (!trapped('ytInitialPlayerResponse')) trap('ytInitialPlayerResponse');
+  if (!trapped('playerResponse')) trap('playerResponse');
 
   // --- fetch ------------------------------------------------------------
   // This is the path that actually serves ads for the 2nd and later videos in
@@ -196,17 +208,24 @@ const PAGE_SCRIPT = `
       if (!isAdBearing(url)) return promise;
       return promise.then(function(response){
         try {
-          // Clone so the page still gets a readable, unconsumed body if
-          // anything below throws.
-          return response.clone().json().then(function(data){
-            prune(data, 'fetch');
-            return new Response(JSON.stringify(data), {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers
+          // Patch .json() rather than rebuilding the Response.
+          //
+          // Rebuilding - reading the body, re-serialising it and constructing
+          // a new Response - is what broke playback on get_watch: the player
+          // reads some of these responses as a stream, and a rebuilt body is
+          // not the same thing. Here the ORIGINAL Response is handed back
+          // untouched, and only the object its .json() resolves to is pruned.
+          // A caller that reads .body, .text() or .arrayBuffer() instead is
+          // unaffected, which is the point.
+          var nativeJson = response.json;
+          response.json = function(){
+            return nativeJson.apply(this, arguments).then(function(data){
+              try { prune(data, 'fetch'); } catch (e) {}
+              return data;
             });
-          }).catch(function(){ return response; });
-        } catch (e) { return response; }
+          };
+        } catch (e) { /* frozen Response, or a non-JSON body */ }
+        return response;
       });
     };
     wrapped.__static = true;

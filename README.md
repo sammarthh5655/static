@@ -39,7 +39,8 @@ Other scripts:
 | --- | --- |
 | `npm start` | Build preloads, then launch the browser |
 | `npm run build` | Bundle the preload scripts into `build/` |
-| `npm test` | Unit tests for URL parsing, sidebar preferences and scoped resets |
+| `npm test` | URL/settings tests plus screen-time schedules, quotas, accounting and organizer metadata |
+| `npm run test:productivity` | Real Electron organizer, session, sleep/wake, Screen Time and Focus integration checks |
 | `npm run test:smoke` | Boots the real app in Electron and drives it end-to-end |
 | `npm run test:probe` | Loads the chrome, menu overlay and every `browser://` page; fails on console errors |
 | `npm run test:appearance` | Theme, menu keyboard controls, searchable Settings, sidebar, reset and responsive-layout checks |
@@ -67,6 +68,46 @@ All test modes run against a throwaway profile under `.test-profile/`, so they
 never touch real browsing data.
 
 ---
+
+## Packaging installers
+
+## Organizer and Screen Time
+
+Use **Organise Tabs** in the tab strip (Ctrl/Cmd+Shift+O), or open
+`browser://organizer`. Preview local topic groups, optionally refine them with
+Gemini, review the proposed membership, and apply. Drag cards between groups;
+use the selection controls to pin, sleep or move tabs to another workspace.
+The workspace selector sits at the start of the tab strip. Group labels collapse
+and expand, and Organizer keeps an undo stack for tab actions.
+
+**Save as Session** stores web URLs, pins, groups and workspaces locally in
+`organizer.json`. Restoring adds tabs alongside your current ones. Closed-tab
+undo restores URLs, not form contents or navigation history. Active, pinned,
+audible, loading or edited tabs are protected during automatic cleanup. Tab sleep
+freezes Chromium page work and wakes on selection; it is not a hard RAM limit.
+
+Open **Screen Time** from the menu/sidebar (Ctrl/Cmd+Shift+U), or
+`browser://screentime`. Add any domain, a daily allowance, and optional pause
+schedules. Schedules use local time and support overnight ranges. Allowances
+combine a domain and its subdomains and reset at local midnight. YouTube has no
+default limit. Presets add social-site limits while preserving your custom rules.
+
+The reports count foreground web browsing while the window is focused and the
+computer is active (less than five minutes idle). Background tabs, internal pages,
+locked time and sleep are excluded. Counts are sampled once per second and saved
+periodically; an abrupt termination can lose up to fifteen seconds. Domain totals
+and seven-day reports stay in `screen-time.json`, retained for ninety days.
+
+Focus and Screen Time share one request-blocking path. Allowlist entries and
+five-minute emergency exceptions override both; stopping a focus timer does not
+remove daily allowances. Tracking/limits can be switched off and reports cleared
+separately. This is a self-management tool, not a tamper-proof parental-control system.
+
+Local organizer analysis sends nothing to an AI service. **Refine with Gemini**
+and **Create overview with Gemini** send at most 200 titles and domains through
+the main-process Gemini client, pinned to `gemini-3-flash-preview`. Page contents,
+cookies and full URLs are excluded. If the service/model is unavailable, local
+suggestions still work. Overviews describe tab topics, not the contents of articles.
 
 ## Packaging installers
 
@@ -119,6 +160,9 @@ src/
       focus.*            Focus sessions, blocklist, block interstitial
       notes.*            Captured text, links, screenshots
       resources.*        Memory, CPU and Game Mode
+      organizer.*        Grouping board, workspaces, session saving and undo
+      screentime.*       Daily allowances, schedules, reports and block page
+      productivity.*     Shared controls and themed dialogs for these pages
       safety.*           Fake-site warnings and trust list
       student/legal.*    AI workspaces (share workspace.js)
       shopping.*         Product comparison
@@ -128,6 +172,9 @@ src/
   features/              One folder per feature, each a self-contained module
     ai/                  Gemini client + chat history - main process only
     focus/               Site blocking, sessions, presets
+    organizer/           Tab classification, group metadata, sessions and sleep
+    screen-time/         Local time accounting, quota and schedule policy
+    productivity/        Integration with tabs, Focus, request blocking and IPC
     notes/               Captured notes and workspaces
     resources/           Per-tab metrics, suspension, Game Mode
     safety/              Phishing and lookalike-domain heuristics
@@ -159,6 +206,11 @@ tests/
 ```
 
 ### Where to make changes
+
+Organizer and Screen Time handlers live in the productivity module and are spread
+into the guarded IPC handler map. Keep every new channel in shared/channels.js.
+The classifier and screen-time policy are independent of Electron for clock-based
+unit tests; the runtime owns window/idle measurements and the single request filter.
 
 - **Adding a feature** → new folder under `src/features/`, constructed in
   `application.js#start`.

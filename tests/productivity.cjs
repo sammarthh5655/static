@@ -56,7 +56,9 @@ async function run(browser) {
     await until(() => page.executeJavaScript("!!Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Organise Tabs')"));
     await page.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Organise Tabs').click()");
     await wait(300);
-    await page.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Apply groups').click()");
+    await page.executeJavaScript("Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Review and apply groups').click()");
+    assert.ok(await page.executeJavaScript("!!document.querySelector('dialog[open] .p-preview-list')"));
+    await page.executeJavaScript("document.querySelector('dialog form').requestSubmit()");
     await until(() => org.groups.length >= 2);
     assert.ok(await browser.chrome.webContents.executeJavaScript("document.querySelectorAll('.tab-group-chip').length>=2"));
   });
@@ -178,10 +180,6 @@ async function run(browser) {
     assert.equal(await page.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
     assert.deepEqual(errors, []);
     const output = path.join(app.getAppPath(), '.test-output'); fs.mkdirSync(output, { recursive: true });
-    console.log('Capture surface', JSON.stringify({ active: browser.tabs.activeId, expected: pageId,
-      window: browser.window.getContentBounds(), view: browser.tabs.active.view.getBounds(),
-      visible: browser.window.isVisible(), minimized: browser.window.isMinimized(), attached: browser.window.contentView.children.includes(browser.tabs.active.view),
-      page: await page.executeJavaScript('({width:innerWidth,height:innerHeight,visibility:document.visibilityState})') }));
     fs.writeFileSync(path.join(output, 'organizer.png'), (await page.capturePage(undefined, { stayAwake: true })).toPNG());
     browser.tabs.select(timeId); timePage.focus(); await wait(800);
     fs.writeFileSync(path.join(output, 'screentime.png'), (await timePage.capturePage(undefined, { stayAwake: true })).toPNG());
