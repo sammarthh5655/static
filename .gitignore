@@ -8,3 +8,4 @@ build/
 
 # Baked-in API keys. Never commit these - see keys.example.js.
 src/main/secure/keys.js
+tmp/
