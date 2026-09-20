@@ -21,7 +21,6 @@ let state = { settings: {}, ai: {}, modes: {} };
 let aiMode = false;
 let busy = false;
 let lastQuestion = '';
-let clockTimer = null;
 
 /* ---- mode ----------------------------------------------------------------- */
 
@@ -205,47 +204,61 @@ function renderFrequent() {
   ])));
 }
 
-/* ---- utility row ----------------------------------------------------------- */
+/* ---- widgets --------------------------------------------------------------- */
 
-function renderUtility() {
-  const now = new Date();
-  const time = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  const date = now.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+/**
+ * Render the widgets the user has chosen, in their chosen order.
+ *
+ * The widget registry (shared/widgets.js) and its renderers
+ * (pages/widgets/*.js) already existed but nothing ever called them - the page
+ * drew a fixed row of cards instead, so declaring a widget had no effect and
+ * the layout in settings was inert. This is the render path that was missing.
+ */
+let mounted = [];
 
-  const tabs = (state.tabs || []).filter((tab) => tab.url && !tab.url.startsWith('browser://'));
-  const recent = tabs[0];
+function renderWidgets() {
+  // Widgets own timers and listeners; dropping the nodes without disposing
+  // would leave those running for the life of the page.
+  for (const node of mounted) {
+    if (typeof node.dispose === 'function') {
+      try { node.dispose(); } catch { /* a broken widget must not block the rest */ }
+    }
+  }
+  mounted = [];
 
-  const resources = state.modes?.resources || {};
-  const focus = state.modes?.focus || {};
-  const safety = state.modes?.safety || {};
+  const host = $('#widgets');
+  if (!host) return;
 
-  const cards = [
-    card('Now', time, date),
-    recent
-      ? card('Recent tab', recent.title || recent.url, hostOf(recent.url),
-          () => invoke('tabs:select', { id: recent.id }))
-      : card('Session', plural(state.tabs?.length || 0, 'tab'), 'Nothing else open'),
-    card(
-      focus.active ? 'Focus' : 'System',
-      focus.active ? focus.badge + ' left' : (resources.badge || 'Ready'),
-      safety.active ? 'Protection on' : 'Protection off',
-      () => invoke('tabs:navigate', { input: 'browser://resources' }),
-      focus.active || safety.active ? 'good' : '',
-    ),
-  ];
+  const chosen = state.settings?.newTab?.widgets || [];
+  const renderers = window.widgetRenderers || {};
 
-  $('#utility').replaceChildren(...cards);
-}
+  const ctx = {
+    element, icon, favicon, openUrl, invoke, state,
+    // Whether AI is available in this build. The key itself never reaches the
+    // renderer, so this only reports availability.
+    credential: () => !!state.ai?.available,
+    ask: async (prompt) => {
+      const result = await invoke('ai:ask', { prompt });
+      return result?.text || '';
+    },
+  };
 
-function card(label, value, sub, onclick, tone = '') {
-  const children = [
-    element('div', { class: 'util-label', text: label }),
-    element('div', { class: 'util-value' + (tone ? ' ' + tone : ''), text: value }),
-    element('div', { class: 'util-sub', text: sub }),
-  ];
-  return onclick
-    ? element('button', { class: 'util-card', onclick }, children)
-    : element('div', { class: 'util-card' }, children);
+  const nodes = [];
+  for (const id of chosen) {
+    const render = renderers[id];
+    if (typeof render !== 'function') continue;
+    try {
+      const node = render(ctx);
+      if (node) { nodes.push(node); mounted.push(node); }
+    } catch (error) {
+      // One failing widget must not take the page with it.
+      nodes.push(element('section', { class: 'widget' }, [
+        element('p', { class: 'widget-empty', text: 'This widget could not load.' }),
+      ]));
+      console.error('widget failed:', id, error);
+    }
+  }
+  host.replaceChildren(...nodes);
 }
 
 function plural(count, noun) {
@@ -265,13 +278,18 @@ onState((next) => {
   state = next;
   renderActions();
   renderFrequent();
-  renderUtility();
+  renderWidgets();
   renderHint();
 });
 
-// The clock is the only thing on this page that needs a timer.
-clockTimer = setInterval(renderUtility, 30000);
-window.addEventListener('pagehide', () => clearInterval(clockTimer));
+// Widgets run their own timers and clean them up in dispose().
+window.addEventListener('pagehide', () => {
+  for (const node of mounted) {
+    if (typeof node.dispose === 'function') {
+      try { node.dispose(); } catch { /* tearing down anyway */ }
+    }
+  }
+});
 
 queryInput.focus();
 

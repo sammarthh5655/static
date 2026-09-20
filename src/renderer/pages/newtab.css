@@ -388,3 +388,130 @@ button.util-card:hover {
   .stage { padding-top: 12vh; }
   .utility { grid-template-columns: 1fr; }
 }
+
+/* ---- widgets --------------------------------------------------------------
+   Widgets render from the registry in shared/widgets.js. The grid is
+   auto-fitting so a layout of one, two or four cards all look deliberate
+   rather than stretched.                                                     */
+
+.widgets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 900px;
+  margin: 34px auto 0;
+}
+
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  min-height: 92px;
+}
+
+.widget-head { display: flex; align-items: center; gap: 8px; }
+.widget-title {
+  flex: 1;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.widget-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+.widget-tag.is-on { color: #81c995; border-color: color-mix(in srgb, #81c995 45%, transparent); }
+
+/* The empty state is a first-class state here, not an afterthought: a privacy
+   card with nothing to report must say so rather than showing zeros. */
+.widget-empty {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.widget-clock { align-items: center; justify-content: center; gap: 4px; }
+.clock-time { font-size: 34px; font-weight: 300; letter-spacing: -0.02em; }
+.clock-date { font-size: 12px; color: var(--text-dim); }
+
+/* ---- privacy widget ------------------------------------------------------ */
+
+.privacy-body { display: flex; flex-direction: column; gap: 12px; }
+
+.privacy-tabs { display: flex; gap: 4px; }
+.privacy-tab {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.privacy-tab:hover { color: var(--text); }
+.privacy-tab.is-active { background: var(--surface-active); color: var(--text); }
+
+.privacy-headline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.privacy-count { font-size: 30px; font-weight: 300; letter-spacing: -0.02em; }
+.privacy-count-label { font-size: 12px; color: var(--text-dim); }
+
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 34px;
+}
+.spark-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+/* A day with nothing blocked stays visible as a hairline, so the time axis
+   reads evenly instead of showing gaps. */
+.spark-bar.is-quiet { background: var(--border); }
+
+.privacy-stats { display: flex; flex-direction: column; gap: 5px; }
+.privacy-stat { display: flex; justify-content: space-between; font-size: 12px; }
+.privacy-stat-label { color: var(--text-dim); }
+.privacy-stat-value { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.privacy-saved {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* Bandwidth and time really are estimates, so the label is part of the value
+   rather than hidden in a tooltip. */
+.privacy-estimate {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.privacy-links { display: flex; flex-direction: column; gap: 4px; }
+.privacy-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.privacy-link:hover { text-decoration: underline; }

@@ -28,6 +28,13 @@ const WIDGETS = {
     icon: 'clock',
     size: 'small',
   },
+  privacy: {
+    id: 'privacy',
+    name: 'Privacy',
+    description: 'What Shields actually blocked, by day.',
+    icon: 'lock',
+    size: 'medium',
+  },
   shortcuts: {
     id: 'shortcuts',
     name: 'Quick links',
@@ -71,7 +78,7 @@ const WIDGETS = {
 };
 
 /** Widgets shown on a fresh profile. Deliberately minimal: search + 2. */
-const DEFAULT_LAYOUT = ['clock', 'shortcuts'];
+const DEFAULT_LAYOUT = ['clock', 'privacy', 'shortcuts'];
 
 /** New tab background treatments. */
 const BACKGROUNDS = {

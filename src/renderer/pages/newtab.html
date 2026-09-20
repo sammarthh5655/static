@@ -48,13 +48,16 @@
       <div class="frequent-row" id="frequent-row"></div>
     </section>
 
-    <!-- One compact utility row. -->
-    <section class="utility" id="utility"></section>
+    <!-- Widgets the user has chosen, in their chosen order. Rendered from
+         shared/widgets.js via pages/widgets/*.js. -->
+    <section class="widgets" id="widgets"></section>
   </main>
 
   <script src="../../shared/theme.js"></script>
   <script src="../../shared/modes.js"></script>
   <script src="common.js"></script>
+  <script src="widgets/index.js"></script>
+  <script src="widgets/privacy.js"></script>
   <script src="newtab.js"></script>
 </body>
 </html>

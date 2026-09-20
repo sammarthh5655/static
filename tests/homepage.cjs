@@ -4,9 +4,13 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * New tab page checks. Run with `npm run test:homepage`.
  *
  * The assertions that matter are the ones about restraint: exactly five
- * actions, exactly three utility cards, and the advanced modes hidden behind
- * the tools panel. Those are easy to erode one addition at a time, which is
- * how a calm homepage turns back into a dashboard.
+ * actions, no panel overlaying the page, and a widget layout the user chose
+ * rather than one the page hardcodes. Those are easy to erode one addition at
+ * a time, which is how a calm homepage turns back into a dashboard.
+ *
+ * The privacy widget has its own rule: every number on it must come from the
+ * real blocking counters, and with no data it must say so rather than show
+ * zeros. A privacy screen with invented numbers is worse than none.
  */
 async function run(browser) {
   const { app } = require('electron');
@@ -55,7 +59,10 @@ async function run(browser) {
     check('placeholder names the Tab key', /press Tab for AI/.test(page.placeholder), page.placeholder);
     check('exactly five actions', page.actions.length === 5, page.actions.join(' | '));
     check('frequent row populated', page.frequent >= 5, page.frequent + ' items');
-    check('exactly three utility cards', page.utilCards === 3, page.utilCards);
+    // The fixed three-card utility row is gone: it was hardcoded markup that
+    // made the widget registry inert. Widgets render from the user's chosen
+    // layout instead, and are asserted further down.
+    check('no hardcoded utility row remains', page.utilCards === 0, page.utilCards + ' left');
     check('hint explains both keys', /Enter/.test(page.hint) && /Tab/.test(page.hint), page.hint);
     check('no panel on the homepage', page.toolsAbsent === true);
     // Read the expected accent from the theme registry rather than repeating
@@ -92,6 +99,62 @@ async function run(browser) {
     check('no floating tools button', gone.trigger === false);
     check('no tools panel', gone.panel === false);
     check('no stray tools markup', gone.stray === 0, gone.stray + ' nodes');
+
+    // ---- widgets ---------------------------------------------------------
+    // The widget registry and its renderers existed but nothing called them:
+    // the page drew a fixed row of cards, so declaring a widget had no effect
+    // and the layout stored in settings was inert. These cover the render path.
+    const widgets = await wc.executeJavaScript(`(function(){
+      return {
+        count: document.querySelectorAll('.widget').length,
+        hasClock: !!document.querySelector('.widget-clock'),
+        hasPrivacy: !!document.querySelector('.widget-privacy'),
+      };
+    })()`);
+    check('widgets render from the registry', widgets.count >= 2, widgets.count + ' widgets');
+    check('clock widget present', widgets.hasClock === true);
+    check('privacy widget present', widgets.hasPrivacy === true);
+
+    // The privacy card must reflect the REAL counters. Seed a known value and
+    // assert the card shows that number - not a placeholder, and not zeros.
+    browser.shields.stats.record('ads', 7);
+    browser.shields.stats.record('trackers', 5);
+    await wait(5600);   // the widget re-reads on a 5s timer
+    const live = await wc.executeJavaScript(`(function(){
+      var count = document.querySelector('.privacy-count');
+      var stats = {};
+      document.querySelectorAll('.privacy-stat').forEach(function(row){
+        stats[row.querySelector('.privacy-stat-label').textContent] =
+          row.querySelector('.privacy-stat-value').textContent;
+      });
+      return {
+        headline: count ? count.textContent : null,
+        stats: stats,
+        estimateLabelled: !!document.querySelector('.privacy-estimate'),
+        bars: document.querySelectorAll('.spark-bar').length,
+      };
+    })()`);
+    check('privacy widget shows the real blocked total',
+      live.headline === '12', 'showed ' + live.headline + ', expected 12');
+    check('privacy widget splits ads and trackers',
+      live.stats.Ads === '7' && live.stats.Trackers === '5', JSON.stringify(live.stats));
+    // Bandwidth and time cannot be measured - a blocked request is cancelled
+    // before any body arrives - so they must be visibly marked as estimates.
+    check('derived figures are labelled as estimates', live.estimateLabelled === true);
+    check('sparkline covers seven days', live.bars === 7, live.bars + ' bars');
+
+    // The empty state is the assertion that matters most on this card: with no
+    // data it must SAY so, not show zeros that read as a broken blocker.
+    browser.shields.store.data.days = {};
+    await wait(5600);
+    const empty = await wc.executeJavaScript(`(function(){
+      var e = document.querySelector('.widget-privacy .widget-empty');
+      return { text: e ? e.textContent : null,
+               headline: !!document.querySelector('.privacy-count') };
+    })()`);
+    check('privacy widget shows an empty state, not zeros',
+      /no blocking activity/i.test(empty.text || ''), empty.text);
+    check('empty state shows no headline number', empty.headline === false);
 
     check('no console errors', errors.length === 0, errors.join(' | '));
     console.log(fails ? '\n' + fails + ' check(s) failed.\n' : '\nAll homepage checks passed.\n');
