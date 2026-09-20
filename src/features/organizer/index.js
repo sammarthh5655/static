@@ -21,7 +21,7 @@ class Organizer {
     });
   }
   localAnalysis() {
-    if (this.now() - (this.resources?.latest?.sampledAt || 0) > 5000) this.resources?.sample();
+    this.resources?.sample();
     this.plan = analyze(this.detail(), this.now());
     return this.plan;
   }

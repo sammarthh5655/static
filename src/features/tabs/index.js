@@ -112,13 +112,18 @@ class Tabs {
 
     // Register with the extension system so chrome.tabs.* sees this tab and
     // browser action popups resolve against the right webContents.
+    const previousActiveId = this.activeId;
     try {
       this.extensions?.addTab(view.webContents, this.window);
     } catch (error) {
       console.error('Extension tab registration failed:', error.message);
     }
 
-    if (!background || !this.activeId) this.select(id);
+    // The extension bridge emits activation while registering every new tab.
+    // Restore the previous selection for background creates so bulk session
+    // restoration and extension-created background tabs cannot steal focus.
+    if (background && previousActiveId && this.tabs.has(previousActiveId)) this.select(previousActiveId);
+    else this.select(id);
     this.navigate(id, url || NEW_TAB);
     this.onChange();
     return id;
@@ -190,6 +195,8 @@ class Tabs {
     const tab = this.tabs.get(id);
     if (!tab) return;
     const target = resolveInput(input, this.getEngine?.() || 'google');
+    tab.state.displayUrl = target;
+    tab.state.security = securityState(target);
     const page = internalPage(target);
     if (page) {
       // Internal pages load from disk but keep their browser:// identity in the
@@ -215,6 +222,7 @@ class Tabs {
     this.onSelected?.(id);
     if (id !== this.activeId) {
       const previous = this.active;
+      if (previous) previous.lastActiveAt = Date.now();
       if (previous && this.window.contentView.children.includes(previous.view)) {
         this.window.contentView.removeChildView(previous.view);
       }

@@ -3,6 +3,7 @@ const path = require('node:path');
 const { net } = require('electron');
 const { JsonStore } = require('../../main/storage');
 const { FilterEngine } = require('./filters');
+const { Stats } = require('./stats');
 
 /**
  * Shields: content blocking, HTTPS upgrades and URL cleaning.
@@ -96,6 +97,22 @@ const TRACKING_PARAMS = [
   '_openstat', 'icid', 'ncid', 'ref_src', 'ref_url',
 ];
 
+/**
+ * Is a matched rule an ad rule or a tracking rule?
+ *
+ * The lists do not label rules, so this reads the rule text - the same signal
+ * a person would use. It is a presentation split only: both are blocked
+ * identically, and a rule that reads as neither is counted as a tracker, since
+ * EasyPrivacy is the larger source of unlabelled rules.
+ */
+function classify(rule, url) {
+  const text = String(rule || '') + ' ' + String(url || '');
+  if (/(ads?|adserver|adservice|advert|doubleclick|adsystem|pagead|popads|banner|sponsor)/i.test(text)) {
+    return 'ads';
+  }
+  return 'trackers';
+}
+
 class Shields {
   constructor(dir, { onChange } = {}) {
     this.dir = dir;
@@ -115,6 +132,10 @@ class Shields {
       lastFetch: 0,
     });
     this.onChange = onChange || (() => {});
+
+    // Per-day, per-category counters for the privacy widget and the Health
+    // Center. Shares the store so it persists and prunes with everything else.
+    this.stats = new Stats(this.store, () => this.onChange());
 
     this.engine = new FilterEngine();
     this.ready = false;
@@ -204,6 +225,7 @@ class Shields {
       const verdict = this.engine.match({ url, docHost, resourceType });
       if (verdict.blocked) {
         this.#count(tabId, docHost, url);
+        this.stats.record(classify(verdict.rule, url));
         return { block: true };
       }
     }
@@ -212,7 +234,14 @@ class Shields {
     // them to subresources risks breaking signed URLs and CORS.
     if (resourceType === 'mainFrame') {
       const rewritten = this.rewrite(url);
-      if (rewritten && rewritten !== url) return { redirect: rewritten };
+      if (rewritten && rewritten !== url) {
+        // Record what actually changed rather than one generic event: an
+        // https upgrade and a stripped parameter are different protections and
+        // the dashboard reports them separately.
+        if (/^http:/i.test(url) && /^https:/i.test(rewritten)) this.stats.record('https');
+        if (new URL(url).search !== new URL(rewritten).search) this.stats.record('params');
+        return { redirect: rewritten };
+      }
     }
     return null;
   }

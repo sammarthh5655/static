@@ -1001,6 +1001,10 @@ class BrowserApplication {
       },
       'shields:report': () => this.shields.tabReport(this.tabs?.activeId),
       'shields:refresh': () => this.shields.refresh({ force: true }),
+      // Real per-day, per-category counters for the privacy widget. Returns
+      // `isEmpty` so the widget can show an empty state rather than zeros
+      // that look like a broken blocker.
+      'shields:stats': () => this.shields.stats.summary(),
 
       // ---- passwords -------------------------------------------------------
       // Listing NEVER includes a password. Plaintext crosses this boundary
@@ -1241,6 +1245,10 @@ class BrowserApplication {
       try {
         cosmeticKey = await contents.insertCSS(css);
         cosmeticHost = wanted;
+        // One event per document, not per selector. The stylesheet carries
+        // thousands of selectors and almost none match any given page, so
+        // counting selectors would report a large number that means nothing.
+        this.shields.stats.record('cosmetic');
       } catch {
         cosmeticKey = null;
         cosmeticHost = null;

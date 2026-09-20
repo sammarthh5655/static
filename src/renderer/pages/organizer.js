@@ -144,7 +144,15 @@
     ], 'sparkle')]), muted('Memory is measured by renderer process and may be shared by tabs. Sleep freezes page work; it does not promise a fixed RAM saving. Pinned, active, audible, loading and edited pages are skipped.'));
     renderSelection();
   }
-  onState(app => api.setState(app.modes));
+  let tabFingerprint = '', refreshTimer;
+  onState(app => {
+    api.setState(app.modes);
+    const next = JSON.stringify([app.tabs, app.organizer]);
+    if (next !== tabFingerprint) {
+      tabFingerprint = next; clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => { if (!dragged) refresh().catch(() => {}); }, 200);
+    }
+  });
   window.browser.on('organizer:changed', () => refresh().catch(() => {}));
   refresh().catch(error => { content.textContent = error.message; });
 })();

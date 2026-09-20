@@ -67,8 +67,13 @@ class Productivity {
     if (this.ticks % 5 === 0) this.changed('screentime:changed');
     if (this.ticks % 15 === 0 && !this.organizer.aiBusy && !this.organizer.busy) {
       const tabs = browser.tabs?.list() || [];
-      if (tabs.filter(t => hostOf(t.url)).length >= 8 && signature(tabs) !== this.organizer.plan?.signature) {
-        this.organizer.localAnalysis(); this.changed('organizer:changed');
+      if (tabs.filter(t => hostOf(t.url)).length >= 8) {
+        const previous = this.organizer.plan, unchanged = signature(tabs) === previous?.signature;
+        this.organizer.localAnalysis();
+        if (unchanged && previous.source === 'gemini') {
+          this.organizer.plan.groups = previous.groups; this.organizer.plan.source = 'gemini';
+        }
+        this.changed('organizer:changed');
       }
     }
   }

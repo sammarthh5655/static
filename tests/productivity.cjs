@@ -35,7 +35,7 @@ async function run(browser) {
   await until(() => browser.tabs.active);
   const open = async (url, background = false) => {
     const id = browser.tabs.create({ url, background }), wc = browser.tabs.tabs.get(id).view.webContents;
-    wc.on('console-message', (_event, ...args) => { if (String(args).includes('Uncaught')) errors.push(String(args)); });
+    wc.on('console-message', event => { if (event.level === 'error' && event.message && !event.message.includes('ERR_BLOCKED_BY_CLIENT')) errors.push(event.message); });
     await until(() => !wc.isLoading() && wc.getURL());
     await wait(200); return id;
   };
@@ -81,11 +81,14 @@ async function run(browser) {
     await org.sleep([pageId, ids[4], ids[5], ids[6]]);
     assert.ok(org.sleeping.has(ids[4]));
     assert.equal(org.sleeping.has(ids[5]), false); assert.equal(org.sleeping.has(ids[6]), false);
-    const before = await wc.executeJavaScript('window.count');
+    // Electron executeJavaScript queues onto the frozen page; CDP can inspect
+    // without resuming its task queues.
+    const count = async () => (await wc.debugger.sendCommand('Runtime.evaluate', { expression: 'window.count', returnByValue: true })).result.value;
+    const before = await count();
     await wait(1200);
-    assert.equal(await wc.executeJavaScript('window.count'), before);
-    browser.tabs.select(ids[4]); await until(() => !org.sleeping.has(ids[4])); await wait(300);
-    assert.ok(await wc.executeJavaScript('window.count') > before);
+    assert.equal(await count(), before);
+    browser.tabs.select(ids[4]); await until(() => !org.sleeping.has(ids[4]));
+    await until(async () => await wc.executeJavaScript('window.count') > before, 5000);
     assert.equal(wc.getURL(), base + '/sleep');
     browser.tabs.select(pageId);
   });
@@ -110,7 +113,14 @@ async function run(browser) {
     assert.equal(saved.name, 'Integration research'); assert.ok(saved.tabs.some(t => t.pinned)); assert.ok(saved.groups.length);
     const before = browser.tabs.order.length;
     await org.restoreSession(saved.id); assert.equal(browser.tabs.order.length, before + saved.tabs.length);
-    await wait(700); await org.undo(); assert.equal(browser.tabs.order.length, before);
+    assert.equal(browser.tabs.activeId, pageId, 'Background session restore must not steal focus');
+    const created = org.undoStack.at(-1).before.created;
+    await until(() => created.every(id => !browser.tabs.tabs.get(id).state.loading)); await wait(300);
+    await org.undo();
+    assert.equal(browser.tabs.order.length, before, JSON.stringify(created.filter(id => browser.tabs.tabs.has(id)).map(id => ({
+      id, title: browser.tabs.tabs.get(id).state.title, loading: browser.tabs.tabs.get(id).state.loading,
+      active: id === browser.tabs.activeId
+    }))));
   });
   await check('drag-drop board moves a tab to a different group via renderer IPC', async () => {
     await org.analyze(); await org.apply(); await wait(350);
@@ -161,15 +171,20 @@ async function run(browser) {
     assert.ok(restored.state().todayMs > 0);
   });
   await check('both new pages render without renderer exceptions and fit the window', async () => {
+    browser.window.setSize(1400, 1000); browser.window.show(); browser.window.focus(); browser.layout();
     browser.tabs.select(timeId); await wait(400);
     assert.equal(await timePage.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
-    browser.tabs.select(pageId); await wait(400);
+    browser.tabs.select(pageId); page.focus(); await wait(800);
     assert.equal(await page.executeJavaScript('document.documentElement.scrollWidth > innerWidth'), false);
     assert.deepEqual(errors, []);
     const output = path.join(app.getAppPath(), '.test-output'); fs.mkdirSync(output, { recursive: true });
-    fs.writeFileSync(path.join(output, 'organizer.png'), (await page.capturePage()).toPNG());
-    browser.tabs.select(timeId); await wait(400);
-    fs.writeFileSync(path.join(output, 'screentime.png'), (await timePage.capturePage()).toPNG());
+    console.log('Capture surface', JSON.stringify({ active: browser.tabs.activeId, expected: pageId,
+      window: browser.window.getContentBounds(), view: browser.tabs.active.view.getBounds(),
+      visible: browser.window.isVisible(), minimized: browser.window.isMinimized(), attached: browser.window.contentView.children.includes(browser.tabs.active.view),
+      page: await page.executeJavaScript('({width:innerWidth,height:innerHeight,visibility:document.visibilityState})') }));
+    fs.writeFileSync(path.join(output, 'organizer.png'), (await page.capturePage(undefined, { stayAwake: true })).toPNG());
+    browser.tabs.select(timeId); timePage.focus(); await wait(800);
+    fs.writeFileSync(path.join(output, 'screentime.png'), (await timePage.capturePage(undefined, { stayAwake: true })).toPNG());
   });
   server.close(); browser.productivity.stop(); browser.flush();
   console.log(fails ? fails + ' productivity checks failed.' : 'All productivity integration checks passed.');
