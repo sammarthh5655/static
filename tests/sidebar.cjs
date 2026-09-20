@@ -41,9 +41,32 @@ async function run(browser) {
 
     browser.settings.update({ sidebarMode: 'autohide' });
     browser.applySidebarMode();
-    await wait(600);
-    check('autohide starts closed', browser.sidebarOpen === false);
+    await wait(900);
+    check('autohide starts hidden', browser.sidebarOpen === false);
     check('but the toggle can open it', browser.toggleSidebar(true) === true);
+    browser.toggleSidebar(false);
+    await wait(400);
+
+    // Autohide must give a way BACK, or it is just "off" with extra steps.
+    check('autohide creates the edge reveal strip',
+      !!browser.edgeStrip && !browser.edgeStrip.webContents.isDestroyed());
+    const strip = browser.edgeStrip.getBounds();
+    const win = browser.window.getContentBounds();
+    check('the strip is at the right edge',
+      strip.x + strip.width >= win.width - 2, JSON.stringify(strip));
+    check('and is narrow enough not to steal the page',
+      strip.width <= 12, strip.width + 'px');
+
+    check('reaching the edge reveals the sidebar',
+      browser.peekSidebar(true) === true && browser.sidebarOpen === true);
+    check('and leaving hides it again',
+      browser.peekSidebar(false) === false && browser.sidebarOpen === false);
+
+    // On and Off must not leave a stray strip behind.
+    browser.settings.update({ sidebarMode: 'on' });
+    browser.applySidebarMode();
+    await wait(500);
+    check('no edge strip outside autohide', !browser.edgeStrip);
 
     // ---- the rail --------------------------------------------------------
     browser.settings.update({ sidebarMode: 'on' });

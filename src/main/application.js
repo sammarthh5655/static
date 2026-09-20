@@ -43,6 +43,9 @@ const TOOLBAR_HEIGHT = 48;
 const BOOKMARKS_BAR_HEIGHT = 34;
 
 /** Total chrome height for a given settings snapshot. */
+/** How much room the omnibox dropdown needs when it is open. */
+const SUGGESTIONS_HEIGHT = 340;
+
 function chromeHeight(settings) {
   return TITLEBAR_HEIGHT + TABSTRIP_HEIGHT + TOOLBAR_HEIGHT +
     (settings.bookmarksBar ? BOOKMARKS_BAR_HEIGHT : 0);
@@ -103,6 +106,9 @@ class BrowserApplication {
     this.sidebar = null;
     this.sidebarOpen = false;
     this.sidebarWidth = 380;
+    // Whether the omnibox dropdown is showing, which changes the chrome's
+    // height so the list is not clipped.
+    this.suggestionsOpen = false;
   }
 
   async start() {
@@ -550,17 +556,72 @@ class BrowserApplication {
    * toggle.
    *
    *   on       the sidebar is open and stays open
-   *   autohide it is closed, and the user opens it when they want it
+   *   autohide it is hidden, and slides back when the pointer reaches the
+   *            right edge of the window
    *   off      it is closed and the toggle will not open it
    */
   applySidebarMode() {
     const mode = this.settings?.value?.sidebarMode || 'on';
     if (mode === 'on') {
       if (!this.sidebarOpen) this.toggleSidebar(true);
-    } else if (this.sidebarOpen) {
+    } else if (this.sidebarOpen && mode !== 'autohide') {
+      this.toggleSidebar(false);
+    } else if (mode === 'autohide' && this.sidebarOpen && !this.sidebarPeeking) {
+      // Entering autohide from "on" hides it; it comes back on the edge.
       this.toggleSidebar(false);
     }
+    this.applyEdgeReveal();
     return mode;
+  }
+
+  /**
+   * The hot zone that brings an autohidden sidebar back.
+   *
+   * "Autohide" used to be a comment and nothing else: it behaved exactly like
+   * "off", so the setting appeared to do nothing. A hidden sidebar needs a way
+   * back that does not require remembering a shortcut, so a narrow strip at
+   * the right edge of the window reveals it on hover, the way a dock does.
+   *
+   * The strip is a real WebContentsView because Electron gives no window-level
+   * pointer events; it is transparent, ignores clicks, and only reports that
+   * the pointer arrived.
+   */
+  applyEdgeReveal() {
+    const wanted = this.settings?.value?.sidebarMode === 'autohide';
+    if (!wanted) {
+      if (this.edgeStrip) {
+        try { this.window.contentView.removeChildView(this.edgeStrip); } catch { /* already gone */ }
+        try { this.edgeStrip.webContents.close(); } catch { /* already gone */ }
+        this.edgeStrip = null;
+      }
+      return;
+    }
+    if (this.edgeStrip && !this.edgeStrip.webContents.isDestroyed()) return;
+
+    this.edgeStrip = new WebContentsView({
+      webPreferences: {
+        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
+        contextIsolation: true, sandbox: true, nodeIntegration: false,
+      },
+    });
+    this.edgeStrip.setBackgroundColor('#00000000');
+    this.edgeStrip.webContents.loadFile(
+      path.join(__dirname, '..', 'renderer', 'pages', 'edge.html'));
+    this.window.contentView.addChildView(this.edgeStrip);
+    this.layout();
+  }
+
+  /** Reveal or re-hide an autohidden sidebar. */
+  peekSidebar(show) {
+    if (this.settings?.value?.sidebarMode !== 'autohide') return false;
+    const next = !!show;
+    if (next === this.sidebarOpen) return next;
+    this.sidebarPeeking = next;
+    if (next) this.ensureSidebar();
+    this.sidebarOpen = next;
+    this.layout();
+    this.push();
+    return next;
   }
 
   /** Open, close or toggle the sidebar. */
@@ -621,7 +682,17 @@ class BrowserApplication {
     if (!this.window || this.window.isDestroyed()) return;
     const { width, height } = this.window.getContentBounds();
     const top = chromeHeight(this.settings.value);
-    this.chrome.setBounds({ x: 0, y: 0, width, height: top });
+    // The omnibox dropdown is drawn INSIDE the chrome view, so the view has to
+    // be tall enough to show it. At the resting chrome height the list was
+    // clipped to a few pixels and looked like it was not appearing at all.
+    // While it is open the view grows and the tab is pushed down behind it;
+    // the extra strip is mouse-transparent everywhere except the list itself.
+    const chromeH = this.suggestionsOpen
+      ? Math.min(height, top + SUGGESTIONS_HEIGHT)
+      : top;
+    this.chrome.setBounds({ x: 0, y: 0, width, height: chromeH });
+    // Re-added so it stays above the tab view while it is expanded.
+    if (this.suggestionsOpen) this.window.contentView.addChildView(this.chrome);
 
     // The sidebar takes a strip on the right and the tab gets what is left,
     // so the page is never covered - the point of a sidebar rather than an
@@ -637,6 +708,20 @@ class BrowserApplication {
       width: Math.max(0, width - side),
       height: Math.max(0, height - top),
     });
+
+    // The autohide strip hugs the right edge, under the chrome. It sits above
+    // the tab so it can see the pointer, and is narrow enough not to steal
+    // real estate from the page.
+    if (this.edgeStrip && !this.edgeStrip.webContents.isDestroyed()) {
+      const STRIP = 8;
+      this.window.contentView.addChildView(this.edgeStrip);
+      this.edgeStrip.setBounds({
+        x: Math.max(0, width - STRIP - side),
+        y: top,
+        width: STRIP,
+        height: Math.max(0, height - top),
+      });
+    }
 
     if (this.sidebar) {
       if (side > 0) {
@@ -1168,6 +1253,19 @@ class BrowserApplication {
 
       'sidebar:toggle': (_sender, payload) => this.toggleSidebar(payload?.open),
       'sidebar:state': () => ({ open: this.sidebarOpen, width: this.sidebarWidth }),
+      'sidebar:peek': (_sender, payload) => this.peekSidebar(payload?.show !== false),
+
+      /**
+       * The omnibox dropdown is inside the chrome view, which is only as tall
+       * as the toolbar - so the list needs the view to grow while it is open.
+       */
+      'ui:suggestions': (_sender, payload) => {
+        const open = !!payload?.open;
+        if (open === this.suggestionsOpen) return open;
+        this.suggestionsOpen = open;
+        this.layout();
+        return open;
+      },
 
       'ai:formats': () => Object.values(pagecontext.FORMATS)
         .map(({ id, name }) => ({ id, name })),
@@ -1592,6 +1690,13 @@ class BrowserApplication {
     if (sender === this.sidebar?.webContents) {
       const url = sender.getURL();
       if (url.startsWith('file://') && url.includes('/renderer/pages/sidebar.html')) return;
+      throw new Error('Unauthorized sender');
+    }
+    // The autohide strip, checked the same way: it must still BE the strip,
+    // so one somehow navigated elsewhere loses its access.
+    if (sender === this.edgeStrip?.webContents) {
+      const url = sender.getURL();
+      if (url.startsWith('file://') && url.includes('/renderer/pages/edge.html')) return;
       throw new Error('Unauthorized sender');
     }
     const tab = this.#tabByContents(sender);

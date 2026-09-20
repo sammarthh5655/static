@@ -407,9 +407,22 @@ function renderNotice() {
 
 /* ---- omnibox suggestions -------------------------------------------------- */
 
+/** Last state told to main, so the view is not resized on every keystroke. */
+let suggestionsWereOpen = false;
+
 function renderSuggestions() {
   const items = local.suggestions;
   el.suggestions.hidden = !items.length;
+
+  // The chrome view is only as tall as the toolbar, so the dropdown was being
+  // clipped to a few pixels - it looked like suggestions never appeared. Main
+  // grows the view while the list is open.
+  const open = items.length > 0;
+  if (open !== suggestionsWereOpen) {
+    suggestionsWereOpen = open;
+    invoke('ui:suggestions', { open }).catch(() => {});
+  }
+
   if (!items.length) return;
 
   el.suggestions.replaceChildren(...items.map((item, index) => {

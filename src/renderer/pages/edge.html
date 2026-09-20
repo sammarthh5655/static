@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'">
+  <title>Sidebar edge</title>
+  <link rel="stylesheet" href="edge.css">
+</head>
+<!-- A narrow transparent strip down the right edge of the window.
+
+     Electron gives no window-level pointer events, so an autohidden sidebar
+     needs something that can notice the pointer arriving. This is that: it
+     draws a faint handle so the affordance is visible rather than a secret,
+     and it reports hover to main. It never takes a click - clicks pass to the
+     page underneath. -->
+<body class="edge">
+  <div class="edge-handle" id="handle" aria-hidden="true"></div>
+  <script src="common.js"></script>
+  <script src="edge.js"></script>
+</body>
+</html>

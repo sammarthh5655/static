@@ -327,6 +327,25 @@ onState((state) => {
   renderCustomise(settings);
 });
 
+/**
+ * In autohide, the sidebar hides itself when the pointer leaves it.
+ *
+ * The edge strip reveals it but deliberately does not hide it - the pointer
+ * must cross that strip to reach the sidebar at all, so hiding on leaving the
+ * strip would make the sidebar unusable. Hiding belongs here instead.
+ *
+ * Delayed, because a pointer crossing the boundary between the strip and the
+ * sidebar leaves both for a moment, and hiding on that would make it flicker.
+ */
+let leaveTimer = null;
+document.addEventListener('pointerleave', () => {
+  clearTimeout(leaveTimer);
+  leaveTimer = setTimeout(() => {
+    invoke('sidebar:peek', { show: false }).catch(() => {});
+  }, 400);
+});
+document.addEventListener('pointerenter', () => clearTimeout(leaveTimer));
+
 renderTranscript();
 refreshPermission();
 renderRail({});
