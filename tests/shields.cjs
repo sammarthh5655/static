@@ -42,6 +42,39 @@ async function run(browser) {
     check('allows a normal CDN', !inspect('https://cdn.jsdelivr.net/npm/x.js', 'news.com')?.block);
     check('allows first-party scripts', !inspect('https://news.com/app.js', 'news.com')?.block);
 
+    // Two rule FORMS that parsed cleanly and then never matched anything.
+    // Found by listing what a live YouTube page was still allowed to request:
+    // /pagead/lvz and /pagead/1p-user-list both went through, despite EasyList
+    // carrying rules for both. 115 rules in EasyList alone use these forms.
+    const Engine = require('../src/features/shields/filters').FilterEngine;
+    const withRule = (rule, url, type = 'image') => {
+      const engine = new Engine();
+      engine.addList(rule);
+      return engine.match({ url, docHost: 'youtube.com', resourceType: type }).blocked;
+    };
+
+    // `*` inside the domain anchor - the multi-TLD form (google.*, amazon.*).
+    // Splitting the pattern on the `*` left the domain as "google", which no
+    // host ends with, so every rule of this shape silently did nothing.
+    check('wildcard in a domain anchor matches',
+      withRule('||google.*/pagead/lvz?', 'https://www.google.com/pagead/lvz'));
+    check('wildcard domain anchor matches other TLDs',
+      withRule('||google.*/pagead/lvz?', 'https://www.google.co.in/pagead/lvz'));
+    check('wildcard domain anchor respects label boundaries',
+      !withRule('||google.*/x', 'https://notgoogle.com/x'));
+    check('wildcard domain anchor does not match a path lookalike',
+      !withRule('||google.*/x', 'https://evil.com/google.com/x'));
+
+    // A trailing `?` marks where the query begins; it is a separator, not a
+    // literal. Treated literally it demanded a `?` be present, so the rule
+    // missed the request it was written for.
+    check('trailing ? matches a URL with no query',
+      withRule('||google.com/pagead/lvz?', 'https://www.google.com/pagead/lvz'));
+    check('trailing ? matches a URL with a query',
+      withRule('||google.com/pagead/lvz?', 'https://www.google.com/pagead/lvz?id=1'));
+    check('trailing ? still requires the path',
+      !withRule('||google.com/pagead/lvz?', 'https://www.google.com/pagead/other'));
+
     // Rewriting.
     const rewritten = browser.shields.rewrite('http://example.com/page?utm_source=x&id=7&fbclid=abc');
     check('upgrades http to https', rewritten.startsWith('https://'), rewritten);

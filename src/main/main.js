@@ -4,6 +4,7 @@ app.setName('static');
 
 // Test modes run against a throwaway profile so they never touch real user data.
 const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy'];
+TEST_FLAGS.push('--productivity');
 const testFlag = !app.isPackaged && process.argv.find(arg => TEST_FLAGS.includes(arg));
 if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
 
@@ -33,6 +34,7 @@ else {
     await browser.start();
     if (testFlag === '--shot') await require('../../tests/screenshot.cjs').run(browser);
     else if (testFlag === '--probe') await require('../../tests/probe.cjs').run(browser);
+    else if (testFlag === '--productivity') await require('../../tests/productivity.cjs').run(browser);
     else if (testFlag === '--privacy') await require('../../tests/privacy.cjs').run(browser);
     else if (testFlag === '--shields') await require('../../tests/shields.cjs').run(browser);
     else if (testFlag === '--homepage') await require('../../tests/homepage.cjs').run(browser);

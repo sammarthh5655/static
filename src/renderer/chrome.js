@@ -123,6 +123,8 @@ function mainMenuItems() {
     { brand: true },
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
     { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },
+    { label: 'Organise Tabs', icon: 'grid', shortcut: accel('open:organizer'), action: doAction('open:organizer') },
+    { label: 'Screen Time', icon: 'clock', shortcut: accel('open:screentime'), action: doAction('open:screentime') },
     { separator: true },
     { label: 'AI chat', icon: 'sparkle', shortcut: accel('open:ai'), action: doAction('open:ai') },
     { separator: true },
@@ -204,6 +206,9 @@ window.browser.on('ui:menu-closed', closeOverlayMenu);
 /** Right-click menu for a tab. */
 function tabContextMenu(tab, event) {
   contextMenu([
+    { label: tab.pinned ? 'Unpin tab' : 'Pin tab', icon: 'bookmark', action: action('organizer:pin', { ids: [tab.id], pinned: !tab.pinned }) },
+    { label: state.organizer?.sleeping.includes(tab.id) ? 'Wake tab' : 'Sleep tab', icon: 'clock',
+      action: state.organizer?.sleeping.includes(tab.id) ? action('organizer:wake', { id: tab.id }) : action('organizer:sleep', { ids: [tab.id] }) },
     { label: 'Reload', icon: 'reload', action: doAction('page:reload') },
     { label: 'Duplicate', icon: 'plus', action: action('tabs:new', { url: tab.url }) },
     { separator: true },
@@ -239,12 +244,33 @@ function render() {
 }
 
 function renderTabs() {
+  // Replacing dragged DOM nodes cancels Chromium's native drag session.
+  if (local.dragId) return;
   const active = state.tabs.find(t => t.active);
   el.windowTitle.textContent = active?.title ? active.title + ' — static' : 'static';
-
-  el.tabs.replaceChildren(...state.tabs.map((tab) => {
+  const organizer = state.organizer || { groups: [], workspaces: [], activeWorkspace: 'main', sleeping: [] };
+  $('workspace-switch').textContent = organizer.workspaces.find(w => w.id === organizer.activeWorkspace)?.name || 'Main';
+  const visible = state.tabs.filter(t => (t.workspaceId || 'main') === organizer.activeWorkspace);
+  const painted = new Set();
+  el.tabs.replaceChildren(...visible.flatMap((tab) => {
+    const group = organizer.groups.find(g => g.id === tab.groupId), nodes = [];
+    if (group && !painted.has(group.id)) {
+      painted.add(group.id);
+      const chip = document.createElement('button');
+      chip.className = 'tab-group-chip'; chip.textContent = (group.collapsed ? '▸ ' : '▾ ') + group.name;
+      chip.title = 'Collapse or expand ' + group.name; chip.dataset.groupId = group.id;
+      chip.style.setProperty('--group-color', group.color); chip.setAttribute('aria-expanded', String(!group.collapsed));
+      chip.addEventListener('click', () => invoke('organizer:group', { id: group.id, collapsed: !group.collapsed }));
+      chip.addEventListener('contextmenu', event => contextMenu([
+        { label: 'Edit in Organizer', icon: 'grid', action: doAction('open:organizer') },
+        { label: 'Save all tabs as session', icon: 'bookmark', action: action('organizer:save-session') },
+      ], event));
+      nodes.push(chip);
+    }
+    if (group?.collapsed && !tab.active) return nodes;
     const node = document.createElement('div');
-    node.className = 'tab' + (tab.active ? ' active' : '');
+    node.className = 'tab' + (tab.active ? ' active' : '') + (organizer.sleeping.includes(tab.id) ? ' sleeping' : '') + (group ? ' grouped' : '');
+    if (group) node.style.setProperty('--group-color', group.color);
     node.draggable = true;
     node.dataset.id = tab.id;
     node.title = tab.title || '';
@@ -265,7 +291,7 @@ function renderTabs() {
 
     const title = document.createElement('span');
     title.className = 'title';
-    title.textContent = tab.title || 'New tab';
+    title.textContent = (tab.pinned ? '◆ ' : '') + (organizer.sleeping.includes(tab.id) ? '◌ ' : '') + (tab.title || 'New tab');
     node.append(title);
 
     const close = document.createElement('button');
@@ -284,7 +310,7 @@ function renderTabs() {
       if (event.button === 1) invoke('tabs:close', { id: tab.id });
     });
     node.addEventListener('contextmenu', (event) => tabContextMenu(tab, event));
-    return node;
+    return [...nodes, node];
   }));
 }
 
@@ -449,6 +475,12 @@ function commit(input) {
 /* ---- events -------------------------------------------------------------- */
 
 el.newtab.addEventListener('click', () => act('tab:new'));
+$('organise-tabs').addEventListener('click', () => act('open:organizer'));
+$('workspace-switch').addEventListener('click', () => toggleMenu($('workspace-switch'), [
+  ...(state.organizer?.workspaces || []).map(w => ({ label: w.name, icon: 'grid',
+    checked: w.id === state.organizer.activeWorkspace, action: action('organizer:select-workspace', { id: w.id }) })),
+  { separator: true }, { label: 'Manage workspaces & tabs', icon: 'gear', action: doAction('open:organizer') },
+]));
 el.back.addEventListener('click', () => act('page:back'));
 el.forward.addEventListener('click', () => act('page:forward'));
 el.home.addEventListener('click', () => act('page:home'));
@@ -506,19 +538,27 @@ el.tabs.addEventListener('dragover', (event) => {
 el.tabs.addEventListener('drop', (event) => {
   if (!local.dragId) return;
   event.preventDefault();
-  const nodes = [...el.tabs.querySelectorAll('.tab')];
+  const groupChip = event.target.closest('[data-group-id]');
+  if (groupChip) {
+    invoke('organizer:move', { ids: [local.dragId], groupId: groupChip.dataset.groupId });
+    local.dragId = null; return;
+  }
+  const nodes = [...el.tabs.querySelectorAll('.tab')].filter(n => n.dataset.id !== local.dragId);
   let index = nodes.findIndex((node) => {
     const box = node.getBoundingClientRect();
     return event.clientX < box.left + box.width / 2;
   });
-  if (index === -1) index = nodes.length - 1;
-  invoke('tabs:reorder', { id: local.dragId, to: index });
+  const targetId = index === -1 ? nodes.at(-1)?.dataset.id : nodes[index]?.dataset.id;
+  const target = state.tabs.find(t => t.id === targetId);
+  if (target) invoke('organizer:move', { ids: [local.dragId], groupId: target.groupId, workspaceId: target.workspaceId,
+    beforeId: index === -1 ? null : targetId });
   local.dragId = null;
 });
 
 el.tabs.addEventListener('dragend', () => {
   local.dragId = null;
   el.tabs.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
+  renderTabs();
 });
 
 // Suppress the default context menu everywhere we have not built our own.

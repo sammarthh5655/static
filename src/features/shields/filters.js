@@ -116,6 +116,14 @@ class Rule {
     if (text.startsWith('||')) { this.domainAnchor = true; text = text.slice(2); }
     else if (text.startsWith('|')) { this.startAnchor = true; text = text.slice(1); }
     if (text.endsWith('|')) { this.endAnchor = true; text = text.slice(0, -1); }
+
+    // A trailing `?` marks where the query string begins - it is a separator,
+    // not a literal question mark. Treated literally, `||google.*/pagead/lvz?`
+    // demanded a `?` actually be present and so never matched the real request
+    // to /pagead/lvz. `^` already means "separator or end of URL", so reusing
+    // it gets the right behaviour for free.
+    if (text.endsWith('?')) text = text.slice(0, -1) + '^';
+
     return text.toLowerCase();
   }
 
@@ -155,6 +163,23 @@ class Rule {
       // doing a plain substring test.
       const separator = pattern.search(/[/^*?]/);
       const domainPart = separator === -1 ? pattern : pattern.slice(0, separator);
+
+      // A `*` inside the domain itself, as in ||google.*/pagead/lvz - the
+      // multi-TLD form EasyList uses heavily (google.*, amazon.*, ebay.*).
+      // Splitting on the `*` leaves domainPart as "google", which no host ends
+      // with, so every one of these rules silently failed to match. Verified
+      // against a live YouTube page: /pagead/lvz and /pagead/1p-user-list
+      // requests were allowed through despite EasyList carrying rules for both.
+      if (pattern[separator] === '*') {
+        const prefix = domainPart;                  // "google."
+        // The host must start the prefix at a label boundary, so
+        // notgoogle.com does not match ||google.*.
+        const startsAtBoundary = host === prefix || host.startsWith(prefix) ||
+          host.includes('.' + prefix);
+        if (!startsAtBoundary) return false;
+        return wildcardIndex(url, pattern) !== -1;
+      }
+
       if (!(host === domainPart || host.endsWith('.' + domainPart))) return false;
       if (separator === -1) return true;
       return wildcardIndex(url, pattern) !== -1;

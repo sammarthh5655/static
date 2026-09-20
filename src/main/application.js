@@ -1324,6 +1324,8 @@ class BrowserApplication {
       case 'open:dashboard': open('browser://dashboard'); break;
       case 'open:notes': open('browser://notes'); break;
       case 'open:focus': open('browser://focus'); break;
+      case 'open:organizer': open('browser://organizer'); break;
+      case 'open:screentime': open('browser://screentime'); break;
       case 'open:resources': open('browser://resources'); break;
       case 'open:student': open('browser://student'); break;
       case 'open:legal': open('browser://legal'); break;

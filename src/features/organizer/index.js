@@ -26,7 +26,7 @@ class Organizer {
     return this.plan;
   }
   async generate(system, prompt) {
-    if (!this.ai?.hasKey()) throw new Error('Add a Gemini key in AI settings first.');
+    if (!this.ai?.hasKey()) throw new Error('Configure GEMINI_API_KEY for Static to use Gemini.');
     if (this.aiBusy) throw new Error('An organizer AI request is already running.');
     this.aiBusy = true; this.onChange();
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 45000);
@@ -66,9 +66,12 @@ class Organizer {
     this.busy = true; const before = this.snapshot();
     try {
       await task(before);
-      this.undoStack.push({ label, before }); if (this.undoStack.length > 15) this.undoStack.shift();
       this.lastResult ||= label + ' complete.';
-    } finally { this.busy = false; this.tabs().onChange(); this.onChange(); }
+    } finally {
+      // Preserve a recovery point even if a bulk action was interrupted midway.
+      this.undoStack.push({ label, before }); if (this.undoStack.length > 15) this.undoStack.shift();
+      this.busy = false; this.tabs().onChange(); this.onChange();
+    }
     return this.state();
   }
   apply() {
@@ -110,6 +113,7 @@ class Organizer {
     });
   }
   move(input) {
+    if (!input || typeof input !== 'object') throw new Error('Choose tabs and a destination.');
     const ids = this.ids(input?.ids), group = this.groups.find(g => g.id === input.groupId);
     if (input.groupId && !group) throw new Error('Group no longer exists.');
     const workspaceId = group?.workspaceId || input.workspaceId || this.tabs().activeWorkspace;
@@ -122,7 +126,7 @@ class Organizer {
       if (input.beforeId && !ids.includes(input.beforeId)) {
         const order = this.tabs().order.filter(id => !ids.includes(id)), at = order.indexOf(input.beforeId);
         order.splice(at < 0 ? order.length : at, 0, ...ids); this.tabs().order = order;
-      }
+      } else this.tabs().order = [...this.tabs().order.filter(id => !ids.includes(id)), ...ids];
       this.sortGroups(); this.lastResult = 'Tabs moved.';
     });
   }
@@ -144,9 +148,9 @@ class Organizer {
       this.lastResult = pinned ? 'Pinned tabs are protected from cleanup.' : 'Tabs unpinned.';
     });
   }
-  async protected(tab) {
+  async protected(tab, { allowPinned = false } = {}) {
     const wc = tab?.view.webContents;
-    if (!wc || wc.isDestroyed() || tab.id === this.tabs().activeId || tab.pinned || tab.state.loading ||
+    if (!wc || wc.isDestroyed() || tab.id === this.tabs().activeId || (tab.pinned && !allowPinned) || tab.state.loading ||
         wc.isCurrentlyAudible()) return true;
     if (this.sleeping.has(tab.id)) return false;
     // Read only whether a form has edits. Never collect field values or transmit them.
@@ -163,7 +167,8 @@ class Organizer {
       const plan = analyze(this.detail()); let closed = 0, skipped = 0;
       for (const cluster of plan.duplicates) for (const id of cluster.ids) {
         const tab = this.tabs().tabs.get(id);
-        if (!tab || await this.protected(tab) || tab.state.displayUrl !== this.tabs().tabs.get(cluster.keep)?.state.displayUrl) { skipped++; continue; }
+        if (!tab || await this.protected(tab) || !this.tabs().tabs.has(id) || id === this.tabs().activeId ||
+            tab.state.displayUrl !== this.tabs().tabs.get(cluster.keep)?.state.displayUrl) { skipped++; continue; }
         before.closed.push(this.tabs().list().find(t => t.id === id));
         await this.wake(id); this.tabs().close(id); closed++;
       }
@@ -175,13 +180,15 @@ class Organizer {
       let count = 0, skipped = 0;
       for (const id of this.ids(ids)) {
         const tab = this.tabs().tabs.get(id), wc = tab.view.webContents;
-        if (!webURL(tab.state.displayUrl) || this.sleeping.has(id) || await this.protected(tab) || wc.debugger.isAttached()) { skipped++; continue; }
+        if (!webURL(tab.state.displayUrl) || this.sleeping.has(id) || await this.protected(tab) ||
+            wc.isDestroyed() || id === this.tabs().activeId || wc.debugger.isAttached()) { skipped++; continue; }
         try {
           // Freeze through Chromium's lifecycle API without navigating away. Only detach
           // debuggers we own; DevTools and extension debuggers must remain untouched.
           wc.debugger.attach('1.3'); this.ownedDebuggers.add(id);
           wc.debugger.once('detach', () => { this.sleeping.delete(id); this.ownedDebuggers.delete(id); this.onChange(); });
           await wc.debugger.sendCommand('Page.setWebLifecycleState', { state: 'frozen' });
+          if (id === this.tabs().activeId) { await this.wake(id); skipped++; continue; }
           this.sleeping.add(id); count++;
         } catch { if (this.ownedDebuggers.has(id)) { try { wc.debugger.detach(); } catch {} } skipped++; }
       }
@@ -245,7 +252,7 @@ class Organizer {
       const { before } = entry, manager = this.tabs(), remap = new Map();
       for (const id of before.created) {
         const tab = manager.tabs.get(id);
-        if (tab && !await this.protected(tab)) { await this.wake(id); manager.close(id); }
+        if (tab && !await this.protected(tab, { allowPinned: true })) { await this.wake(id); manager.close(id); }
       }
       for (const saved of before.closed) remap.set(saved.id, manager.create({ url: saved.url, background: true, workspaceId: saved.workspaceId }));
       for (const id of [...this.sleeping]) if (!before.sleeping.includes(id)) await this.wake(id);

@@ -177,6 +177,10 @@ function render() {
   content.replaceChildren(...[
     blockNotice(),
     timerCard(),
+    element('div', { class: 'panel-card' }, [
+      element('span', { text: 'Daily website allowances and scheduled pauses work alongside Focus. ' }),
+      element('button', { class: 'pill', text: 'Open Screen Time', onclick: () => invoke('tabs:navigate', { input: 'browser://screentime' }) }),
+    ]),
     blocklistCard(),
     statsCard(),
   ].filter(Boolean));

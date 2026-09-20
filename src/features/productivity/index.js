@@ -57,7 +57,7 @@ class Productivity {
     const eligible = !!tab && !!win && !win.isDestroyed() && win.isFocused() && !win.isMinimized() &&
       !this.locked && powerMonitor.getSystemIdleTime() < 300 && !this.organizer.sleeping.has(tab.id);
     this.screenTime.observe({ id: tab?.id, url: tab?.state.displayUrl || '', eligible });
-    const warning = tab && this.screenTime.warning(tab.state.displayUrl);
+    const warning = tab && eligible && this.screenTime.warning(tab.state.displayUrl);
     if (warning && eligible) browser.notify(warning.domain + ': about ' + warning.seconds + ' seconds left today. You can adjust this in Screen Time.');
     for (const item of browser.tabs?.tabs.values() || []) {
       const verdict = this.policy(item.state.displayUrl);
