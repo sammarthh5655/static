@@ -214,7 +214,9 @@ class BrowserApplication {
     setTimeout(() => {
       this.shields.refresh().catch((error) =>
         console.error('shields: refresh failed', error.message));
-    }, this.shields.usingCache ? 4000 : 0);
+      // An incomplete cache is as urgent as no cache: a profile holding two
+      // of twenty lists is barely protected, so it does not wait either.
+    }, this.shields.usingCache && this.shields.cachedListCount() >= 12 ? 4000 : 0);
 
     try {
       await this.extensions.start();

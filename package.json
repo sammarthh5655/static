@@ -21,6 +21,7 @@
     "test:ads": "npm run build && node scripts/start.cjs --ytdeep",
     "test:adsites": "npm run build && node scripts/start.cjs --adsites",
     "test:lists": "npm run build && node scripts/start.cjs --lists",
+    "test:stalecache": "npm run build && node scripts/start.cjs --stalecache",
     "test:menu": "npm run build && node scripts/start.cjs --menu",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",

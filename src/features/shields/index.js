@@ -193,6 +193,17 @@ class Shields {
 
   get config() { return this.store.data; }
 
+  /** How many of the configured lists are actually cached on disk. */
+  cachedListCount() {
+    let found = 0;
+    for (const list of LISTS) {
+      try {
+        if (fs.existsSync(path.join(this.cacheDir, list.id + '.txt'))) found++;
+      } catch { /* unreadable cache counts as missing */ }
+    }
+    return found;
+  }
+
   /** Load cached lists if present, otherwise the built-in fallback. */
   loadLists() {
     this.engine = new FilterEngine();
@@ -221,7 +232,16 @@ class Shields {
   /** Download the filter lists. Safe to call on a schedule. */
   async refresh({ force = false } = {}) {
     const age = Date.now() - (this.config.lastFetch || 0);
-    if (!force && age < REFRESH_MS && this.usingCache) return { ok: true, skipped: true };
+
+    // A cache that is missing lists is stale no matter how recently it was
+    // written. Without this, a profile created when the browser shipped two
+    // lists kept exactly those two for a week after twenty were added - the
+    // timestamp said "fresh", so nothing refetched, and the browser blocked
+    // far less than it reported.
+    const complete = this.cachedListCount() >= LISTS.length;
+    if (!force && age < REFRESH_MS && this.usingCache && complete) {
+      return { ok: true, skipped: true };
+    }
 
     fs.mkdirSync(this.cacheDir, { recursive: true });
 
