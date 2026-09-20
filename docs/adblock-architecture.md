@@ -63,30 +63,42 @@ Later navigations fetch a fresh player response, so `fetch` and
 
 Two constraints that are not obvious and cost real time when violated:
 
-- **Never rebuild the Response.** Reading the body, re-serialising it and
-  constructing a `new Response` breaks playback: the video reaches
-  `readyState 4`, unpaused, and sits at `currentTime 0` forever. This was
-  originally misdiagnosed as "`get_watch` cannot be intercepted" — the endpoint
-  was never the problem, the rebuild was. The wrapper now patches `.json()` on
-  the original Response, so a caller reading `.body` or `.text()` is
-  unaffected.
+- **`/youtubei/v1/get_watch` must not be intercepted at all.** Touching it
+  stalls playback: `readyState 4`, unpaused, `currentTime` stuck at 0 forever.
+
+  This was first blamed on *rebuilding* the Response, so the wrapper was
+  rewritten to patch `.json()` on the original object and leave the body
+  stream untouched. The stall returned anyway. Isolation run:
+
+  | Coverage | Result |
+  |---|---|
+  | `/player` only | `videoTime 7`, playing |
+  | `/player` + `get_watch` | `videoTime 0`, stalled |
+
+  So the endpoint is the problem, not the handling. Something in that payload
+  does not survive being read and walked. **Do not try this a third time**
+  without a new mechanism — a blocked ad is not worth a video that never
+  starts.
 - Only one `window.fetch` wrapper may exist. Two wrappers fought here; the
   later one used reassignment rather than in-place patching and silently won,
   unhooking the blocker.
 
 ### 1.2 Why it used to work only sometimes
 
-Measured directly in the running browser: clicking from one video to the next
-fetches **`/youtubei/v1/get_watch`**, not `/youtubei/v1/player`. With only
-`/player` covered, the var trap caught the first video of a session and every
-later one was served its ads untouched — the user-visible symptom being "it
-works a bit but sometimes it doesn't".
+Clicking from one video to the next fetches **`/youtubei/v1/get_watch`**, not
+`/youtubei/v1/player`. The obvious fix — cover `get_watch` too — breaks
+playback outright, so it is ruled out above.
 
-A second cause compounded it: the var trap was installed only when a flag said
-the document was fresh. YouTube's SPA can replace the trapped property with a
-plain data value on a later navigation, after which no player response passes
-through the setter again. The trap is now re-asserted whenever the accessor is
-found missing.
+What was fixable, and is fixed: the var trap used to be installed only when a
+flag said the document was fresh. YouTube's SPA can replace the trapped
+property with a plain data value on a later navigation, after which no player
+response passes through the setter again. The trap is now re-asserted on every
+SPA navigation whenever the accessor is found missing, which is what covers
+the second and later videos of a session.
+
+Ads that arrive through `get_watch` on a later video and are not caught by the
+re-asserted trap remain **uncovered**. That is a real, stated gap rather than
+a solved problem.
 
 ---
 

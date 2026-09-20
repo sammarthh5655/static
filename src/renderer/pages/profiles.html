@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Choose your space</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="profiles.css">
+</head>
+<body class="picker-body">
+  <!-- The same aurora language as the welcome flow, so entering a profile and
+       setting one up feel like the same product. -->
+  <div class="picker-aurora" aria-hidden="true">
+    <div class="picker-blob one"></div>
+    <div class="picker-blob two"></div>
+    <div class="picker-blob three"></div>
+  </div>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <main class="picker" role="main">
+    <header class="picker-head">
+      <h1 id="title">Choose your space</h1>
+      <p class="picker-tagline">Browse with clarity.</p>
+    </header>
+
+    <!-- Cards are built in JS from the real profile list. -->
+    <section class="picker-grid" id="grid" aria-label="Profiles"></section>
+
+    <footer class="picker-actions">
+      <button id="manage" class="picker-button quiet">Manage profiles</button>
+      <button id="create" class="picker-button">New profile</button>
+    </footer>
+    <p class="picker-error" id="error" role="alert"></p>
+  </main>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="../../shared/modes.js"></script>
+  <script src="common.js"></script>
+  <script src="profiles.js"></script>
+</body>
+</html>

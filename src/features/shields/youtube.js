@@ -81,28 +81,31 @@ const PAGE_SCRIPT = `
   // navigations and passed through untouched on others.
   function isAdBearing(url) {
     if (!url) return false;
-    // BOTH /player and /get_watch.
+    // /player ONLY. This is a tested conclusion, and it has now been tested
+    // twice, in opposite directions.
     //
-    // Measured, not assumed: clicking from one video to the next in the SPA
-    // fetches /youtubei/v1/get_watch, NOT /player. Covering only /player meant
-    // the var trap caught the first video of a session and every later one was
-    // served its ads untouched - which is exactly the "works sometimes"
-    // this fixes.
+    // Clicking from one video to the next in the SPA fetches
+    // /youtubei/v1/get_watch rather than /player, so covering get_watch looks
+    // like the obvious fix for ads on later videos. It is not. Adding it
+    // stalls playback: readyState 4, unpaused, currentTime stuck at 0 forever.
     //
-    // An earlier attempt at get_watch DID break playback (video at readyState
-    // 4, unpaused, stuck at currentTime 0), which is why the comment here used
-    // to rule it out. The cause was the fix, not the endpoint: that version
-    // REBUILT the Response from re-serialised JSON, which loses the streaming
-    // body the player depends on. The wrapper below no longer rebuilds
-    // anything - it patches .json() on the original Response - so the payload
-    // the player receives is the same object it would have received.
+    // That was first blamed on REBUILDING the Response, so the wrapper was
+    // rewritten to patch .json() on the original object instead, leaving the
+    // body stream untouched. The stall came back anyway. Isolation run:
     //
-    // /browse and /search stay excluded: they carry FEED ads, which the
-    // cosmetic stylesheet hides far more cheaply, and walking those large
-    // payloads on every scroll and keystroke is real cost for no gain.
-    return url.indexOf('/youtubei/v1/player') !== -1 ||
-           url.indexOf('/youtubei/v1/get_watch') !== -1 ||
-           url.indexOf('/youtubei/v1/reel_watch_sequence') !== -1;
+    //   /player only              -> videoTime 7, playing
+    //   /player + get_watch       -> videoTime 0, stalled
+    //
+    // So the endpoint itself is the problem, not how the response is handled -
+    // something in the get_watch payload does not survive being read and
+    // walked at all. A blocked ad is not worth a video that never starts.
+    //
+    // Ads on later videos are covered by the var trap being re-asserted on
+    // each SPA navigation (see below) rather than by widening this.
+    //
+    // /browse and /search stay excluded for a different reason: they carry
+    // FEED ads, which the cosmetic stylesheet hides far more cheaply.
+    return url.indexOf('/youtubei/v1/player') !== -1;
   }
 
   // Counters split by source, and reset per video.

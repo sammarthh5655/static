@@ -24,6 +24,7 @@ const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
+const { Profiles } = require('../features/profiles');
 const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
@@ -61,12 +62,32 @@ function chromeHeight(settings) {
  */
 class BrowserApplication {
   constructor() {
-    this.dir = app.getPath('userData');
+    // The browser's own directory, shared by every profile. Only the profile
+    // list itself lives here.
+    this.root = app.getPath('userData');
+
+    // Profiles own the per-profile directories AND the session partitions, so
+    // they are constructed before anything that stores data.
+    this.profiles = new Profiles(this.root, { onChange: () => this.push() });
+
+    // Everything below is built from THIS, so pointing it at a profile
+    // directory is what makes history, notes, passwords, shields and settings
+    // genuinely separate - each feature already takes its directory as an
+    // argument, so nothing else has to know profiles exist.
+    this.dir = this.profiles.directory(this.profiles.active.id);
+
+    // Cookies and logins are separated by Chromium rather than by us: each
+    // profile gets its own partition, so one profile cannot read another's
+    // cookies because they are not in the same store to begin with.
+    this.session = session.fromPartition(this.profiles.partition(this.profiles.active.id));
+
+    // Set when the browser was relaunched by a profile switch, so the picker
+    // does not immediately reappear and trap the user in a loop.
+    this.profilePicked = process.argv.includes('--profile-chosen');
     this.window = null;
     this.chrome = null;
     this.tabs = null;
     this.extensions = null;
-    this.session = session.defaultSession;
     this.notice = null;
     // Whether the menu overlay is currently sized to the whole window.
     this.overlayInteractive = false;
@@ -437,7 +458,40 @@ class BrowserApplication {
     return this.window;
   }
 
+  /**
+   * Enter a different profile.
+   *
+   * Switching means changing the Electron session, and a session cannot be
+   * swapped under live WebContentsViews - the cookie jar, cache and storage
+   * are bound to the views at creation. So the browser records the choice and
+   * relaunches into it.
+   *
+   * A relaunch is a real cost, and it is chosen deliberately: the alternative
+   * is pretending profiles are separate while they share a cookie jar, which
+   * would be a privacy claim the browser does not keep.
+   */
+  async switchProfile(id) {
+    const profile = this.profiles.find(id);
+    if (!profile) throw new Error('That profile no longer exists.');
+
+    // Mark it active and get everything on disk BEFORE relaunching, or the
+    // choice is lost along with anything unsaved.
+    this.profiles.setActive(id);
+    this.profiles.flush();
+    try { this.flush(); } catch { /* a failed flush must not trap the user */ }
+
+    // Without this the relaunched browser would show the picker again and the
+    // user could never get past it. The flag says "a profile was chosen for
+    // this launch" and lasts exactly one run.
+    app.relaunch({ args: process.argv.slice(1).concat(['--profile-chosen']) });
+    app.exit(0);
+  }
+
   #startUrl() {
+    // The profile picker comes first when the user asked for it, because
+    // which identity you are in decides what everything else shows.
+    if (this.profiles?.startup().show && !this.profilePicked) return 'browser://profiles';
+
     // A profile that has never been set up opens the welcome flow instead of
     // the homepage. It is a normal tab: it can be closed, navigated away from
     // and reopened, because a setup screen that traps the window is worse than
@@ -925,6 +979,54 @@ class BrowserApplication {
       'sense:silence': (_sender, payload) => { this.sense.silence(String(payload?.id || '')); return true; },
       'sense:state': () => this.sense.state(),
       'sense:enabled': (_sender, payload) => this.sense.setEnabled(payload?.enabled !== false),
+
+      // ---- profiles --------------------------------------------------------
+      'profiles:state': () => {
+        const state = this.profiles.state();
+        // The picker shows open tab counts, which only the ACTIVE profile can
+        // truthfully report - the others are not running. Anything unknown is
+        // omitted rather than shown as zero.
+        const activeId = this.profiles.active.id;
+        const openTabs = this.tabs ? this.tabs.list().length : 0;
+        state.profiles = state.profiles.map((profile) => (
+          profile.id === activeId ? { ...profile, tabs: openTabs } : profile));
+        return state;
+      },
+
+      /**
+       * Enter a profile.
+       *
+       * A locked profile returns { locked: true } rather than throwing, so the
+       * picker can ask again without treating a wrong PIN as an error.
+       */
+      'profiles:enter': async (_sender, payload) => {
+        const id = String(payload?.id || '');
+        const profile = this.profiles.find(id);
+        if (!profile) throw new Error('That profile no longer exists.');
+        if (profile.pin && !this.profiles.checkPin(id, payload?.pin)) return { locked: true };
+
+        await this.switchProfile(id);
+        return { ok: true, id };
+      },
+
+      'profiles:create': (_sender, payload) => this.profiles.create(payload || {}),
+      'profiles:update': (_sender, payload) => this.profiles.update(String(payload?.id || ''), payload || {}),
+      'profiles:remove': (_sender, payload) => this.profiles.remove(String(payload?.id || '')),
+      'profiles:duplicate': (_sender, payload) =>
+        this.profiles.duplicate(String(payload?.id || ''), payload?.name),
+      'profiles:clear-data': (_sender, payload) => this.profiles.clearData(String(payload?.id || '')),
+      'profiles:set-default': (_sender, payload) => this.profiles.setDefault(String(payload?.id || '')),
+      'profiles:set-pin': (_sender, payload) =>
+        this.profiles.setPin(String(payload?.id || ''), payload?.pin ?? null),
+      'profiles:startup': (_sender, payload) => this.profiles.setStartup(String(payload?.mode || '')),
+      'profiles:manage': () => {
+        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://settings#profiles');
+        return true;
+      },
+      'profiles:switch': async (_sender, payload) => {
+        await this.switchProfile(String(payload?.id || ''));
+        return true;
+      },
 
       // ---- first launch ----------------------------------------------------
       // Each of these returns the whole onboarding state, so the page never

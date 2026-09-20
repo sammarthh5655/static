@@ -7,28 +7,43 @@
  */
 
 :root {
-  --bg: #161718;
-  --bg-raised: #1e1f21;
-  --surface: #242628;
-  --surface-hover: #2e3033;
-  --surface-active: #383a3e;
-  --text: #e9eaec;
-  --text-dim: #9498a0;
-  --text-faint: #6b6f77;
-  --border: #303236;
-  --border-soft: #26282b;
-  --accent: #7aa2f7;
-  --accent-dim: #3d5a94;
-  --danger: #f7768e;
+  /* First-paint fallbacks, taken from the DEFAULT PLANET.
+     These were left behind from a theme that no longer exists, so every page
+     painted in a stale palette before applyTheme ran - and --accent-alt was
+     missing entirely, which silently invalidated any rule using it: a
+     gradient heading computed to `none`, and with a transparent text fill
+     that meant invisible text.
+     Regenerate from shared/theme.js if the default planet changes. */
+  --bg: #0a1018;
+  --bg-raised: #0f1722;
+  --bg-strip: #070b12;
+  --surface: #131e2c;
+  --surface-hover: #1a2a3d;
+  --surface-active: #233852;
+  --text: #e7eef7;
+  --text-dim: #93a6bd;
+  --text-faint: #697c94;
+  --border: #223047;
+  --border-soft: #182334;
+  --accent: #5aa7f0;
+  --accent-dim: #1c3c5f;
+  --accent-alt: #7d8ef2;
+  --danger: #f0738b;
+  --success: #63d2a4;
+  --warn: #e4b968;
+  --field: #101a26;
+  --tab-active: #131e2c;
   --radius: 10px;
   --radius-sm: 6px;
   --radius-lg: 16px;
+  --shadow-colour: rgba(0, 0, 0, 0.34);
+  --shadow-colour-strong: rgba(0, 0, 0, 0.5);
   --motion-fast: 120ms;
   --motion-base: 170ms;
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --menu-surface: rgba(30, 31, 33, 0.82);
+  --menu-surface: rgba(15, 23, 34, 0.85);
   --menu-blur: blur(18px) saturate(1.6);
-  --menu-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  --menu-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
 }
 
 * { box-sizing: border-box; }
