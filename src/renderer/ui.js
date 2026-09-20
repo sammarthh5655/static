@@ -105,8 +105,24 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
       const title = document.createElement('strong');
       title.textContent = 'Static';
       const subtitle = document.createElement('span');
-      subtitle.textContent = 'Browse smarter with AI.';
+      // The brand row was two lines of decoration at the top of every menu.
+      // It now carries the one thing worth having there: which profile you
+      // are in, and a way to change it.
+      subtitle.textContent = item.profile
+        ? item.profile.name + ' · switch profile'
+        : 'Browse smarter with AI.';
       text.append(title, subtitle);
+      if (item.profile) {
+        text.className = 'menu-brand-profile';
+        text.setAttribute('role', 'button');
+        text.setAttribute('tabindex', '0');
+        text.title = 'Choose a different profile';
+        const open = () => { closeMenu(); item.profile.onOpen(); };
+        text.addEventListener('click', open);
+        text.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+        });
+      }
       const dismiss = iconButton('close', { title: 'Close menu', onClick: closeMenu, size: 16 });
       header.append(mark, text, dismiss);
       root.append(header);

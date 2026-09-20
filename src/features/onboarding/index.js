@@ -28,6 +28,7 @@ const { JsonStore } = require('../../main/storage');
 const STEPS = [
   { id: 'welcome', title: 'Welcome to Static', optional: false },
   { id: 'profile', title: 'How will you use Static?', optional: false },
+  { id: 'theme', title: 'Choose a world', optional: true },
   { id: 'homepage', title: 'Your homepage', optional: true },
   { id: 'privacy', title: 'Privacy level', optional: true },
   { id: 'ai', title: 'The assistant', optional: true },
@@ -147,6 +148,7 @@ class Onboarding {
       profile: '',
       privacy: '',
       layout: '',
+      theme: '',
       aiEnabled: null,
       // Steps passed over, so anything later can be honest about what was
       // skipped rather than treating it as answered.
@@ -185,6 +187,7 @@ class Onboarding {
         profile: this.store.data.profile,
         privacy: this.store.data.privacy,
         layout: this.store.data.layout,
+        theme: this.store.data.theme,
         aiEnabled: this.store.data.aiEnabled,
       },
       // Stated rather than assumed, so the page never offers something that
@@ -254,6 +257,20 @@ class Onboarding {
       : null };
   }
 
+  /**
+   * Pick a planet.
+   *
+   * Written through settings.update like everything else, so a theme id the
+   * settings allowlist rejects throws here rather than reaching the store.
+   */
+  chooseTheme(id) {
+    this.settings.update({ theme: String(id || '') });
+    this.store.data.theme = String(id || '');
+    this.store.save();
+    this.onChange();
+    return this.state();
+  }
+
   chooseLayout(id) {
     const layout = LAYOUTS[id];
     if (!layout) throw new Error('No such layout.');
@@ -312,6 +329,7 @@ class Onboarding {
       this.store.data.profile = '';
       this.store.data.privacy = '';
       this.store.data.layout = '';
+      this.store.data.theme = '';
       this.store.data.aiEnabled = null;
     }
     this.step = 0;

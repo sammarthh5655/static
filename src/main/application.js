@@ -473,6 +473,19 @@ class BrowserApplication {
    * is pretending profiles are separate while they share a cookie jar, which
    * would be a privacy claim the browser does not keep.
    */
+  /** Onboarding state plus everything the welcome page renders from. */
+  #onboardingState(base) {
+    const state = base || this.onboarding.state();
+    return {
+      ...state,
+      planets: Object.values(THEMES)
+        .map(({ id, name, blurb, order, palette, luminous }) =>
+          ({ id, name, blurb, order, palette, luminous }))
+        .sort((a, b) => a.order - b.order),
+      currentTheme: this.settings.value.theme,
+    };
+  }
+
   async switchProfile(id) {
     const profile = this.profiles.find(id);
     if (!profile) throw new Error('That profile no longer exists.');
@@ -718,6 +731,14 @@ class BrowserApplication {
         themes: Object.values(THEMES).map(({ id, name }) => ({ id, name })),
         surfaceStyles: Object.values(SURFACE_STYLES),
         radii: Object.values(RADIUS).map(({ id, name }) => ({ id, name })),
+      },
+      // Which profile is in use, so the menu can say so and switch.
+      profiles: {
+        active: this.profiles
+          ? { id: this.profiles.active.id, name: this.profiles.active.name,
+              guest: !!this.profiles.active.guest }
+          : null,
+        count: this.profiles ? this.profiles.list.length : 0,
       },
       tabs: this.tabs ? this.tabs.list() : [],
       organizer: this.productivity?.organizer.chromeState(),
@@ -1076,14 +1097,20 @@ class BrowserApplication {
       // ---- first launch ----------------------------------------------------
       // Each of these returns the whole onboarding state, so the page never
       // has to work out what changed or which step follows.
-      'onboarding:state': () => this.onboarding.state(),
-      'onboarding:next': () => this.onboarding.next(),
-      'onboarding:back': () => this.onboarding.back(),
-      'onboarding:skip': () => this.onboarding.skip(),
-      'onboarding:profile': (_sender, payload) => this.onboarding.chooseProfile(String(payload?.id || '')),
-      'onboarding:layout': (_sender, payload) => this.onboarding.chooseLayout(String(payload?.id || '')),
-      'onboarding:privacy': (_sender, payload) => this.onboarding.choosePrivacy(String(payload?.id || '')),
-      'onboarding:ai': (_sender, payload) => this.onboarding.chooseAI(payload?.id === 'on'),
+      /**
+       * The planets travel WITH the onboarding state rather than being read
+       * from the catalog, so the welcome page needs exactly one call to
+       * render any step.
+       */
+      'onboarding:state': () => this.#onboardingState(),
+      'onboarding:next': () => this.#onboardingState(this.onboarding.next()),
+      'onboarding:back': () => this.#onboardingState(this.onboarding.back()),
+      'onboarding:skip': () => this.#onboardingState(this.onboarding.skip()),
+      'onboarding:profile': (_sender, payload) => this.#onboardingState(this.onboarding.chooseProfile(String(payload?.id || ''))),
+      'onboarding:layout': (_sender, payload) => this.#onboardingState(this.onboarding.chooseLayout(String(payload?.id || ''))),
+      'onboarding:theme': (_sender, payload) => this.#onboardingState(this.onboarding.chooseTheme(String(payload?.id || ''))),
+      'onboarding:privacy': (_sender, payload) => this.#onboardingState(this.onboarding.choosePrivacy(String(payload?.id || ''))),
+      'onboarding:ai': (_sender, payload) => this.#onboardingState(this.onboarding.chooseAI(payload?.id === 'on')),
       /**
        * Finish or dismiss. Both mark it complete and then leave the welcome
        * page, because a setup flow you cannot get out of is a trap.

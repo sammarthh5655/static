@@ -46,6 +46,30 @@ async function run(browser) {
       view.canvasW + 'x' + view.canvasH);
     check('planets are actually drawn', view.painted > 40, view.painted + ' lit samples');
     check('the current planet is named', view.caption.length > 0, view.caption);
+
+    // Every planet must be fully inside the canvas - the outer orbits used to
+    // run off the right edge and two planets were drawn half cut off.
+    const inside = await wc.executeJavaScript(`(function(){
+      var c = document.querySelector('.planetarium-canvas');
+      var ctx = c.getContext('2d');
+      var d = ctx.getImageData(0, 0, c.width, c.height).data;
+      // Sample the outermost columns and rows: a planet touching the edge
+      // means it is clipped.
+      function litAt(x, y) {
+        var i = (y * c.width + x) * 4;
+        return d[i + 3] > 200 && (d[i] + d[i+1] + d[i+2]) > 300;
+      }
+      var edge = 0;
+      for (var y = 0; y < c.height; y += 2) {
+        if (litAt(0, y) || litAt(c.width - 1, y)) edge++;
+      }
+      for (var x = 0; x < c.width; x += 2) {
+        if (litAt(x, 0) || litAt(x, c.height - 1)) edge++;
+      }
+      return edge;
+    })()`);
+    check('no planet is clipped by the canvas edge', inside === 0,
+      inside + ' lit pixels on the border');
     check('the forge is there', view.hasForge === true);
 
     // Clicking a planet must change the theme for real.

@@ -27,6 +27,7 @@ let state = null;
 const LEDE = {
   welcome: 'A browser that blocks what you did not ask for, and keeps what you are doing to yourself. Setting up takes about a minute, and you can change any of it later.',
   profile: 'This sets your homepage and theme to something sensible. Everything stays editable in Settings.',
+  theme: 'Every planet is a full colour scheme. Hover to see one named, click to wear it - the browser changes straight away, and you can change it again whenever you like.',
   homepage: 'What you see when you open a new tab. Widgets can be added, removed and rearranged later.',
   privacy: 'How much Static blocks by default. You can change this per site from the shield in the toolbar.',
   ai: 'The assistant can summarise a page you are reading and answer questions about it.',
@@ -253,6 +254,25 @@ function body() {
       state.profiles.map((profile) => choice(
         profile, state.chosen.profile === profile.id,
         (id) => pickAndAdvance('onboarding:profile', id)))));
+    return box;
+  }
+
+  if (state.stepId === 'theme') {
+    // The same planetarium as Settings, so choosing a theme is the same
+    // gesture wherever it is done.
+    const host = element('div', { class: 'welcome-planets' });
+    box.append(host);
+    if (window.planetarium && state.planets && state.planets.length) {
+      const view = window.planetarium.build({ element, icon: window.page.icon }, {
+        planets: state.planets,
+        current: state.chosen.theme || state.currentTheme,
+        onPick: (id) => { invoke('onboarding:theme', { id }).catch((e) => show(e.message)); },
+      });
+      host.append(view.node);
+    } else {
+      host.append(element('p', { class: 'welcome-note',
+        text: 'Themes are not available in this build.' }));
+    }
     return box;
   }
 

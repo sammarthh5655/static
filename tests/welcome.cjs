@@ -100,10 +100,29 @@ async function run(browser) {
 
     // Choosing advances, because choosing IS the answer.
     await clickChoice(2);
+    await until(/world/i, 'theme');
+    view = await read();
+    check('choosing a profile advances to the theme step',
+      /world/i.test(view.title), view.title);
+
+    // The theme step is the planetarium, not a list of cards.
+    const planets = await wc.executeJavaScript(`(function(){
+      var c = document.querySelector('.planetarium-canvas');
+      if (!c) return { canvas: false };
+      var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      var lit = 0;
+      for (var i = 3; i < d.length; i += 400) if (d[i] > 12) lit++;
+      return { canvas: true, painted: lit, name: (document.querySelector('.planetarium-name')||{}).textContent || '' };
+    })()`);
+    check('the theme step shows the planetarium', planets.canvas === true);
+    check('planets are drawn there too', planets.painted > 30, planets.painted + ' lit samples');
+    check('and one is named', planets.name.length > 0, planets.name);
+
+    // It is optional, so it can be passed over.
+    await click('#skip');
     await until(/homepage/i, 'homepage');
     view = await read();
-    check('choosing a profile advances to the homepage step',
-      /homepage/i.test(view.title), view.title);
+    check('the theme step can be skipped', /homepage/i.test(view.title), view.title);
     check('the chosen profile really reached settings',
       browser.settings.value.density === 'compact' || browser.settings.value.theme === 'pluto',
       JSON.stringify({ theme: browser.settings.value.theme, density: browser.settings.value.density }));

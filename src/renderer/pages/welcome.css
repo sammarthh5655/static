@@ -445,3 +445,11 @@
   .welcome-panel { transform: none !important; }
   #stars { display: none; }
 }
+
+/* The theme step borrows the Settings planetarium, so choosing a world is the
+   same gesture wherever it is done. */
+.welcome-planets { margin: -6px 0 0; }
+.welcome-planets .planetarium-canvas {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-strip) 70%, transparent);
+}

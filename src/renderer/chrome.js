@@ -120,7 +120,11 @@ const doAction = (id) => action('ui:action', { action: id });
 function mainMenuItems() {
   const s = state.settings || {};
   return [
-    { brand: true },
+    // The brand row carries the active profile and opens the picker.
+    { brand: true, profile: {
+      name: state.profiles?.active?.name || 'Profile',
+      onOpen: () => invoke('tabs:navigate', { input: 'browser://profiles' }),
+    } },
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
     { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },
     { label: 'Organise Tabs', icon: 'grid', shortcut: accel('open:organizer'), action: doAction('open:organizer') },

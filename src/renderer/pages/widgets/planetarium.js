@@ -58,7 +58,9 @@ function build(ctx, options) {
     const box = wrap.getBoundingClientRect();
     const w = Math.max(280, box.width || 640);
     // The system is wider than it is tall, and must not push the page down.
-    const h = Math.max(220, Math.min(340, w * 0.46));
+    // Taller than it was: the inner orbits were bunched near the centre and
+    // the planets overlapped each other.
+    const h = Math.max(300, Math.min(440, w * 0.58));
     canvas.width = Math.floor(w * ratio);
     canvas.height = Math.floor(h * ratio);
     canvas.style.width = w + 'px';
@@ -164,16 +166,23 @@ function build(ctx, options) {
     const cx = width / 2;
     const cy = height / 2;
     // Orbits are ellipses so the system reads as tilted rather than flat.
-    const maxA = width * 0.44;
-    const maxB = height * 0.38;
+    // Leave room for a planet's own radius plus its glow at the outermost
+    // orbit, or the outer planets are drawn half outside the canvas.
+    const margin = Math.max(26, Math.min(40, width / 24));
+    const maxA = (width / 2) - margin;
+    const maxB = (height / 2) - margin;
 
     bodies = [];
     planets.forEach((planet, index) => {
       const step = (index + 1) / planets.length;
-      const a = maxA * (0.24 + step * 0.76);
-      const b = maxB * (0.24 + step * 0.76);
+      // Orbits start well away from the centre and spread evenly. Starting at
+      // 0.24 put the first four planets almost on top of one another.
+      const a = maxA * (0.42 + step * 0.58);
+      const b = maxB * (0.42 + step * 0.58);
       // Outer planets move more slowly, which is both true and easier to read.
-      const angle = spin + time * (1.6 / (index + 2)) + index * 0.9;
+      // Golden-angle spacing, so planets are spread around the system rather
+      // than lining up in an arc.
+      const angle = spin + time * (1.6 / (index + 2)) + index * 2.399963;
       const x = cx + Math.cos(angle) * a;
       const y = cy + Math.sin(angle) * b;
 
@@ -187,7 +196,7 @@ function build(ctx, options) {
       context.stroke();
       context.restore();
 
-      const base = Math.max(9, Math.min(19, width / 44));
+      const base = Math.max(10, Math.min(17, width / 52));
       const r = base * (hovered === index ? 1.45 : planet.id === current ? 1.18 : 1);
       bodies.push({ planet, x, y, r, index });
     });
