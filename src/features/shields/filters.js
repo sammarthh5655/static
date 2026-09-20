@@ -51,6 +51,35 @@ const COSMETIC_ONLY_OPTIONS = new Set([
   'content', 'inline-script', 'inline-font',
 ]);
 
+/**
+ * Options this engine does not implement, which make a rule UNSAFE to apply.
+ *
+ * These are not merely unsupported - ignoring them inverts what the rule
+ * means. uBlock's list contains, for example:
+ *
+ *   *$xhr,redirect-rule=noop.txt,to=~pagead2.googlesyndication.com,from=tunein.com
+ *
+ * which redirects one site's requests to a stub. Dropping `from=`, `to=` and
+ * `redirect-rule` leaves the bare pattern `*` with type xhr - "block every
+ * XHR on the entire web". That one rule made the browser return
+ * ERR_BLOCKED_BY_CLIENT for ordinary pages.
+ *
+ * A rule carrying any of these is marked inert, so it neither blocks nor
+ * unblocks anything.
+ */
+const UNSUPPORTED_SCOPE_OPTIONS = new Set([
+  // Redirect rules: the point of them is WHAT to serve instead, which this
+  // engine cannot do.
+  'redirect', 'redirect-rule', 'rewrite',
+  // Request source and destination scoping.
+  'from', 'to', 'denyallow', 'method', 'ipaddress',
+  // Header-level matching and rewriting.
+  'header', 'replace', 'csp', 'permissions', 'removeparam', 'uritransform',
+  // Behavioural, not network.
+  'empty', 'mp4', 'cname', 'strict1p', 'strict3p', 'all', 'popup', 'popunder',
+  'webrtc', 'genericblock', 'badfilter', 'match-case',
+]);
+
 const TYPE_OPTIONS = new Set([
   'document', 'subdocument', 'stylesheet', 'script', 'image', 'font',
   'object', 'xmlhttprequest', 'ping', 'media', 'websocket', 'other',
@@ -108,6 +137,11 @@ class Rule {
       // unblocks the Facebook pixel everywhere - which is exactly what it did
       // before this check existed.
       if (COSMETIC_ONLY_OPTIONS.has(name)) { this.inert = true; continue; }
+
+      // Options that change WHAT a rule means, not just what it matches.
+      // Dropping them turns a narrowly scoped rule into a broad one - see the
+      // note on UNSUPPORTED_SCOPE_OPTIONS.
+      if (UNSUPPORTED_SCOPE_OPTIONS.has(name)) { this.inert = true; continue; }
     }
   }
 

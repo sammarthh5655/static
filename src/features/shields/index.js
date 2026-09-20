@@ -28,9 +28,56 @@ const { Stats } = require('./stats');
 /** Refreshed weekly; these lists change slowly. */
 const REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * The filter lists, taken from Brave's own catalogue.
+ *
+ * This used to be EasyList and EasyPrivacy alone, which is why ads kept
+ * getting through: Brave's DEFAULT set is uBlock Origin's filter corpus, and
+ * EasyList is only one entry in it. uBlock's per-year files carry the rules
+ * for everything added since 2020, `unbreak` and `quick-fixes` are what keep
+ * sites working, and Brave's own lists cover what the shared lists miss.
+ *
+ * Source: brave/adblock-resources, filter_lists/list_catalog.json, the two
+ * entries marked default_enabled.
+ *
+ * `essential` lists are fetched before the browser reports itself ready;
+ * everything else streams in behind them, so a first run is protected quickly
+ * rather than waiting on two dozen downloads.
+ */
+const UBO = 'https://raw.githubusercontent.com/uBlockOrigin/uAssets/master/filters/';
+const BRAVE = 'https://raw.githubusercontent.com/brave/adblock-lists/master/';
+
 const LISTS = [
-  { id: 'easylist', name: 'EasyList', url: 'https://easylist.to/easylist/easylist.txt' },
-  { id: 'easyprivacy', name: 'EasyPrivacy', url: 'https://easylist.to/easylist/easyprivacy.txt' },
+  // --- the core corpus, in Brave's own order --------------------------------
+  { id: 'ubo-filters', name: 'uBlock filters', url: UBO + 'filters.txt', essential: true },
+  { id: 'easylist', name: 'EasyList', url: 'https://easylist.to/easylist/easylist.txt', essential: true },
+  { id: 'easyprivacy', name: 'EasyPrivacy', url: 'https://easylist.to/easylist/easyprivacy.txt', essential: true },
+  { id: 'ubo-privacy', name: 'uBlock privacy', url: UBO + 'privacy.txt', essential: true },
+
+  // Per-year files. uBlock splits its corpus by the year a rule was added, so
+  // omitting these omits most of the modern web's ad rules.
+  { id: 'ubo-2020', name: 'uBlock 2020', url: UBO + 'filters-2020.txt' },
+  { id: 'ubo-2021', name: 'uBlock 2021', url: UBO + 'filters-2021.txt' },
+  { id: 'ubo-2022', name: 'uBlock 2022', url: UBO + 'filters-2022.txt' },
+  { id: 'ubo-2023', name: 'uBlock 2023', url: UBO + 'filters-2023.txt' },
+  { id: 'ubo-2024', name: 'uBlock 2024', url: UBO + 'filters-2024.txt' },
+  { id: 'ubo-2025', name: 'uBlock 2025', url: UBO + 'filters-2025.txt' },
+  { id: 'ubo-2026', name: 'uBlock 2026', url: UBO + 'filters-2026.txt' },
+  { id: 'ubo-general', name: 'uBlock general', url: UBO + 'filters-general.txt' },
+
+  // Safety and site-health.
+  { id: 'ubo-badware', name: 'Badware risks', url: UBO + 'badware.txt' },
+  { id: 'ubo-abuse', name: 'Resource abuse', url: UBO + 'resource-abuse.txt' },
+  // Unbreak and quick-fixes carry EXCEPTIONS. Without them the rules above
+  // break real sites, which is how an ad blocker ends up switched off.
+  { id: 'ubo-unbreak', name: 'uBlock unbreak', url: UBO + 'unbreak.txt', essential: true },
+  { id: 'ubo-quick', name: 'Quick fixes', url: UBO + 'quick-fixes.txt', essential: true },
+
+  // Brave's own lists.
+  { id: 'brave-specific', name: 'Brave specific', url: BRAVE + 'brave-lists/brave-specific.txt' },
+  { id: 'brave-social', name: 'Brave social', url: BRAVE + 'brave-lists/brave-social.txt' },
+  { id: 'brave-firstparty', name: 'Brave first party', url: BRAVE + 'brave-lists/brave-firstparty.txt' },
+  { id: 'brave-unbreak', name: 'Brave unbreak', url: BRAVE + 'brave-unbreak.txt', essential: true },
 ];
 
 /**
@@ -177,20 +224,47 @@ class Shields {
     if (!force && age < REFRESH_MS && this.usingCache) return { ok: true, skipped: true };
 
     fs.mkdirSync(this.cacheDir, { recursive: true });
-    let fetched = 0;
-    for (const list of LISTS) {
+
+    /**
+     * Fetch one list and cache it.
+     *
+     * A truncated or error response would silently disable blocking, so the
+     * body has to look like a filter list before it overwrites the cache.
+     * The test is deliberately loose: `quick-fixes` and the unbreak lists are
+     * small and carry mostly EXCEPTIONS (@@) and cosmetic rules (##), so
+     * demanding a network rule would reject exactly the lists that keep sites
+     * working.
+     */
+    const fetchOne = async (list) => {
       try {
         const text = await download(list.url);
-        // A truncated or error response would silently disable blocking, so
-        // require something list-shaped before overwriting the cache.
-        if (text.length < 10000 || !text.includes('||')) {
-          throw new Error('response did not look like a filter list');
-        }
+        const looksRight = text.length > 200 &&
+          (text.includes('||') || text.includes('##') || text.includes('@@'));
+        if (!looksRight) throw new Error('response did not look like a filter list');
         fs.writeFileSync(path.join(this.cacheDir, list.id + '.txt'), text);
-        fetched++;
+        return true;
       } catch (error) {
+        // One list failing must never stop the others: a network hiccup on a
+        // minor list should not leave the browser unprotected.
         console.error('shields: could not fetch ' + list.id + ':', error.message);
+        return false;
       }
+    };
+
+    // Essentials first and in parallel, so a fresh profile is protected in
+    // seconds rather than after two dozen sequential downloads.
+    const essential = LISTS.filter((list) => list.essential);
+    const rest = LISTS.filter((list) => !list.essential);
+
+    const first = await Promise.all(essential.map(fetchOne));
+    let fetched = first.filter(Boolean).length;
+    if (fetched) this.loadLists();     // block with what we have, now
+
+    // Downloaded a few at a time: twenty parallel requests to two hosts is
+    // rude and gets rate-limited.
+    for (let at = 0; at < rest.length; at += 4) {
+      const batch = await Promise.all(rest.slice(at, at + 4).map(fetchOne));
+      fetched += batch.filter(Boolean).length;
     }
 
     if (fetched) {
@@ -199,7 +273,7 @@ class Shields {
       this.loadLists();
     }
     this.onChange();
-    return { ok: fetched > 0, fetched, rules: this.engine.count };
+    return { ok: fetched > 0, fetched, total: LISTS.length, rules: this.engine.count };
   }
 
   /** Is the shield on for this page? */
