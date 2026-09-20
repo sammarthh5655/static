@@ -22,6 +22,9 @@ const DEFAULTS = {
   density: 'comfortable',
   accent: 'default',
   accentCustom: '',
+  // The forged world, when `theme` is 'custom'.
+  customColour: '',
+  customLight: false,
 
   // New tab page. `widgets` is an ordered list of widget ids - order here is
   // render order, so rearranging is just a reorder of this array.
@@ -56,7 +59,7 @@ class Settings {
   /** Repair anything stale or malformed loaded from disk. */
   #normalise(value) {
     const next = { ...DEFAULTS, ...value };
-    if (!THEMES[next.theme]) next.theme = DEFAULTS.theme;
+    if (!THEMES[next.theme] && next.theme !== 'custom') next.theme = DEFAULTS.theme;
     if (!SURFACE_STYLES[next.surfaceStyle]) next.surfaceStyle = DEFAULTS.surfaceStyle;
     if (!RADIUS[next.radius]) next.radius = DEFAULTS.radius;
     if (typeof next.animations !== 'boolean') next.animations = DEFAULTS.animations;
@@ -101,7 +104,13 @@ class Settings {
       else if (key === 'sidebarMode' && ['on', 'autohide', 'off'].includes(value)) next[key] = value;
       else if (key === 'newTabBehavior' && ['newtab', 'homepage'].includes(value)) next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
-      else if (key === 'theme' && THEMES[value]) next[key] = value;
+      else if (key === 'theme' && (THEMES[value] || value === 'custom')) next[key] = value;
+      // A forged world: one colour and a direction, expanded into a full
+      // palette by shared/theme.js. Stored as the INPUT rather than the
+      // expanded tokens, so a later change to how worlds are built reaches
+      // existing ones.
+      else if (key === 'customColour') next[key] = normalizeHex(value) || '';
+      else if (key === 'customLight' && typeof value === 'boolean') next[key] = value;
       else if (key === 'surfaceStyle' && SURFACE_STYLES[value]) next[key] = value;
       else if (key === 'radius' && RADIUS[value]) next[key] = value;
       else if (key === 'animations' && typeof value === 'boolean') next[key] = value;

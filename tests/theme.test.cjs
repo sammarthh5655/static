@@ -49,6 +49,56 @@ test('every colour token is a real colour', () => {
   }
 });
 
+test('every planet declares a three-colour identity', () => {
+  // The picker renders these rather than a name in a dropdown, so a planet
+  // without them would be a blank card.
+  for (const [id, planet] of Object.entries(THEMES)) {
+    assert.ok(planet.palette, id + ' has a palette');
+    for (const key of ['primary', 'secondary', 'deep']) {
+      assert.ok(normalizeHex(planet.palette[key]),
+        id + '.' + key + ' = ' + planet.palette[key] + ' is a real colour');
+    }
+  }
+});
+
+test('no two planets look the same', () => {
+  // Two planets that read identically make the picker pointless.
+  const seen = new Map();
+  for (const [id, planet] of Object.entries(THEMES)) {
+    const key = planet.palette.primary.toLowerCase();
+    assert.ok(!seen.has(key), id + ' and ' + seen.get(key) + ' share a primary colour');
+    seen.set(key, id);
+  }
+});
+
+test('a planet primary is distinct enough from every other', () => {
+  const rgb = (hex) => {
+    const n = parseInt(normalizeHex(hex).slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  const entries = Object.entries(THEMES);
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      const [idA, a] = entries[i];
+      const [idB, b] = entries[j];
+      const one = rgb(a.palette.primary);
+      const two = rgb(b.palette.primary);
+      const distance = Math.hypot(one[0] - two[0], one[1] - two[1], one[2] - two[2]);
+      assert.ok(distance > 28,
+        idA + ' and ' + idB + ' are too close to tell apart (' + Math.round(distance) + ')');
+    }
+  }
+});
+
+test('the three colours of a planet differ from each other', () => {
+  for (const [id, planet] of Object.entries(THEMES)) {
+    const { primary, secondary, deep } = planet.palette;
+    assert.notEqual(primary.toLowerCase(), secondary.toLowerCase(), id + ' primary vs secondary');
+    assert.notEqual(secondary.toLowerCase(), deep.toLowerCase(), id + ' secondary vs deep');
+    assert.notEqual(primary.toLowerCase(), deep.toLowerCase(), id + ' primary vs deep');
+  }
+});
+
 test('light planets are marked, dark ones are not', () => {
   // Someone drawing glass or a shadow on top needs to know which way to go.
   assert.equal(THEMES.sun.luminous, true, 'the Sun is a light theme');
@@ -92,6 +142,61 @@ test('a custom planet can be light or dark', () => {
   assert.ok(!dark.luminous);
   assert.equal(light.luminous, true);
   assert.notEqual(dark.tokens.bg, light.tokens.bg, 'the two differ');
+});
+
+test('a forged world is actually light when light is asked for', () => {
+  // The mix amounts were inverted for light worlds, which produced a
+  // background that WAS the accent - unreadable, and it looked like the
+  // toggle did nothing.
+  const luminance = (hex) => {
+    const n = parseInt(normalizeHex(hex).slice(1), 16);
+    return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  };
+  for (const colour of ['#e8713f', '#4d90f0', '#63d2a4', '#b48ce8']) {
+    const light = customPlanet(colour, { light: true });
+    const dark = customPlanet(colour);
+
+    assert.ok(luminance(light.tokens.bg) > 0.85,
+      colour + ' light background is light (' + luminance(light.tokens.bg).toFixed(2) + ')');
+    assert.ok(luminance(light.tokens.text) < 0.3, colour + ' light text is dark');
+    assert.ok(luminance(dark.tokens.bg) < 0.2,
+      colour + ' dark background is dark (' + luminance(dark.tokens.bg).toFixed(2) + ')');
+    assert.ok(luminance(dark.tokens.text) > 0.7, colour + ' dark text is light');
+
+    // Whatever the direction, it has to be readable.
+    assert.ok(Math.abs(luminance(light.tokens.text) - luminance(light.tokens.bg)) > 0.5,
+      colour + ' light world has real contrast');
+    assert.ok(Math.abs(luminance(dark.tokens.text) - luminance(dark.tokens.bg)) > 0.5,
+      colour + ' dark world has real contrast');
+  }
+});
+
+test('a forged world keeps its accent readable against its own background', () => {
+  const luminance = (hex) => {
+    const n = parseInt(normalizeHex(hex).slice(1), 16);
+    return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  };
+  // A bright accent on near-white is unreadable, so a light world darkens it.
+  const light = customPlanet('#ffe14d', { light: true });
+  assert.ok(luminance(light.tokens.accent) < luminance(light.tokens.bg) - 0.2,
+    'the accent is darker than the background it sits on');
+});
+
+test('a forged world is rebuilt from its colour, not stored expanded', () => {
+  // Storing the input rather than the tokens means a later improvement to how
+  // worlds are built reaches worlds that already exist.
+  const one = cssVariables({ theme: 'custom', customColour: '#4d90f0' });
+  const two = cssVariables({ theme: 'custom', customColour: '#4d90f0' });
+  assert.deepEqual(one, two, 'the same input always builds the same world');
+  const other = cssVariables({ theme: 'custom', customColour: '#e8713f' });
+  assert.notEqual(one['--bg'], other['--bg'], 'a different colour builds a different world');
+});
+
+test('custom with no colour falls back rather than producing nothing', () => {
+  const vars = cssVariables({ theme: 'custom' });
+  assert.ok(normalizeHex(vars['--bg']), 'still a real background');
+  assert.equal(vars['--bg'], cssVariables({ theme: DEFAULT_THEME })['--bg'],
+    'it falls back to the default planet');
 });
 
 test('a custom planet built from junk still produces a usable palette', () => {

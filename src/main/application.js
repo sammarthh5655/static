@@ -678,6 +678,12 @@ class BrowserApplication {
       catalog: {
         widgets: Object.values(WIDGETS),
         backgrounds: Object.values(BACKGROUNDS),
+        // The planetarium draws each planet from its own three colours, so
+        // the catalog carries them rather than just a name.
+        planets: Object.values(THEMES)
+          .map(({ id, name, blurb, order, palette, luminous }) =>
+            ({ id, name, blurb, order, palette, luminous }))
+          .sort((a, b) => a.order - b.order),
         themes: Object.values(THEMES).map(({ id, name }) => ({ id, name })),
         surfaceStyles: Object.values(SURFACE_STYLES),
         radii: Object.values(RADIUS).map(({ id, name }) => ({ id, name })),

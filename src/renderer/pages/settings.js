@@ -20,7 +20,42 @@ $('#bookmarksBar').addEventListener('change', (e) => update({ bookmarksBar: e.ta
 
 // Appearance. Every one of these feeds shared/theme.js, so a change repaints
 // the chrome and every open internal page through the pushed state.
-$('#theme').addEventListener('change', (e) => update({ theme: e.target.value }));
+/* ---- the planetarium ------------------------------------------------------
+   Replaces the theme dropdown. Choosing applies immediately, because the only
+   way to judge a theme is to see the browser wearing it. */
+let planetarium = null;
+let forgeLight = 'dark';
+
+function mountPlanetarium(catalog, currentTheme) {
+  const host = $('#planetarium-host');
+  if (!host || planetarium) return;
+  const planets = (catalog.planets || []).filter((planet) => planet && planet.palette);
+  if (!planets.length) return;
+
+  planetarium = window.planetarium.build(
+    { element, icon: window.page.icon },
+    {
+      planets,
+      current: currentTheme,
+      onPick: (id) => update({ theme: id }),
+    },
+  );
+  host.replaceChildren(planetarium.node);
+}
+
+// The forge: any colour becomes a complete, consistent world.
+$('#forge-light')?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-light]');
+  if (!button) return;
+  forgeLight = button.dataset.light;
+  for (const option of $('#forge-light').querySelectorAll('[data-light]')) {
+    option.classList.toggle('is-on', option === button);
+  }
+});
+
+$('#forge-apply')?.addEventListener('click', () => {
+  update({ theme: 'custom', customColour: $('#forge-colour').value, customLight: forgeLight === 'light' });
+});
 $('#surfaceStyle').addEventListener('change', (e) => update({ surfaceStyle: e.target.value }));
 $('#radius').addEventListener('change', (e) => update({ radius: e.target.value }));
 $('#animations').addEventListener('change', (e) => update({ animations: e.target.checked }));
@@ -172,7 +207,8 @@ onState((state) => {
   $('#bookmarksBar').checked = !!s.bookmarksBar;
   if (document.activeElement !== homepage) homepage.value = s.homepage || '';
 
-  fillSelect($('#theme'), catalog.themes || [], s.theme || 'dark');
+  mountPlanetarium(catalog, s.theme);
+  if (planetarium) planetarium.setCurrent(s.theme);
   fillSelect($('#surfaceStyle'), catalog.surfaceStyles || [], s.surfaceStyle || 'frosted');
   fillSelect($('#radius'), catalog.radii || [], s.radius || 'rounded');
   $('#animations').checked = s.animations !== false;

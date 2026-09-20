@@ -83,3 +83,107 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 @media (max-width: 1050px) { .saved-indicator { display: none; } .settings-main { padding: 28px 24px; } .hero-mark { width: 115px; height: 115px; right: 16px; top: 75px; opacity: .65; } }
 @media (max-width: 800px) { body.settings-page { grid-template-columns: 220px minmax(0, 1fr); } .settings-sidebar { padding-inline: 10px; } .settings-search kbd { display: none; } .settings-nav-item { gap: 11px; font-size: 12px; } .settings-page .field { flex-wrap: wrap; gap: 12px; padding: 16px; } .settings-page .field .control { width: 100%; text-align: left; } .settings-quick { grid-template-columns: 1fr; } .settings-quick button { display: grid; grid-template-columns: 25px 1fr; gap: 4px 12px; padding: 14px; } .settings-quick button > span:first-child { grid-row: span 2; margin: 0; align-self: center; } .hero-mark { opacity: .12; } }
 @media (prefers-reduced-motion: reduce) { .settings-page *, .settings-page *:before { animation-duration: 0ms !important; transition-duration: 0ms !important; } }
+
+/* ---- the planetarium ------------------------------------------------------
+   The theme is chosen by looking at it. Planets are drawn on a canvas (eleven
+   animated bodies as DOM nodes would be eleven composited layers recomputing
+   every frame); everything here is the frame around it. */
+
+.theme-stage {
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.theme-stage-head { margin-bottom: 4px; }
+.theme-stage-head label { display: block; font-size: 13px; }
+.theme-stage-head .hint { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+.planetarium { position: relative; }
+.planetarium-canvas {
+  display: block;
+  width: 100%;
+  border-radius: var(--radius-lg);
+  /* The system sits in its own night sky rather than on the settings card. */
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
+    var(--bg-strip);
+  cursor: grab;
+  touch-action: none;
+}
+.planetarium-canvas:active { cursor: grabbing; }
+.planetarium-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* The name and description of whatever is hovered, held steady below the
+   system so the text does not move around with the planets. */
+.planetarium-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 34px;
+  margin-top: 8px;
+  text-align: center;
+}
+.planetarium-name {
+  font-size: 14px;
+  color: var(--caption-tone, var(--text));
+  transition: color 240ms ease;
+}
+.planetarium-blurb { font-size: 11.5px; color: var(--text-dim); }
+
+/* ---- the forge ----------------------------------------------------------- */
+
+.theme-forge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.theme-forge-label { font-size: 12px; color: var(--text-dim); margin-right: auto; }
+
+/* A colour input is a browser control; this makes it a swatch instead. */
+.theme-forge input[type=color] {
+  width: 38px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: none;
+  cursor: pointer;
+}
+.theme-forge input[type=color]::-webkit-color-swatch-wrapper { padding: 3px; }
+.theme-forge input[type=color]::-webkit-color-swatch { border: none; border-radius: 6px; }
+
+.theme-forge-light {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.theme-forge-light button {
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.theme-forge-light button.is-on { background: var(--surface-active); color: var(--text); }
+
+.theme-forge-apply {
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.theme-forge-apply:hover { filter: brightness(1.08); }
+
+@media (prefers-reduced-motion: reduce) {
+  .planetarium-name { transition: none; }
+}

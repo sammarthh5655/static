@@ -45,12 +45,24 @@
       </div>
     </div></section>
 <section class="settings-section" data-section="appearance" aria-label="Appearance" hidden><div class="card">
-      <div class="field">
-        <div>
-          <label for="theme">Theme</label>
-          <div class="hint">Colours for the whole browser, menus included.</div>
+      <!-- The theme is chosen by looking, not by reading a name in a list.
+           Hover a planet to see it named, click to wear it, drag to turn the
+           system. The forge below builds a world from any colour. -->
+      <div class="theme-stage">
+        <div class="theme-stage-head">
+          <label>Theme</label>
+          <div class="hint">Pick a planet. The browser changes the moment you choose, and changing back is one click.</div>
         </div>
-        <div class="control"><select id="theme"></select></div>
+        <div id="planetarium-host"></div>
+        <div class="theme-forge" id="theme-forge">
+          <span class="theme-forge-label">Or forge your own world</span>
+          <input type="color" id="forge-colour" value="#4d90f0" aria-label="Your world's colour">
+          <div class="theme-forge-light" id="forge-light" role="group" aria-label="Light or dark">
+            <button type="button" data-light="dark" class="is-on">Dark</button>
+            <button type="button" data-light="light">Light</button>
+          </div>
+          <button type="button" id="forge-apply" class="theme-forge-apply">Forge it</button>
+        </div>
       </div>
       <div class="field">
         <div>
@@ -281,6 +293,7 @@
 </main>
 <dialog id="reset-dialog" aria-labelledby="reset-title"><form method="dialog"><span data-icon="reset"></span><h2 id="reset-title">Reset preferences?</h2><p id="reset-description"></p><p>Your saved browsing data will be kept.</p><div class="dialog-actions"><button value="cancel" autofocus>Cancel</button><button id="confirm-reset" value="reset" class="primary">Reset</button></div></form></dialog>
 <script src="../../shared/theme.js"></script>
+<script src="widgets/planetarium.js"></script>
 <script src="../../shared/modes.js"></script>
 <script src="common.js"></script>
 <script src="settings-navigation.js"></script>
