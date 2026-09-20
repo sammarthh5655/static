@@ -15,6 +15,7 @@ const { Tabs, NEW_TAB } = require('../features/tabs');
 const gemini = require('../features/ai/gemini');
 const { Chats } = require('../features/ai/chats');
 const { Resources } = require('../features/resources');
+const { Productivity } = require('../features/productivity');
 const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
@@ -109,12 +110,14 @@ class BrowserApplication {
       onChange: () => { this.push(); broadcastToPages(this, 'resources:changed'); },
     });
 
+    this.productivity = new Productivity(this);
     this.#hardenSession();
     this.#installRequestFilter();
     this.#installCookiePolicy();
 
     this.ensureWindow();
     this.#registerIpc();
+    this.productivity.start();
     this.attachVideoAdGate();
 
     // Extensions come last: they need the window to exist so popups and
@@ -169,13 +172,11 @@ class BrowserApplication {
       (details, callback) => {
         // Focus blocking first: it is a deliberate user choice and outranks
         // everything else.
-        if (details.resourceType === 'mainFrame' && this.focus.shouldBlock(details.url)) {
-          this.focus.recordHit();
-          // Redirect rather than cancel: a cancelled load shows Chromium's own
-          // error page, which explains nothing about why it was stopped.
-          return callback({
-            redirectURL: 'browser://focus?blocked=' + encodeURIComponent(details.url),
-          });
+        const policy = details.resourceType === 'mainFrame' ? this.productivity.policy(details.url) : null;
+        if (policy) {
+          callback({ cancel: true });
+          this.productivity.block(details.webContentsId, details.url, policy);
+          return;
         }
 
         const verdict = this.shields.inspect({
@@ -366,6 +367,7 @@ class BrowserApplication {
       preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
       extensions: this.extensions,
       getEngine: () => this.settings.value.searchEngine,
+      onSelected: id => this.productivity?.organizer.wake(id).catch(() => this.notify('This tab could not wake. Try reloading it.')),
       // Every tab gets the shortcut interceptor, so Ctrl+T and friends fire
       // even while focus is inside page content.
       onTabCreated: (contents) => {
@@ -475,6 +477,7 @@ class BrowserApplication {
         radii: Object.values(RADIUS).map(({ id, name }) => ({ id, name })),
       },
       tabs: this.tabs ? this.tabs.list() : [],
+      organizer: this.productivity?.organizer.chromeState(),
       active: this.tabs ? this.tabs.activeState() : {},
       bookmarks: this.bookmarks.list(),
       bookmarked: this.#activeIsBookmarked(),
@@ -535,6 +538,7 @@ class BrowserApplication {
    */
   #registerIpc() {
     const handlers = {
+      ...this.productivity.handlers(),
       'app:state': () => this.state(),
 
       'ui:layout': () => { this.layout(); return true; },
@@ -1243,6 +1247,39 @@ class BrowserApplication {
       }
     };
 
+    /**
+     * Network-layer ad stripping, attached when a tab is on YouTube.
+     *
+     * This is the half the in-page hooks cannot do. They rebuild a Response
+     * inside the page, which the page can undo (by replacing window.fetch) and
+     * which breaks some endpoints outright - rewriting get_watch that way left
+     * the video loaded but stuck at currentTime 0. Rewriting the raw bytes in
+     * the network stack, as uBlock's $replace= rules and Brave's native engine
+     * both do, has neither problem: the page just receives a response that
+     * never contained ads.
+     *
+     * Attached lazily and only for YouTube, because it holds the debugger for
+     * the tab - which must not be taken from every ordinary page.
+     */
+    // NOT DONE HERE: network-layer response rewriting.
+    //
+    // uBlock's YouTube rules (`$replace=/"adPlacements"/"no_ads"/`) and
+    // Brave's native engine both strip ad keys from the response BYTES, which
+    // avoids every weakness of in-page hooks. It was implemented here with the
+    // debugger's Fetch domain and then removed, because it cannot work:
+    //
+    //   Fetch.enable with a '*' pattern pauses ~30-40 requests per YouTube
+    //   page load, so interception itself is fine. But the paused set contains
+    //   only log_event, updated_metadata, stats and timedtext - the
+    //   /youtubei/v1/player request NEVER appears, on any pattern, while the
+    //   in-page hook records it stripping that same response on the same load.
+    //
+    // The player request therefore does not traverse the path the debugger can
+    // intercept in this embedding. No amount of pattern-matching reaches it,
+    // so the in-page hooks in features/shields/youtube.js remain the only
+    // mechanism that works - which is why they are written to re-assert
+    // themselves rather than assume they survive.
+
     contents.on('dom-ready', insertCosmetic);
     // Single-page navigations (clicking between YouTube videos) never fire
     // dom-ready, and the stylesheet does not always survive them, so reapply.
@@ -1422,6 +1459,10 @@ class BrowserApplication {
 
     const minutes = Math.ceil(focus.remainingMs / 60000);
     return {
+      organizer: { active: false, badge: this.productivity?.organizer.groups.length || null,
+        summary: 'Groups, workspaces and saved sessions' },
+      screentime: { active: !!this.productivity?.screenTime.config.enabled, badge: null,
+        summary: 'Daily limits and weekly browsing time' },
       focus: {
         active: focus.active,
         badge: focus.active ? `${minutes}m` : null,
@@ -1466,6 +1507,7 @@ class BrowserApplication {
   }
 
   flush() {
+    this.productivity?.flush();
     this.history.flush();
     this.downloads.flush();
     this.chats.flush();

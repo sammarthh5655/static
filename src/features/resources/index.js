@@ -96,6 +96,7 @@ class Resources {
     const tabs = [];
     let totalMemory = 0;
     let totalCpu = 0;
+    const counted = new Set();
 
     for (const tab of this.getTabs()) {
       const wc = tab.view?.webContents;
@@ -111,8 +112,11 @@ class Resources {
       const memoryMb = metric ? Math.round((metric.memory?.workingSetSize || 0) / 1024) : 0;
       const cpuPercent = metric ? Math.round((metric.cpu?.percentCPUUsage || 0) * 10) / 10 : 0;
 
-      totalMemory += memoryMb;
-      totalCpu += cpuPercent;
+      if (pid && !counted.has(pid)) {
+        totalMemory += memoryMb;
+        totalCpu += cpuPercent;
+        counted.add(pid);
+      }
 
       tabs.push({
         id: tab.id,

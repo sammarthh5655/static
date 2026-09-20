@@ -52,6 +52,8 @@ const ACCELERATORS = [
   accel('open:dashboard', 'Dashboard', 'd', { mod: true, shift: true }),
   accel('open:notes', 'Notes', 'n', { mod: true, shift: true }),
   accel('open:focus', 'Focus mode', 'f', { mod: true, shift: true }),
+  accel('open:organizer', 'Organise tabs', 'o', { mod: true, shift: true }),
+  accel('open:screentime', 'Screen Time', 'u', { mod: true, shift: true }),
   accel('open:resources', 'Resources', 'p', { mod: true, shift: true }),
   accel('notes:capture', 'Save to notes', 's', { mod: true, shift: true }),
   accel('open:extensions', 'Extensions', 'e', { mod: true, shift: true }),

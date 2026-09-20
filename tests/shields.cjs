@@ -199,6 +199,17 @@ async function run(browser) {
       a.click();
     })()`).catch(() => {});
     await wait(9000);
+    // Wait for the video to actually start rather than sampling at a fixed
+    // instant. Re-navigating to an earlier video re-buffers from scratch, so
+    // a single sample at 9s catches it at readyState 0 - still loading, not
+    // broken. Poll up to 20s more.
+    for (let i = 0; i < 40; i++) {
+      const t = await yt.view.webContents.executeJavaScript(
+        '(function(){ var v = document.querySelector("video"); return v ? v.currentTime : 0; })()'
+      ).catch(() => 0);
+      if (t > 0) break;
+      await wait(500);
+    }
     const healed = await yt.view.webContents.executeJavaScript(`({
       ours: !!(window.fetch && window.fetch.__static),
       stats: window.__staticAdStats(),
@@ -206,7 +217,13 @@ async function run(browser) {
         return !!(p && p.getVideoData && p.getVideoData().isAd); } catch (e) { return 'err'; } })(),
       videoTime: (function(){ var v = document.querySelector('video');
         return v ? Math.round(v.currentTime) : -1; })(),
+      paused: (function(){ var v = document.querySelector('video');
+        return v ? v.paused : 'no-video'; })(),
+      readyState: (function(){ var v = document.querySelector('video');
+        return v ? v.readyState : -1; })(),
+      url: location.href.slice(-11),
     })`).catch((error) => ({ error: error.message }));
+    console.log('    [diag] healed=' + JSON.stringify(healed));
     check('the hook is reinstalled on the next navigation', healed.ours === true,
       healed.error || 'window.fetch stayed displaced for the rest of the session');
     check('ads still stripped after being unhooked', healed.stats && healed.stats.total > 0,

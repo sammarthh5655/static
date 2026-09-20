@@ -11,6 +11,10 @@
 // plain script by renderers, so it must stay free of Electron and Node imports.
 
 const MODES = {
+  organizer: { id: 'organizer', name: 'Organizer', tagline: 'Find clarity in your open tabs', icon: 'grid',
+    page: 'browser://organizer', group: 'productivity', order: 3.1 },
+  screentime: { id: 'screentime', name: 'Screen Time', tagline: 'Make room for what matters', icon: 'clock',
+    page: 'browser://screentime', group: 'productivity', order: 3.2 },
   dashboard: {
     id: 'dashboard',
     name: 'Dashboard',

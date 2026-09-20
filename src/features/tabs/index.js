@@ -18,18 +18,20 @@ const NEW_TAB = 'browser://newtab';
  *   `webPreferences` below are the security boundary for ALL untrusted content.
  */
 class Tabs {
-  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, extensions, getEngine }) {
+  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, onSelected, extensions, getEngine }) {
     this.window = window;
     this.session = session;
     this.preload = preload;
     this.onChange = onChange;       // re-render the chrome
     this.onNavigate = onNavigate;   // record history
     this.onTabCreated = onTabCreated; // attach keyboard shortcut interception
+    this.onSelected = onSelected;
     this.extensions = extensions;   // electron-chrome-extensions instance
     this.getEngine = getEngine;     // () => 'google' | 'brave'
     this.tabs = new Map();          // id -> tab record
     this.order = [];                // tab ids, in strip order
     this.activeId = null;
+    this.activeWorkspace = 'main';
     this.bounds = { x: 0, y: 0, width: 0, height: 0 };
   }
 
@@ -45,6 +47,8 @@ class Tabs {
         url: tab.state.displayUrl,
         favicon: tab.state.favicon,
         loading: tab.state.loading,
+        pinned: tab.pinned, groupId: tab.groupId, workspaceId: tab.workspaceId,
+        createdAt: tab.createdAt, lastActiveAt: tab.lastActiveAt,
       };
     });
   }
@@ -63,7 +67,7 @@ class Tabs {
     };
   }
 
-  create({ url, background = false, index } = {}) {
+  create({ url, background = false, index, workspaceId = this.activeWorkspace } = {}) {
     const view = new WebContentsView({
       webPreferences: {
         // Security defaults for untrusted web content. Do not relax these.
@@ -84,6 +88,8 @@ class Tabs {
       id,
       view,
       historyId: null, // current history entry, so late title updates can patch it
+      createdAt: Date.now(), lastActiveAt: Date.now(),
+      pinned: false, groupId: null, workspaceId,
       state: {
         title: 'New tab',
         url: '',
@@ -193,6 +199,7 @@ class Tabs {
       // keeping the on-disk file chosen only from the internal-page allowlist.
       tab.view.webContents.loadFile(path.join(__dirname, '..', '..', 'renderer', 'pages', `${page}.html`), {
         hash: new URL(target).hash,
+        query: Object.fromEntries(new URL(target).searchParams),
       });
     } else {
       tab.state.internalUrl = null;
@@ -203,6 +210,9 @@ class Tabs {
   select(id) {
     const tab = this.tabs.get(id);
     if (!tab) return;
+    tab.lastActiveAt = Date.now();
+    this.activeWorkspace = tab.workspaceId;
+    this.onSelected?.(id);
     if (id !== this.activeId) {
       const previous = this.active;
       if (previous && this.window.contentView.children.includes(previous.view)) {
@@ -245,7 +255,8 @@ class Tabs {
     if (this.activeId === id) {
       this.activeId = null;
       // Chrome selects the tab to the right, falling back to the left.
-      const next = this.order[position] || this.order[position - 1];
+      const next = this.order.slice(position).find(id => this.tabs.get(id).workspaceId === this.activeWorkspace) ||
+        this.order.slice(0, position).reverse().find(id => this.tabs.get(id).workspaceId === this.activeWorkspace);
       if (next) this.select(next);
       else this.create({}); // never leave the window with zero tabs
     }
@@ -264,10 +275,11 @@ class Tabs {
 
   /** Ctrl+Tab / Ctrl+Shift+Tab. */
   cycle(step = 1) {
-    if (this.order.length < 2) return;
-    const index = this.order.indexOf(this.activeId);
-    const next = (index + step + this.order.length) % this.order.length;
-    this.select(this.order[next]);
+    const visible = this.order.filter(id => this.tabs.get(id).workspaceId === this.activeWorkspace);
+    if (visible.length < 2) return;
+    const index = visible.indexOf(this.activeId);
+    const next = (index + step + visible.length) % visible.length;
+    this.select(visible[next]);
   }
 
   /** Called by the layout manager whenever the chrome height changes. */

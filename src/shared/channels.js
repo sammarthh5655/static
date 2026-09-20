@@ -1,6 +1,12 @@
 // This is the complete application IPC contract. Never expose raw ipcRenderer.
 module.exports = {
   requests: [
+    'organizer:state', 'organizer:analyze', 'organizer:apply', 'organizer:group',
+    'organizer:move', 'organizer:workspace', 'organizer:select-workspace', 'organizer:pin',
+    'organizer:sleep', 'organizer:wake', 'organizer:close-duplicates',
+    'organizer:save-session', 'organizer:restore-session', 'organizer:delete-session', 'organizer:summary', 'organizer:undo',
+    'screentime:state', 'screentime:update', 'screentime:save-rule', 'screentime:remove-rule',
+    'screentime:preset', 'screentime:clear-usage', 'screentime:unlock',
     'app:state', 'ui:layout', 'ui:shortcuts', 'ui:action',
     'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending',
     'tabs:new', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
@@ -28,5 +34,5 @@ module.exports = {
     'passwords:reveal', 'passwords:remove', 'passwords:clear', 'passwords:generate',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
-  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed'],
+  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'organizer:changed', 'screentime:changed'],
 };

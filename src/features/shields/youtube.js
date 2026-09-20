@@ -73,6 +73,35 @@ const PAGE_SCRIPT = `
   window.__staticYt = true;
   var KEYS = ${JSON.stringify(AD_KEYS)};
 
+  // Endpoints that can carry an ad payload.
+  //
+  // Only /youtubei/v1/player was covered before. uBlock's YouTube rules target
+  // several more, and get_watch in particular is used heavily by logged-in
+  // accounts - which is exactly the case a logged-out test profile never
+  // exercises. Missing these meant the response was pruned on some
+  // navigations and passed through untouched on others.
+  function isAdBearing(url) {
+    if (!url) return false;
+    // Only /player, and that is a tested conclusion rather than an oversight.
+    //
+    // uBlock's rules also target get_watch, playlist and reel_watch_sequence,
+    // so widening to them looked like an obvious win. It is not, HERE: uBlock
+    // rewrites the response BYTES at the network layer, whereas this rebuilds
+    // a new Response object in the page. Rebuilding get_watch and playlist
+    // responses left the video loaded (readyState 4) and unpaused but stuck at
+    // currentTime 0 - it never started. Reverting to /player alone restored
+    // playback immediately, twice.
+    //
+    // /browse and /search are excluded for a different reason: they carry FEED
+    // ads, which the cosmetic stylesheet hides far more cheaply, and cloning
+    // plus re-serialising those large payloads on every scroll and keystroke
+    // is real cost for no gain.
+    //
+    // The endpoints left uncovered here are handled at the network layer
+    // instead - see the response filter in features/shields.
+    return url.indexOf('/youtubei/v1/player') !== -1;
+  }
+
   // Counters split by source, and reset per video.
   //
   // A single cumulative counter was actively misleading: it was non-zero from
@@ -89,8 +118,13 @@ const PAGE_SCRIPT = `
   // In place, not by reassignment: the player may already hold a reference to
   // the same array, and replacing the property would leave that reference
   // pointing at the original ads.
-  function prune(obj, source) {
+  function prune(obj, source, depth) {
     if (!obj || typeof obj !== 'object') return obj;
+    // get_watch and next responses nest the player response several levels
+    // down and vary by client, so walk rather than reaching for fixed paths.
+    // Bounded, because these payloads are large and a cycle would hang the page.
+    depth = depth || 0;
+    if (depth > 6) return obj;
     try {
       for (var i = 0; i < KEYS.length; i++) {
         if (KEYS[i] in obj) {
@@ -99,8 +133,17 @@ const PAGE_SCRIPT = `
           if (source) stats[source]++;
         }
       }
-      // Some responses nest the real payload one level down.
-      if (obj.playerResponse && typeof obj.playerResponse === 'object') prune(obj.playerResponse, source);
+      if (Array.isArray(obj)) {
+        for (var a = 0; a < obj.length; a++) {
+          if (obj[a] && typeof obj[a] === 'object') prune(obj[a], source, depth + 1);
+        }
+        return obj;
+      }
+      for (var k in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+        var v = obj[k];
+        if (v && typeof v === 'object') prune(v, source, depth + 1);
+      }
     } catch (e) {}
     return obj;
   }
@@ -150,7 +193,7 @@ const PAGE_SCRIPT = `
       var url = '';
       try { url = typeof input === 'string' ? input : (input && input.url) || ''; } catch (e) {}
       var promise = nativeFetch.apply(this, arguments);
-      if (url.indexOf('/youtubei/v1/player') === -1) return promise;
+      if (!isAdBearing(url)) return promise;
       return promise.then(function(response){
         try {
           // Clone so the page still gets a readable, unconsumed body if
@@ -184,7 +227,7 @@ const PAGE_SCRIPT = `
     XMLHttpRequest.prototype.send = function(){
       var xhr = this;
       try {
-        if (xhr.__staticUrl && xhr.__staticUrl.indexOf('/youtubei/v1/player') !== -1) {
+        if (isAdBearing(xhr.__staticUrl)) {
           xhr.addEventListener('readystatechange', function(){
             if (xhr.readyState !== 4) return;
             try {
