@@ -1,5 +1,6 @@
+const fs = require('node:fs');
 const path = require('node:path');
-const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard } = require('electron');
+const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog } = require('electron');
 const { requests, events } = require('../shared/channels');
 const { ENGINES, internalPage, resolveInput, allowedURL } = require('../shared/urls');
 const { THEMES, SURFACE_STYLES, RADIUS } = require('../shared/theme');
@@ -119,6 +120,11 @@ class BrowserApplication {
     this.downloads = new Downloads(this.dir, this.session, () => this.push());
     // The new-tab scratchpad widget. Distinct from the Notes feature below.
     this.scratchpad = new JsonStore(this.dir, 'scratchpad', { text: '' });
+    // The tabs that were open when the browser last closed.
+    this.sessionStore = new JsonStore(this.dir, 'session', { tabs: [], savedAt: 0 });
+    // Where the window was, so it reopens there. Stored in the ROOT rather
+    // than per profile: the window belongs to the screen, not the identity.
+    this.windowStore = new JsonStore(this.root, 'window', {});
     this.chats = new Chats(this.dir);
 
     // Feature modes. Each owns its own JsonStore and notifies through push(),
@@ -370,9 +376,16 @@ class BrowserApplication {
     // 'hiddenInset' keeps the real traffic lights, inset into our own chrome,
     // which is what every Mac browser does.
     const mac = process.platform === 'darwin';
+    // Reopen where you left it. A browser that always opens centred at a
+    // fixed size ignores how the window was actually being used.
+    const saved = this.windowStore.data;
+    const bounds = saved.width && saved.height
+      ? { width: saved.width, height: saved.height, x: saved.x, y: saved.y }
+      : {};
     this.window = new BaseWindow({
-      width: 1280,
-      height: 820,
+      ...bounds,
+      width: bounds.width || 1280,
+      height: bounds.height || 820,
       minWidth: 640,
       minHeight: 420,
       title: 'static',
@@ -381,6 +394,18 @@ class BrowserApplication {
         : { frame: false }),
       backgroundColor: THEMES[this.settings.value.theme]?.tokens.bg || '#161718',
       show: false,
+    });
+
+    // Two-finger swipe back and forward, which is how Mac users navigate.
+    // Electron reports it on the window; everything else ignores it.
+    this.window.on('swipe', (_event, direction) => {
+      const wc = this.tabs?.active?.view?.webContents;
+      if (!wc || wc.isDestroyed()) return;
+      if (direction === 'left' && wc.navigationHistory.canGoBack()) {
+        wc.navigationHistory.goBack();
+      } else if (direction === 'right' && wc.navigationHistory.canGoForward()) {
+        wc.navigationHistory.goForward();
+      }
     });
 
     // The renderer draws its own maximise/restore glyph, so it needs to know.
@@ -469,7 +494,7 @@ class BrowserApplication {
     // Chrome renders first; the tab view is positioned by layout().
     this.chrome.webContents.once('did-finish-load', () => {
       this.layout();
-      if (!this.tabs.order.length) this.tabs.create({ url: this.#startUrl() });
+      if (!this.tabs.order.length) this.#openStartupTabs();
       // Honour the saved sidebar setting on startup rather than always
       // beginning closed.
       this.applySidebarMode();
@@ -521,6 +546,56 @@ class BrowserApplication {
     // this launch" and lasts exactly one run.
     app.relaunch({ args: process.argv.slice(1).concat(['--profile-chosen']) });
     app.exit(0);
+  }
+
+  /**
+   * Open whatever the user asked to start with.
+   *
+   * Restoring a session opens the tabs in the background and selects the one
+   * that was active, so a ten-tab session does not load ten pages at once and
+   * take a minute to become usable - the tab you were on loads first and the
+   * rest fill in behind it.
+   */
+  #openStartupTabs() {
+    const mode = this.settings.value.onStartup || 'restore';
+
+    // The picker and first-run flow come first whatever else is set: which
+    // profile you are in decides what "your tabs" even means.
+    const forced = this.#startUrl();
+    if (forced !== NEW_TAB && forced !== this.settings.value.homepage) {
+      this.tabs.create({ url: forced });
+      return;
+    }
+
+    if (mode === 'restore') {
+      const saved = this.sessionStore.data;
+      const urls = (saved.tabs || []).filter((tab) => /^https?:|^browser:/.test(tab.url || ''));
+      if (urls.length) {
+        let activeId = null;
+        for (const tab of urls.slice(0, 60)) {
+          const id = this.tabs.create({ url: tab.url, background: true });
+          if (tab.active) activeId = id;
+        }
+        this.tabs.select(activeId || this.tabs.order[0]);
+        return;
+      }
+    }
+    this.tabs.create({ url: forced });
+  }
+
+  /** Remember the open tabs, so the next launch can restore them. */
+  saveSession() {
+    if (!this.tabs) return;
+    // A guest profile deliberately remembers nothing.
+    if (this.profiles?.active?.guest) { this.sessionStore.save({ tabs: [] }); return; }
+    const tabs = this.tabs.list()
+      .filter((tab) => /^https?:|^browser:/.test(tab.state?.displayUrl || ''))
+      .map((tab) => ({
+        url: tab.state.displayUrl,
+        title: tab.state.title || '',
+        active: tab.id === this.tabs.activeId,
+      }));
+    this.sessionStore.save({ tabs, savedAt: Date.now() });
   }
 
   #startUrl() {
@@ -651,6 +726,17 @@ class BrowserApplication {
    */
   animateSidebar(toOpen) {
     clearInterval(this.sidebarAnim);
+    try { this.saveSession(); } catch { /* a failed save must not block quitting */ }
+    try {
+      // A maximised window has huge bounds; remember the restored size so it
+      // does not reopen filling a different monitor.
+      if (this.window && !this.window.isDestroyed()) {
+        const box = this.window.isMaximized()
+          ? this.window.getNormalBounds()
+          : this.window.getBounds();
+        this.windowStore.save({ ...box, maximized: this.window.isMaximized() });
+      }
+    } catch { /* geometry is a convenience, never a reason to fail */ }
     const target = toOpen ? 1 : 0;
     const start = this.sidebarProgress ?? (toOpen ? 0 : 1);
     const began = Date.now();
@@ -2384,6 +2470,43 @@ class BrowserApplication {
 
       // Scratchpad widget contents. Kept in its own small store rather than in
       // settings, so a long note never bloats the settings file.
+      /**
+       * Choose a wallpaper from this computer.
+       *
+       * The file is COPIED into the profile rather than linked, so the
+       * homepage does not break when the original is moved, renamed or
+       * deleted - and so a wallpaper travels with the profile.
+       */
+      'newtab:wallpaper': async () => {
+        const result = await dialog.showOpenDialog(this.window, {
+          title: 'Choose a background',
+          properties: ['openFile'],
+          filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'] }],
+        });
+        if (result.canceled || !result.filePaths?.length) return { canceled: true };
+
+        const source = result.filePaths[0];
+        const ext = path.extname(source).toLowerCase() || '.jpg';
+        const target = path.join(this.dir, 'wallpaper' + ext);
+        try {
+          // Remove any previous wallpaper, whatever its extension, so they do
+          // not accumulate in the profile.
+          for (const old of ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif']) {
+            const stale = path.join(this.dir, 'wallpaper' + old);
+            if (stale !== target && fs.existsSync(stale)) fs.rmSync(stale, { force: true });
+          }
+          fs.copyFileSync(source, target);
+        } catch (error) {
+          throw new Error('Could not use that image: ' + error.message);
+        }
+
+        // A cache-busting suffix, or the page keeps showing the old picture.
+        const value = 'file://' + target.split(path.sep).join('/') + '?v=' + Date.now();
+        this.settings.update({ newTab: { background: 'photo', backgroundValue: value } });
+        this.push();
+        return { ok: true, value };
+      },
+
       'newtab:notes': (_sender, payload) => {
         if (typeof payload?.text === 'string') {
           this.scratchpad.save({ text: payload.text.slice(0, 20000) });

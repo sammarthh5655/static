@@ -14,6 +14,13 @@ const DEFAULTS = {
   sidebarModes: null,
   homepage: 'browser://newtab',
   newTabBehavior: 'newtab',
+  /**
+   * What opens at startup.
+   *   'restore'  the tabs that were open when the browser last closed
+   *   'newtab'   a single new tab
+   *   'homepage' the homepage
+   */
+  onStartup: 'restore',
 
   // Appearance. Every one of these feeds shared/theme.js#cssVariables, which
   // is the only place that turns them into actual CSS.
@@ -122,6 +129,7 @@ class Settings {
         } else throw new Error('Invalid setting: sidebarModes');
       }
       else if (key === 'newTabBehavior' && ['newtab', 'homepage'].includes(value)) next[key] = value;
+      else if (key === 'onStartup' && ['restore', 'newtab', 'homepage'].includes(value)) next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
       else if (key === 'theme' && (THEMES[value] || value === 'custom')) next[key] = value;
       // A forged world: one colour and a direction, expanded into a full

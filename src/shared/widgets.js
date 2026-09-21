@@ -92,6 +92,9 @@ const BACKGROUNDS = {
   plain: { id: 'plain', name: 'Plain' },
   gradient: { id: 'gradient', name: 'Gradient' },
   image: { id: 'image', name: 'Image URL', takesValue: true },
+  // A picture from the user's own machine, copied into the profile so it
+  // still works after the original is moved or deleted.
+  photo: { id: 'photo', name: 'Photo from this computer', takesFile: true },
 };
 
 const shared = { WIDGETS, DEFAULT_LAYOUT, BACKGROUNDS };

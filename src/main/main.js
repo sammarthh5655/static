@@ -116,6 +116,27 @@ else {
     else if (testFlag === '--appearance') await require('../../tests/appearance.cjs').run(browser);
     else if (testFlag) await require('../../tests/smoke.cjs').run(browser);
   }).catch(error => { console.error(error); app.exit(1); });
+  /**
+   * The dock menu, which macOS shows on right-click.
+   *
+   * A Mac user expects to start a new window without first bringing the app
+   * forward; without this the dock icon offers only Quit and Options.
+   */
+  if (process.platform === 'darwin') {
+    app.whenReady().then(() => {
+      app.dock?.setMenu(Menu.buildFromTemplate([
+        {
+          label: 'New Tab',
+          click: () => { browser?.focusWindow(); browser?.tabs?.create({}); },
+        },
+        {
+          label: 'New Window',
+          click: () => browser?.focusWindow(),
+        },
+      ]));
+    });
+  }
+
   app.on('second-instance', () => browser?.focusWindow());
   app.on('activate', () => browser?.focusWindow());
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' || testFlag) app.quit(); });

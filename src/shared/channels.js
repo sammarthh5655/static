@@ -16,7 +16,7 @@ module.exports = {
     'extensions:load-unpacked', 'extensions:load-crx', 'extensions:set-enabled', 'extensions:remove', 'extensions:options',
     'downloads:reveal', 'downloads:cancel', 'downloads:clear',
     'settings:update', 'settings:clear-data', 'settings:reset',
-    'newtab:notes',
+    'newtab:notes', 'newtab:wallpaper',
     'profiles:state', 'profiles:enter', 'profiles:create', 'profiles:update',
     'profiles:remove', 'profiles:duplicate', 'profiles:clear-data', 'profiles:set-default',
     'profiles:set-pin', 'profiles:startup', 'profiles:manage', 'profiles:switch',

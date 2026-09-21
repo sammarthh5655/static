@@ -361,6 +361,38 @@ $('#search-engine')?.addEventListener('change', async (event) => {
   }
 });
 
+/* ---- background -----------------------------------------------------------
+   The chosen wallpaper. This setting existed and was validated and stored,
+   and nothing ever painted it - so choosing a background did nothing at all. */
+
+function renderBackground() {
+  const config = state.settings?.newTab || {};
+  const layer = $('#ambient');
+  if (!layer) return;
+
+  const kind = config.background || 'plain';
+  const value = config.backgroundValue || '';
+
+  if ((kind === 'photo' || kind === 'image') && value) {
+    // A photo needs a scrim, or text over a bright picture is unreadable.
+    // The value came from main (a file path it wrote, or a URL the settings
+    // allowlist accepted), but quotes are stripped anyway so a crafted value
+    // cannot close the url() and append CSS of its own.
+    const safe = String(value).replace(/["'()\\]/g, '');
+    layer.style.setProperty('background-image',
+      'linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.35) 40%, rgba(0,0,0,0.65)), ' +
+      'url("' + safe + '")');
+    layer.style.setProperty('background-size', 'cover');
+    layer.style.setProperty('background-position', 'center');
+    document.body.classList.add('has-photo');
+  } else {
+    layer.style.removeProperty('background-image');
+    layer.style.removeProperty('background-size');
+    layer.style.removeProperty('background-position');
+    document.body.classList.remove('has-photo');
+  }
+}
+
 /* ---- status strip -------------------------------------------------------- */
 
 /**
@@ -432,6 +464,7 @@ onState((next) => {
   renderStatusStrip();
   // Widget card size, chosen by the user.
   document.body.dataset.widgetSize = state.settings?.newTab?.widgetSize || 'comfortable';
+  renderBackground();
 });
 
 // Widgets run their own timers and clean them up in dispose().

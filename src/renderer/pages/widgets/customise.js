@@ -99,7 +99,30 @@ function build(ctx, { getLayout, setLayout, onExit }) {
     text: 'Drag a card to reorder. Click a name to show or hide it.',
   });
 
-  bar.append(head, chips, presets, hint);
+  // Background: a picture from this computer, or back to plain.
+  const background = ctx.element('div', { class: 'customise-presets' });
+  background.appendChild(ctx.element('span', { class: 'customise-label', text: 'Background' }));
+
+  const choose = ctx.element('button', { class: 'customise-preset', text: 'Choose a photo…' });
+  choose.addEventListener('click', async () => {
+    choose.disabled = true;
+    const original = choose.textContent;
+    try {
+      const result = await ctx.invoke('newtab:wallpaper');
+      choose.textContent = result?.canceled ? original : 'Background set';
+    } catch (error) {
+      choose.textContent = String(error.message).slice(0, 24);
+    }
+    setTimeout(() => { choose.textContent = original; choose.disabled = false; }, 2000);
+  });
+  background.appendChild(choose);
+
+  const plain = ctx.element('button', { class: 'customise-preset', text: 'No background' });
+  plain.addEventListener('click', () =>
+    ctx.invoke('settings:update', { newTab: { background: 'plain', backgroundValue: '' } }));
+  background.appendChild(plain);
+
+  bar.append(head, chips, presets, background, hint);
   bar.refresh = paintChips;
   paintChips();
   return bar;

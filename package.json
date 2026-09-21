@@ -43,7 +43,8 @@
     "test:productivity": "npm run build && node scripts/start.cjs --productivity",
     "prepack": "npm run build",
     "dist:mac:arm": "npm run build && electron-builder --mac --arm64",
-    "dist:mac:intel": "npm run build && electron-builder --mac --x64"
+    "dist:mac:intel": "npm run build && electron-builder --mac --x64",
+    "icon": "node -e \"const{spawn}=require('child_process');spawn(require('electron'),['scripts/make-icon.cjs'],{stdio:'inherit'})\""
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",
@@ -73,7 +74,8 @@
       "target": [
         "nsis"
       ],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -116,7 +118,8 @@
         ],
         "LSMinimumSystemVersion": "11.0"
       },
-      "identity": null
+      "identity": null,
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": [
@@ -124,7 +127,8 @@
         "deb"
       ],
       "category": "Network",
-      "maintainer": "static contributors"
+      "maintainer": "static contributors",
+      "icon": "build/icon.png"
     },
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "dmg": {
