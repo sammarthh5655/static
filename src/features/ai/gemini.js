@@ -108,6 +108,7 @@ async function generate(options = {}) {
   // is what a caller wanting higher quality should use: it gets the better
   // model when it is available, and still degrades to the rest of the chain
   // rather than failing outright when that model is out of quota.
+  // Pass the speed controls through the retry and fallback chain.
   const chain = options.model
     ? [options.model]
     : options.preferModel
@@ -145,7 +146,8 @@ async function generate(options = {}) {
   throw lastError;
 }
 
-function generateOnce({ prompt, system, context, history, model = DEFAULT_MODEL, temperature = 0.4, signal } = {}) {
+function generateOnce({ prompt, system, context, history, model = DEFAULT_MODEL,
+                       temperature = 0.4, maxOutputTokens, thinking, signal } = {}) {
   const key = apiKey();
   if (!key) {
     return Promise.reject(new Error('AI is unavailable: no Gemini key is configured in this build.'));
@@ -179,7 +181,19 @@ function generateOnce({ prompt, system, context, history, model = DEFAULT_MODEL,
     generationConfig: {
       temperature,
       topP: 0.95,
-      maxOutputTokens: 8192,
+      // A ceiling the caller can lower. 8192 is right for a long summary and
+      // wasteful for a sidebar reply: the models spend their thinking budget
+      // in proportion to what they are allowed to produce, so an answer that
+      // was always going to be three sentences still took a long path to get
+      // there.
+      maxOutputTokens: maxOutputTokens || 8192,
+      // Gemini 3 spends a separate, sizeable budget on reasoning before it
+      // writes anything. That is worth paying for a summary and not for
+      // "what is this page about" - `thinking: 0` is what makes a short
+      // answer feel immediate.
+      ...(thinking !== undefined
+        ? { thinkingConfig: { thinkingBudget: thinking } }
+        : {}),
     },
   };
   if (system) body.systemInstruction = { parts: [{ text: system }] };

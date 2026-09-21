@@ -19,6 +19,7 @@
     "test:welcome": "npm run build && node scripts/start.cjs --welcome",
     "test:extract": "npm run build && node scripts/start.cjs --extract",
     "test:ads": "npm run build && node scripts/start.cjs --ytdeep",
+    "test:aispeed": "npm run build && node scripts/start.cjs --aispeed",
     "test:adsites": "npm run build && node scripts/start.cjs --adsites",
     "test:lists": "npm run build && node scripts/start.cjs --lists",
     "test:stalecache": "npm run build && node scripts/start.cjs --stalecache",

@@ -102,16 +102,19 @@ async function ask(prompt) {
   $('#answer-label').textContent = 'Gemini';
   $('#answer-text').textContent = 'Thinking…';
 
-  const result = await invoke('ai:ask', { prompt, system: SYSTEM_PROMPT });
-  busy = false;
-  renderHint();
-  if (!result) return;
-
-  if (result.ok) {
+  // ai:ask now REJECTS on failure rather than resolving {ok:false}, so a
+  // caller that only reads result.text can no longer print undefined.
+  try {
+    const result = await invoke('ai:ask', { prompt, system: SYSTEM_PROMPT });
+    busy = false;
+    renderHint();
+    if (!result) return;
     $('#answer-text').textContent = result.text;
     $('#answer-label').textContent = 'Gemini · ' + (result.model || '');
-  } else {
-    $('#answer-text').textContent = result.error || 'The assistant could not answer.';
+  } catch (error) {
+    busy = false;
+    renderHint();
+    $('#answer-text').textContent = error.message || 'The assistant could not answer.';
   }
 }
 
@@ -270,6 +273,8 @@ function renderWidgets() {
     // renderer, so this only reports availability.
     credential: () => !!state.ai?.available,
     ask: async (prompt) => {
+      // A widget asking a question should get text or a thrown error, never
+      // an empty string that looks like a blank answer.
       const result = await invoke('ai:ask', { prompt });
       return result?.text || '';
     },

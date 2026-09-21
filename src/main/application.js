@@ -1102,6 +1102,81 @@ class BrowserApplication {
         };
       },
 
+      /**
+       * Ask a question ABOUT the current page.
+       *
+       * The sidebar's free-form box used to call ai:ask with no page content
+       * at all, so "what is this about?" was answered by a model that had
+       * never seen the page - which reads as the assistant being broken while
+       * the Summarise button, which does send the page, works perfectly.
+       *
+       * Same permission model as summarising: a sensitive page asks first,
+       * and agreeing once is not agreement for the next page.
+       */
+      'ai:ask-page': async (_sender, payload) => {
+        const question = String(payload?.prompt || '').trim();
+        if (!question) throw new Error('Ask a question first.');
+
+        const tab = this.tabs?.active;
+        const url = tab?.state?.url || '';
+        const verdict = pagecontext.classify(url, {
+          privateWindow: false,
+          allowInPrivate: this.settings.value.ai?.allowInPrivate === true,
+        });
+
+        // No page, or a page that may not be read: answer the question on its
+        // own rather than refusing. A general question does not need context.
+        let context = null;
+        let usedPage = false;
+
+        if (tab && verdict.level !== pagecontext.LEVELS.BLOCKED) {
+          if (verdict.level === pagecontext.LEVELS.SENSITIVE && payload?.confirmed !== true) {
+            return { needsConfirmation: true, reason: verdict.reason, url };
+          }
+          try {
+            const page = await tab.view.webContents.executeJavaScript(
+              pagecontext.EXTRACT_SCRIPT, true);
+            if (page && String(page.text || '').trim()) {
+              context = [
+                'Title: ' + (page.title || ''),
+                'URL: ' + url,
+                '',
+                page.text,
+              ].join('\n');
+              usedPage = true;
+            }
+          } catch { /* a page that cannot be read is answered without it */ }
+        }
+
+        this.aiController?.abort();
+        this.aiController = new AbortController();
+        const result = await gemini.generate({
+          prompt: question,
+          system: usedPage
+            ? 'You are a browser sidebar assistant. Answer the question using the page ' +
+              'provided as context. Be brief and concrete. If the page does not contain ' +
+              'the answer, say so plainly rather than guessing.'
+            : 'You are a browser sidebar assistant. Answer briefly and concretely.',
+          context,
+          history: payload?.history,
+          retries: 1,
+          // A sidebar answer is read in a glance, so it is capped short and
+          // given no thinking budget. This is the difference between a reply
+          // that feels immediate and one that takes several seconds to say
+          // three sentences.
+          maxOutputTokens: 1024,
+          thinking: 0,
+          signal: this.aiController.signal,
+        });
+
+        return {
+          text: result.text,
+          model: result.model,
+          // Stated so the sidebar can show whether the page was actually read.
+          usedPage,
+        };
+      },
+
       /** Explain or translate a selection, without reading the whole page. */
       'ai:explain-selection': async (_sender, payload) => {
         const selection = String(payload?.text || '').trim();
@@ -1297,12 +1372,27 @@ class BrowserApplication {
             prompt,
             system: payload?.system,
             context: payload?.context,
+            // Conversation history was accepted from the caller and then
+            // dropped, so every follow-up question was answered as if it were
+            // the first thing ever asked.
+            history: payload?.history,
             model: payload?.model,
+            // One retry rather than two: in a sidebar, a fast failure the user
+            // can retry beats a long wait that fails anyway.
+            retries: payload?.retries ?? 1,
+            // Callers that need a long answer raise these; the default is
+            // tuned for a quick one.
+            maxOutputTokens: payload?.maxOutputTokens ?? 1536,
+            thinking: payload?.thinking ?? 0,
             signal: this.aiController.signal,
           });
           return { ok: true, text: result.text, model: result.model };
         } catch (error) {
-          return { ok: false, error: error.message };
+          // THROW rather than returning {ok:false}. A caller reading
+          // `result.text` got undefined and rendered an empty or broken reply,
+          // because its catch block never ran - which is exactly what typing a
+          // question in the sidebar did.
+          throw new Error(error.message);
         }
       },
 

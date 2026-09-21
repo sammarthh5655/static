@@ -168,26 +168,47 @@ async function summarise(format, label) {
   setBusy(false);
 }
 
-/** Free-form question. Answered with page context when it is permitted. */
+/**
+ * Free-form question, answered WITH the page.
+ *
+ * This used to call ai:ask with no page content, so "what is this about?" was
+ * answered by a model that had never seen the page - which reads as the
+ * assistant being broken, while Summarise (which does send the page) works.
+ * It now goes through ai:ask-page, which applies the same permission rules as
+ * summarising and says whether the page was actually read.
+ */
 async function ask(question) {
   if (busy || !question) return;
   setBusy(true);
   addTurn('you', question);
   addTurn('ai', 'Thinking…', 'working');
 
-  try {
-    const history = turns
-      .filter((turn) => turn.meta !== 'working')
-      .slice(-8)
-      .map((turn) => ({ role: turn.role === 'you' ? 'user' : 'model', text: turn.text }));
+  const history = turns
+    .filter((turn) => turn.meta !== 'working' && turn.text)
+    .slice(-8)
+    .map((turn) => ({ role: turn.role === 'you' ? 'user' : 'model', text: turn.text }));
 
-    const result = await invoke('ai:ask', {
-      prompt: question,
-      system: 'You are a browser sidebar assistant. Answer briefly and concretely.',
-      history,
-    });
+  try {
+    let result = await invoke('ai:ask-page', { prompt: question, history });
+
+    if (result && result.needsConfirmation) {
+      turns.pop();
+      const ok = window.confirm(
+        [result.reason, '', 'Send the contents of this page to the AI?'].join('\n'));
+      if (!ok) {
+        addTurn('ai', 'Not sent. Ask again and I will answer without the page.');
+        setBusy(false);
+        return;
+      }
+      addTurn('ai', 'Reading the page…', 'working');
+      result = await invoke('ai:ask-page', { prompt: question, history, confirmed: true });
+    }
+
     turns.pop();
-    addTurn('ai', result.text, result.model);
+    // Say whether the page was read, so an answer that could not use it is
+    // not mistaken for one that ignored it.
+    addTurn('ai', result.text,
+      result.usedPage ? result.model : result.model + ' · answered without the page');
   } catch (error) {
     turns.pop();
     addTurn('ai', error.message);

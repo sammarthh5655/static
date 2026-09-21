@@ -23,7 +23,7 @@ module.exports = {
     'onboarding:state', 'onboarding:next', 'onboarding:back', 'onboarding:skip',
     'onboarding:profile', 'onboarding:layout', 'onboarding:theme', 'onboarding:privacy', 'onboarding:ai',
     'onboarding:complete', 'onboarding:restart',
-    'ai:ask', 'ai:cancel', 'ai:status', 'ai:page-permission', 'ai:summarise-page', 'ai:explain-selection', 'ai:formats', 'sidebar:toggle', 'sidebar:state', 'sidebar:peek', 'health:report', 'health:fix', 'sense:current', 'sense:accept', 'sense:snooze', 'sense:silence', 'sense:state', 'sense:enabled',
+    'ai:ask', 'ai:ask-page', 'ai:cancel', 'ai:status', 'ai:page-permission', 'ai:summarise-page', 'ai:explain-selection', 'ai:formats', 'sidebar:toggle', 'sidebar:state', 'sidebar:peek', 'health:report', 'health:fix', 'sense:current', 'sense:accept', 'sense:snooze', 'sense:silence', 'sense:state', 'sense:enabled',
     'chat:list', 'chat:get', 'chat:new', 'chat:send',
     'chat:rename', 'chat:pin', 'chat:delete', 'chat:clear',
     'resources:state', 'resources:update', 'resources:suspend', 'resources:resume',
