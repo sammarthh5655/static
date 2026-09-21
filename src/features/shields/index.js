@@ -193,6 +193,9 @@ class Shields {
 
   get config() { return this.store.data; }
 
+  /** How many lists this build ships. */
+  listCount() { return LISTS.length; }
+
   /** How many of the configured lists are actually cached on disk. */
   cachedListCount() {
     let found = 0;

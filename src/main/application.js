@@ -1632,6 +1632,114 @@ class BrowserApplication {
       // that look like a broken blocker.
       'shields:stats': () => this.shields.stats.summary(),
 
+      /**
+       * Self-check: is blocking actually working on the page in front of me?
+       *
+       * Every diagnostic before this one lived in a terminal probe, which
+       * meant the only person who could find out was me, on a profile that
+       * was not the user's. This answers the same question from inside the
+       * browser, about the tab they are actually looking at.
+       */
+      'shields:selfcheck': async (_sender, payload) => {
+        /**
+         * Check the last WEB page, not this one.
+         *
+         * Opening Shields means leaving the page you were complaining about,
+         * so checking the active tab would always check browser://shields and
+         * tell you nothing. The most recently used web tab is the one you
+         * actually meant.
+         */
+        const webTabs = (this.tabs ? this.tabs.list() : [])
+          .filter((item) => /^https?:/i.test(item.state?.displayUrl || item.url || ''))
+          .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
+
+        const wanted = payload?.tabId
+          ? this.tabs?.tabs.get(payload.tabId)
+          : (this.tabs?.tabs.get(webTabs[0]?.id) || this.tabs?.active);
+
+        const tab = wanted || this.tabs?.active;
+        const host = (() => {
+          try { return new URL(tab?.state?.displayUrl || '').hostname; } catch { return ''; }
+        })();
+
+        const checks = [];
+        const add = (label, ok, detail) => checks.push({ label, ok, detail });
+
+        // --- what main knows -------------------------------------------------
+        add('Shields are switched on', this.shields.config.enabled !== false,
+          this.shields.config.enabled === false ? 'Switch them on above.' : '');
+        add('Video ad blocking is on', this.shields.config.blockVideoAds !== false,
+          this.shields.config.blockVideoAds === false ? 'Switch it on above.' : '');
+        add('Shields are on for this site', !host || this.shields.activeFor(host),
+          host && !this.shields.activeFor(host) ? 'You turned them off for ' + host + '.' : '');
+
+        const cached = this.shields.cachedListCount();
+        const total = this.shields.listCount();
+        add('Filter lists are downloaded', cached >= total,
+          cached + ' of ' + total + (cached < total ? ' - press Update lists.' : ''));
+        add('Filter rules are loaded', this.shields.engine.count > 50000,
+          Number(this.shields.engine.count).toLocaleString() + ' network, ' +
+          Number(this.shields.engine.cosmeticCount).toLocaleString() + ' cosmetic');
+
+        // --- what the page itself reports -----------------------------------
+        const wc = tab?.view?.webContents;
+        const youtube = isYouTubeHost(host);
+        if (wc && !wc.isDestroyed() && youtube) {
+          const page = await wc.executeJavaScript(`(function(){
+            function d(n){ try { var x = Object.getOwnPropertyDescriptor(window, n);
+              return !x ? 'absent' : (x.get || x.set ? 'accessor' : 'plain'); } catch(e){ return 'threw'; } }
+            var left = [];
+            try { var r = window.ytInitialPlayerResponse;
+              if (r) ['adPlacements','adSlots','playerAds'].forEach(function(k){ if (k in r) left.push(k); });
+            } catch(e){}
+            var p = document.getElementById('movie_player');
+            var data = null;
+            try { data = p && p.getVideoData ? p.getVideoData() : null; } catch(e){}
+            return {
+              brave: typeof window.__staticYt !== 'undefined',
+              trap: d('ytInitialPlayerResponse'),
+              leftover: left,
+              adNow: !!(data && data.isAd) ||
+                     !!document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-skip-button, .ytp-ad-badge'),
+              // Only slots that are actually VISIBLE. YouTube leaves empty ad
+              // containers in the DOM on every page; counting those reports a
+              // problem where there is none, and hiding them is exactly what
+              // the cosmetic rules already do.
+              slots: [...document.querySelectorAll('ytd-ad-slot-renderer, #player-ads, #masthead-ad')]
+                .filter(function(node){
+                  var box = node.getBoundingClientRect();
+                  var style = getComputedStyle(node);
+                  return box.width > 20 && box.height > 20 &&
+                         style.display !== 'none' && style.visibility !== 'hidden';
+                }).length,
+            };
+          })()`).catch((error) => ({ error: error.message }));
+
+          if (page.error) {
+            add('The page could be inspected', false, page.error);
+          } else {
+            add('Ad-blocking scripts ran on this page', page.brave === true,
+              page.brave ? '' : 'Reload the page. If it persists, the preload did not load.');
+            add('The ad trap is installed', page.trap === 'accessor',
+              page.trap === 'accessor' ? '' : 'The player response is a ' + page.trap + '.');
+            add('No ad data survived in the player', page.leftover.length === 0,
+              page.leftover.length ? 'Still present: ' + page.leftover.join(', ') : '');
+            add('No ad is playing right now', page.adNow === false,
+              page.adNow ? 'An ad is on screen as this ran - send this report.' : '');
+            add('No ad boxes are visible', page.slots === 0,
+              page.slots ? page.slots + ' ad boxes are taking up space' : '');
+          }
+        }
+
+        return {
+          host: host || 'no page',
+          youtube,
+          checks,
+          // A single verdict, so the page does not have to decide.
+          ok: checks.every((check) => check.ok),
+        };
+      },
+
       // ---- passwords -------------------------------------------------------
       // Listing NEVER includes a password. Plaintext crosses this boundary
       // only through passwords:reveal, for one entry at a time.

@@ -3,7 +3,7 @@ const path = require('node:path');
 app.setName('static');
 
 // Test modes run against a throwaway profile so they never touch real user data.
-const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--omnibox', '--menu', '--ytdeep', '--lists', '--adsites', '--stalecache', '--liveprofile', '--adshot', '--adreport'];
+const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--omnibox', '--menu', '--ytdeep', '--lists', '--adsites', '--stalecache', '--liveprofile', '--adshot', '--selfcheck'];
 TEST_FLAGS.push('--productivity');
 const testFlag = !app.isPackaged && process.argv.find(arg => TEST_FLAGS.includes(arg));
 if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
@@ -42,9 +42,9 @@ else {
     else if (testFlag === '--aipage') await require('../../tests/aipage.cjs').run(browser);
     else if (testFlag === '--counters') await require('../../tests/counters.cjs').run(browser);
     else if (testFlag === '--planetarium') await require('../../tests/planetarium.cjs').run(browser);
-    else if (testFlag === '--adreport') await require('../../tests/adreport.cjs').run(browser);
     else if (testFlag === '--liveprofile') await require('../../tests/liveprofile.cjs').run(browser);
     else if (testFlag === '--adsites') await require('../../tests/adsites.cjs').run(browser);
+    else if (testFlag === '--selfcheck') await require('../../tests/selfcheck.cjs').run(browser);
     else if (testFlag === '--adshot') await require('../../tests/adshot.cjs').run(browser);
     else if (testFlag === '--stalecache') await require('../../tests/stalecache.cjs').run(browser);
     else if (testFlag === '--lists') await require('../../tests/lists.cjs').run(browser);

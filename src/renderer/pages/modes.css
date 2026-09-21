@@ -459,3 +459,46 @@
   font-family: var(--font);
   font-size: 12.5px;
 }
+
+/* ---- shields self-check ----------------------------------------------------
+   Plain answers to "is this working", inside the browser rather than in a
+   terminal. Each line states one fact and, when it fails, what to do. */
+
+.shield-check-hint { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; margin: 0 0 12px; }
+
+.shield-check-run {
+  padding: 9px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.shield-check-run:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--accent); }
+.shield-check-run:disabled { opacity: 0.6; cursor: default; }
+
+.shield-check-verdict { font-size: 14px; margin: 16px 0 10px; }
+.shield-check-verdict.is-good { color: var(--success); }
+.shield-check-verdict.is-bad { color: var(--danger); }
+
+.shield-check-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+
+.shield-check-item { display: flex; gap: 11px; align-items: flex-start; font-size: 12.5px; }
+
+/* The mark is a word, not a tick glyph or a colour alone, so the result reads
+   the same to everyone. */
+.shield-check-mark {
+  flex: none;
+  width: 26px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding-top: 1px;
+}
+.shield-check-item.is-ok .shield-check-mark { color: var(--success); }
+.shield-check-item.is-bad .shield-check-mark { color: var(--danger); }
+.shield-check-item.is-bad .shield-check-label { color: var(--text); }
+.shield-check-label { color: var(--text-dim); }
+.shield-check-detail { display: block; color: var(--text-faint); font-size: 11.5px; margin-top: 2px; }
