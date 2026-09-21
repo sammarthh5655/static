@@ -303,12 +303,18 @@ body.ai .keyhint { color: var(--accent); }
 }
 .frequent-item:hover { background: var(--surface-hover); color: var(--text-dim); }
 
+/* Round, because the logos inside them are round. A square tile behind a
+   circular favicon reads as a mistake at every size. */
 .frequent-item .favicon-slot {
-  width: 34px; height: 34px;
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  overflow: hidden;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
   border: 1px solid var(--border-soft);
-  transition: border-color var(--motion-fast) var(--ease);
+  transition: border-color var(--motion-fast) var(--ease),
+              transform var(--motion-base) var(--ease);
 }
+.frequent-item:hover .favicon-slot { transform: translateY(-2px) scale(1.06); }
 .frequent-item:hover .favicon-slot {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
 }

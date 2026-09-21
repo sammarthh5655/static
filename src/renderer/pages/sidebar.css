@@ -240,3 +240,52 @@ body.sidebar {
 /* Stated in words, not a tick glyph or a checkbox - the design is the
    browser's own throughout. */
 .side-customise-mark { font-size: 10px; color: var(--accent); }
+
+/* ---- mode panel -----------------------------------------------------------
+   A mode's summary shown IN the sidebar. Pressing Shields to ask "is this
+   working" should not cost you the page you were asking about. */
+
+.side-panel {
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+  padding: 10px 12px 12px;
+  animation: side-panel-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.side-panel[hidden] { display: none; }
+@keyframes side-panel-in { from { opacity: 0; transform: translateY(-6px); } }
+
+.side-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.side-panel-head strong { font-size: 13px; }
+
+.side-panel-rows { display: flex; flex-direction: column; gap: 5px; }
+.side-panel-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.side-panel-label { color: var(--text-dim); }
+.side-panel-value { color: var(--text); font-variant-numeric: tabular-nums; }
+.side-panel-empty { font-size: 12px; color: var(--text-faint); margin: 0; }
+
+.side-panel-open {
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.side-panel-open:hover { color: var(--text); border-color: var(--border); }
+
+/* ---- rail alignment --------------------------------------------------------
+   The icons sat on a baseline of their own because the row had no fixed
+   height, so a taller glyph pushed its neighbours out of line. */
+.side-rail { min-height: 44px; }
+.side-rail-items { align-items: center; }
+.side-rail-item { flex: none; }
+.side-rail-item svg { display: block; }

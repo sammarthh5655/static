@@ -99,6 +99,36 @@ async function run(browser) {
     const after = await wc.executeJavaScript(`document.querySelectorAll('.side-rail-item').length`);
     check('the rail follows the saved choice', after === 2, after + ' modes after choosing 2');
 
+    // A rail button must open a panel HERE, not navigate the browser away.
+    browser.settings.update({ sidebarModes: null });
+    browser.push();
+    await wait(900);
+    const urlBefore = browser.tabs.active?.state?.displayUrl || '';
+
+    await wc.executeJavaScript(`(function(){
+      var items = document.querySelectorAll('.side-rail-item');
+      for (var i = 0; i < items.length; i++) {
+        if (/shield/i.test(items[i].getAttribute('aria-label') || '')) { items[i].click(); return true; }
+      }
+      items[0].click();
+      return true;
+    })()`);
+    await wait(1400);
+
+    const panel = await wc.executeJavaScript(`({
+      open: !document.getElementById('panel').hidden,
+      rows: document.querySelectorAll('.side-panel-row').length,
+      name: (document.querySelector('.side-panel-head strong')||{}).textContent || '',
+      hasOpenLink: !!document.querySelector('.side-panel-open'),
+    })`);
+    check('a rail button opens a panel in the sidebar', panel.open === true, JSON.stringify(panel));
+    check('the panel shows real figures', panel.rows >= 2, panel.rows + ' rows');
+    check('and names the mode', panel.name.length > 0, panel.name);
+    check('it offers the full page without forcing it', panel.hasOpenLink === true);
+    check('the browser did NOT navigate away',
+      (browser.tabs.active?.state?.displayUrl || '') === urlBefore,
+      'was ' + urlBefore + ', now ' + (browser.tabs.active?.state?.displayUrl || ''));
+
     check('no sidebar page errors', errors.length === 0, errors.join(' | '));
 
     const dir = path.join(app.getAppPath(), 'shots');

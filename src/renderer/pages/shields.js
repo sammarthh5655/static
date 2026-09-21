@@ -173,83 +173,9 @@ function limitsCard() {
 
 /* ---- render --------------------------------------------------------------- */
 
-/* ---- self-check ------------------------------------------------------------
-   "Is this actually working?" answered inside the browser, about the tab the
-   user is looking at. Every diagnostic before this one lived in a terminal
-   probe, which meant only I could run it, on a profile that was not theirs. */
-
-let checkResult = null;
-let checking = false;
-
-function selfCheckCard() {
-  const button = element('button', {
-    class: 'shield-check-run',
-    text: checking ? 'Checking…' : 'Check if blocking is working',
-    disabled: checking ? '' : null,
-  });
-  button.addEventListener('click', async () => {
-    checking = true;
-    render();
-    try {
-      checkResult = await invoke('shields:selfcheck');
-    } catch (error) {
-      checkResult = { error: error.message, checks: [] };
-    }
-    checking = false;
-    render();
-  });
-
-  const body = [
-    element('p', { class: 'shield-check-hint', text:
-      'Open the page where you are seeing ads, then press this. It reports what ' +
-      'is actually happening on that page rather than what should be.' }),
-    button,
-  ];
-
-  if (checkResult) {
-    if (checkResult.error) {
-      body.push(element('p', { class: 'shield-check-verdict is-bad',
-        text: 'The check could not run: ' + checkResult.error }));
-    } else {
-      const failed = checkResult.checks.filter((check) => !check.ok);
-      body.push(element('p', {
-        class: 'shield-check-verdict ' + (failed.length ? 'is-bad' : 'is-good'),
-        text: failed.length
-          ? failed.length + (failed.length === 1 ? ' problem found' : ' problems found')
-            + ' on ' + checkResult.host
-          : 'Everything is working on ' + checkResult.host,
-      }));
-
-      body.push(element('ul', { class: 'shield-check-list' },
-        checkResult.checks.map((check) => element('li', {
-          class: 'shield-check-item ' + (check.ok ? 'is-ok' : 'is-bad'),
-        }, [
-          element('span', { class: 'shield-check-mark', text: check.ok ? 'OK' : 'NO' }),
-          element('span', {}, [
-            element('span', { class: 'shield-check-label', text: check.label }),
-            check.detail
-              ? element('span', { class: 'shield-check-detail', text: check.detail })
-              : null,
-          ]),
-        ]))));
-
-      if (!checkResult.youtube) {
-        body.push(element('p', { class: 'shield-check-hint',
-          text: 'Open a YouTube video and run this again to check video ad blocking.' }));
-      }
-    }
-  }
-
-  return element('section', { class: 'mode-card shield-check' }, [
-    element('h2', {}, [icon('shield'), 'Is it working?']),
-    ...body,
-  ]);
-}
-
 function render() {
   content.replaceChildren(
     summaryCard(),
-    selfCheckCard(),
     pageCard(),
     settingsCard(),
     limitsCard(),

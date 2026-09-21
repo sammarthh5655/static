@@ -249,6 +249,57 @@ const DEFAULT_RAIL = ['dashboard', 'ai', 'notes', 'focus', 'organizer', 'shields
 
 let railChoice = null;
 let activeMode = null;
+/** Which mode's panel is open in the sidebar, if any. */
+let openPanel = null;
+
+/** Open a mode's summary in the sidebar, or close it if it is already open. */
+async function togglePanel(id) {
+  if (openPanel === id) { openPanel = null; renderPanel(null); renderRail(lastSettings); return; }
+  openPanel = id;
+  renderRail(lastSettings);
+  try {
+    renderPanel(await invoke('sidebar:panel', { id }));
+  } catch (error) {
+    renderPanel({ name: id, rows: [], error: error.message });
+  }
+}
+
+/** Draw the open panel, or clear it. */
+function renderPanel(data) {
+  const host = $('#panel');
+  if (!host) return;
+  if (!data) { host.hidden = true; host.replaceChildren(); return; }
+
+  host.hidden = false;
+  host.replaceChildren(
+    element('div', { class: 'side-panel-head' }, [
+      element('strong', { text: data.name }),
+      element('button', {
+        class: 'side-tool', text: 'Close', 'aria-label': 'Close panel',
+        onclick: () => togglePanel(data.id),
+      }),
+    ]),
+    data.error
+      ? element('p', { class: 'side-panel-empty', text: data.error })
+      : element('div', { class: 'side-panel-rows' },
+        data.rows.length
+          ? data.rows.map((row) => element('div', { class: 'side-panel-row' }, [
+            element('span', { class: 'side-panel-label', text: row.label }),
+            element('span', { class: 'side-panel-value', text: row.value }),
+          ]))
+          : [element('p', { class: 'side-panel-empty', text: 'Nothing to show yet.' })]),
+    data.page
+      ? element('button', {
+        class: 'side-panel-open',
+        text: 'Open ' + data.name,
+        onclick: () => invoke('tabs:navigate', { input: data.page }),
+      })
+      : null,
+  );
+}
+
+/** The last settings seen, so the rail can redraw without a state push. */
+let lastSettings = {};
 /** The saved list as it was last rendered, so a change to it is noticed. */
 let railSignature = null;
 
@@ -270,10 +321,13 @@ function renderRail(settings) {
   items.replaceChildren(...chosen.map((id) => {
     const mode = all[id];
     const button = element('button', {
-      class: 'side-rail-item' + (activeMode === id ? ' is-active' : ''),
+      class: 'side-rail-item' + (openPanel === id ? ' is-active' : ''),
       title: mode.name + ' — ' + mode.tagline,
       'aria-label': mode.name,
-      onclick: () => invoke('tabs:navigate', { input: mode.page }),
+      // Opens a panel HERE rather than navigating the browser away. Pressing
+      // Shields to ask "is this working" should not cost you the page you
+      // were asking about.
+      onclick: () => togglePanel(id),
     }, [icon(mode.icon, { size: 17 })]);
     return button;
   }));
@@ -335,6 +389,7 @@ onState((state) => {
   const page = url.startsWith('browser://') ? url.replace('browser://', '') : '';
   const next = page && window.modes ? window.modes.modeForPage(page) : null;
   const settings = state.settings || {};
+  lastSettings = settings;
   // Re-render when the highlighted mode changes OR when the saved list does.
   // Watching only the active mode meant choosing different modes in the
   // customise sheet left the rail showing the old set.
