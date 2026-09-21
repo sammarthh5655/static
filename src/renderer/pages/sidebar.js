@@ -288,6 +288,43 @@ function renderPanel(data) {
             element('span', { class: 'side-panel-value', text: row.value }),
           ]))
           : [element('p', { class: 'side-panel-empty', text: 'Nothing to show yet.' })]),
+    // Things you can DO, without leaving the sidebar.
+    (data.actions || []).length
+      ? element('div', { class: 'side-panel-actions' },
+        data.actions.map((action) => element('button', {
+          class: 'side-panel-action',
+          text: action.label,
+          onclick: async (event) => {
+            const button = event.currentTarget;
+            const original = button.textContent;
+            button.disabled = true;
+            try {
+              await invoke(action.channel, action.payload);
+              // Redraw from main rather than guessing what changed.
+              renderPanel(await invoke('sidebar:panel', { id: data.id }));
+            } catch (error) {
+              button.textContent = String(error.message).slice(0, 28);
+              setTimeout(() => { button.textContent = original; button.disabled = false; }, 2200);
+            }
+          },
+        })))
+      : null,
+
+    // Presets, chats, notes - a list you can pick from in place.
+    (data.lists || []).length
+      ? element('div', { class: 'side-panel-list' },
+        data.lists.map((item) => element('button', {
+          class: 'side-panel-pick',
+          text: item.label,
+          onclick: async () => {
+            try {
+              await invoke(item.channel, item.payload);
+              renderPanel(await invoke('sidebar:panel', { id: data.id }));
+            } catch { /* the panel will redraw with whatever is true */ }
+          },
+        })))
+      : null,
+
     data.page
       ? element('button', {
         class: 'side-panel-open',

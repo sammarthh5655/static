@@ -159,7 +159,18 @@ body.sidebar {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border-soft);
 }
-.side-rail-items { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+/* One row, evenly spaced, never wrapping. Wrapping is what put the icons on
+   two ragged lines; scrolling a single row is the right answer when there are
+   more modes than fit. */
+.side-rail-items {
+  display: flex;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.side-rail-items::-webkit-scrollbar { display: none; }
 
 .side-rail-item {
   display: grid;
@@ -285,7 +296,58 @@ body.sidebar {
 /* ---- rail alignment --------------------------------------------------------
    The icons sat on a baseline of their own because the row had no fixed
    height, so a taller glyph pushed its neighbours out of line. */
-.side-rail { min-height: 44px; }
+/* Every item is the same square, and the glyph is centred inside it, so a
+   taller icon cannot push its neighbours off the line. */
+.side-rail { min-height: 46px; box-sizing: border-box; }
 .side-rail-items { align-items: center; }
-.side-rail-item { flex: none; }
-.side-rail-item svg { display: block; }
+.side-rail-item {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 0;
+}
+.side-rail-item svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+}
+
+/* Actions and pickable lists inside a panel, so a mode can be USED from the
+   sidebar rather than merely reported on. */
+.side-panel-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+
+.side-panel-action {
+  flex: 1 1 auto;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.side-panel-action:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.side-panel-action:disabled { opacity: 0.6; cursor: default; }
+
+.side-panel-list { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; }
+
+.side-panel-pick {
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 0 7px 7px 0;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-panel-pick:hover { background: var(--surface-hover); color: var(--text); border-left-color: var(--accent); }

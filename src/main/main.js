@@ -3,7 +3,7 @@ const path = require('node:path');
 app.setName('static');
 
 // Test modes run against a throwaway profile so they never touch real user data.
-const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--omnibox', '--menu', '--ytdeep', '--lists', '--adsites', '--stalecache', '--liveprofile', '--adshot', '--aispeed'];
+const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--omnibox', '--menu', '--ytdeep', '--lists', '--adsites', '--stalecache', '--liveprofile', '--adshot', '--aispeed'] ;
 TEST_FLAGS.push('--productivity');
 const testFlag = !app.isPackaged && process.argv.find(arg => TEST_FLAGS.includes(arg));
 if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));

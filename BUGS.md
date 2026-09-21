@@ -14,7 +14,22 @@ Status: `OPEN` · `FIXED` · `NOT-A-BUG`
 
 ## Open
 
-_None outstanding._
+### The planetarium occasionally renders blank on first open
+**Status:** OPEN (reduced, not eliminated)
+
+The theme picker's canvas is empty on roughly one Settings open in four. Three
+causes were found and fixed - a render loop that gave up when the node was not
+yet in the DOM, a canvas measured before it had a size, and a mount that ran
+with an empty catalog and left a canvas nobody would rebuild - and the failure
+rate went from about 1 in 3 to about 1 in 4, so something else remains.
+
+Reopening Settings always fixes it, so it is a first-paint race rather than a
+broken picker.
+
+**Fix direction:** have the settings page mount the planetarium from a state
+push that is KNOWN to carry the catalog, rather than from whichever push
+arrives first; or have planetarium.build() retry its first frame until the
+canvas reports a non-zero size AND the planet list is non-empty.
 
 ---
 

@@ -443,16 +443,86 @@ body[data-widget-size="compact"]     { --widget-min: 170px; }
 body[data-widget-size="comfortable"] { --widget-min: 230px; }
 body[data-widget-size="large"]       { --widget-min: 300px; }
 
+/* Widget cards.
+   Depth rather than a flat translucent rectangle: a hairline top edge where
+   light would catch, a real shadow underneath, and a lift on hover. A card
+   that looks like a div with a border reads as unfinished. */
 .widget {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px 18px;
+  padding: 15px 16px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--surface) 78%, transparent),
+      color-mix(in srgb, var(--surface) 52%, transparent));
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #ffffff 6%, transparent) inset,
+    0 8px 22px var(--shadow-colour);
   min-height: 92px;
+  transition: transform var(--motion-base) var(--ease),
+              border-color var(--motion-base) var(--ease),
+              box-shadow var(--motion-base) var(--ease);
 }
+.widget:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-soft));
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #ffffff 8%, transparent) inset,
+    0 14px 32px var(--shadow-colour-strong);
+}
+
+/* ---- rows inside a widget --------------------------------------------------
+   Recently visited, the reading queue and downloads all draw these, and they
+   had no styling at all - which is why they looked like a bare list of
+   buttons stacked on a card. */
+.widget-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+
+.widget-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+}
+.widget-row:hover { background: var(--surface-hover); color: var(--text); }
+.widget-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* The title takes the space and truncates; the host stays readable. */
+.widget-row > span:not(.favicon-slot) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.widget-row .favicon-slot {
+  flex: none;
+  width: 20px; height: 20px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* A thin, unobtrusive scrollbar - the default one is the width of a finger
+   and dominates a small card. */
+.widget-list::-webkit-scrollbar { width: 5px; }
+.widget-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-faint) 40%, transparent);
+  border-radius: 3px;
+}
+.widget-list::-webkit-scrollbar-track { background: transparent; }
 
 .widget-head { display: flex; align-items: center; gap: 8px; }
 .widget-title {

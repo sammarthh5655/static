@@ -29,8 +29,16 @@ let forgeLight = 'dark';
 function mountPlanetarium(catalog, currentTheme) {
   const host = $('#planetarium-host');
   if (!host || planetarium) return;
-  const planets = (catalog.planets || []).filter((planet) => planet && planet.palette);
-  if (!planets.length) return;
+
+  // The catalog arrives with the state push, and the first push can land
+  // before it is populated. Building with an empty list produced a canvas
+  // that drew nothing and was never rebuilt, because the host was no longer
+  // empty - the planetarium was simply blank about one launch in three.
+  const planets = (catalog?.planets || []).filter((planet) => planet && planet.palette);
+  if (!planets.length) {
+    host.replaceChildren();   // leave nothing behind to mistake for a mount
+    return;
+  }
 
   planetarium = window.planetarium.build(
     { element, icon: window.page.icon },

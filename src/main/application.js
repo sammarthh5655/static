@@ -1394,6 +1394,14 @@ class BrowserApplication {
         const rows = [];
         const add = (label, value) => rows.push({ label, value: String(value) });
 
+        // Actions the panel can run without leaving the sidebar. Each is a
+        // channel and payload, so the renderer never decides what a button
+        // does - it only draws what main offers.
+        const actions = [];
+        const act = (label, channel, payload = {}) => actions.push({ label, channel, payload });
+        // Lists the panel can show, e.g. focus presets or recent chats.
+        const lists = [];
+
         if (id === 'shields') {
           const life = this.shields.stats.lifetime();
           add('Ads blocked', life.ads.toLocaleString());
@@ -1405,19 +1413,65 @@ class BrowserApplication {
             catch { return ''; }
           })();
           if (host) add('On this site', this.shields.activeFor(host) ? 'Protected' : 'Paused');
+          const on = this.shields.config.enabled !== false;
+          act(on ? 'Turn shields off' : 'Turn shields on', 'shields:update', { enabled: !on });
+          if (host) {
+            act(this.shields.activeFor(host) ? 'Pause on ' + host : 'Protect ' + host,
+              'shields:site', { host, enabled: !this.shields.activeFor(host) });
+          }
+          act('Update filter lists', 'shields:refresh', { force: true });
         } else if (id === 'notes') {
           const list = this.notes?.list?.() || [];
           add('Saved notes', list.length);
-          if (list[0]) add('Most recent', String(list[0].title || 'Untitled').slice(0, 40));
+          act('New note', 'notes:add', { kind: 'text', title: 'Note', body: '' });
+          act('Save this page', 'notes:capture', {});
+          // The notes themselves, so one can be opened from here.
+          for (const note of list.slice(0, 6)) {
+            lists.push({
+              id: note.id,
+              label: String(note.title || note.body || 'Untitled').slice(0, 44),
+              channel: 'tabs:navigate',
+              payload: { input: 'browser://notes' },
+            });
+          }
         } else if (id === 'focus') {
           const focus = this.focus.state();
           add('Session', focus.active ? 'Running' : 'Not running');
           if (focus.active) add('Time left', Math.ceil((focus.remainingMs || 0) / 60000) + ' min');
           add('Focused today', (focus.stats?.todayMinutes || 0) + ' min');
+          if (focus.active) {
+            act('End session', 'focus:stop', {});
+          } else {
+            // Every preset, startable from here - which is the whole point of
+            // pressing Focus in the sidebar.
+            for (const preset of focus.presets || []) {
+              lists.push({
+                id: preset.id,
+                label: preset.name + (preset.minutes ? ' · ' + preset.minutes + ' min' : ''),
+                channel: 'focus:start',
+                payload: { preset: preset.id },
+              });
+            }
+          }
+        } else if (id === 'ai') {
+          const chats = this.chats.list() || [];
+          add('Saved chats', chats.length);
+          act('New chat', 'chat:new', {});
+          // Recent conversations, openable in place.
+          for (const chat of chats.slice(0, 6)) {
+            lists.push({
+              id: chat.id,
+              label: String(chat.title || 'Conversation').slice(0, 44),
+              channel: 'tabs:navigate',
+              payload: { input: 'browser://ai' },
+            });
+          }
         } else if (id === 'organizer') {
           const tabs = this.tabs ? this.tabs.list() : [];
           add('Open tabs', tabs.length);
           add('Groups', this.productivity?.organizer?.groups?.length || 0);
+          act('Organise tabs now', 'organizer:apply', {});
+          act('Close duplicates', 'organizer:close-duplicates', {});
         } else if (id === 'downloads') {
           const list = this.downloads?.list?.() || [];
           add('Downloads', list.length);
@@ -1449,6 +1503,8 @@ class BrowserApplication {
           tagline: mode?.tagline || '',
           page: mode?.page || '',
           rows,
+          actions,
+          lists,
         };
       },
 
@@ -1917,79 +1973,6 @@ class BrowserApplication {
       'sidebar:state': () => ({ open: this.sidebarOpen, width: this.sidebarWidth }),
       'sidebar:peek': (_sender, payload) => this.peekSidebar(payload?.show !== false),
 
-      /**
-       * A compact summary of one mode, for the sidebar panel.
-       *
-       * Pressing Shields in the sidebar used to navigate the whole browser to
-       * browser://shields, which loses the page you were looking at to answer
-       * a question about it. The sidebar now shows the answer in place, and
-       * offers a link for the full page.
-       *
-       * Every figure here is counted, never estimated - the same rule the
-       * rest of the browser follows.
-       */
-      'sidebar:panel': (_sender, payload) => {
-        const id = String(payload?.id || '');
-        const rows = [];
-        const add = (label, value) => rows.push({ label, value: String(value) });
-
-        if (id === 'shields') {
-          const life = this.shields.stats.lifetime();
-          add('Ads blocked', life.ads.toLocaleString());
-          add('Trackers blocked', life.trackers.toLocaleString());
-          add('Filter rules', this.shields.engine.count.toLocaleString());
-          add('Shields', this.shields.config.enabled === false ? 'Off' : 'On');
-          const host = (() => {
-            try { return new URL(this.tabs?.active?.state?.displayUrl || '').hostname; }
-            catch { return ''; }
-          })();
-          if (host) add('On this site', this.shields.activeFor(host) ? 'Protected' : 'Paused');
-        } else if (id === 'notes') {
-          const list = this.notes?.list?.() || [];
-          add('Saved notes', list.length);
-          if (list[0]) add('Most recent', String(list[0].title || 'Untitled').slice(0, 40));
-        } else if (id === 'focus') {
-          const focus = this.focus.state();
-          add('Session', focus.active ? 'Running' : 'Not running');
-          if (focus.active) add('Time left', Math.ceil((focus.remainingMs || 0) / 60000) + ' min');
-          add('Focused today', (focus.stats?.todayMinutes || 0) + ' min');
-        } else if (id === 'organizer') {
-          const tabs = this.tabs ? this.tabs.list() : [];
-          add('Open tabs', tabs.length);
-          add('Groups', this.productivity?.organizer?.groups?.length || 0);
-        } else if (id === 'downloads') {
-          const list = this.downloads?.list?.() || [];
-          add('Downloads', list.length);
-          if (list[0]) add('Most recent', String(list[0].filename || '').slice(0, 40));
-        } else if (id === 'screentime') {
-          const time = this.productivity?.screenTime?.state?.();
-          if (time) {
-            add('Today', Math.round((time.todayMs || 0) / 60000) + ' min');
-            add('This week', Math.round((time.weekMs || 0) / 60000) + ' min');
-          }
-        } else if (id === 'resources') {
-          const totals = this.resourceTotals();
-          if (totals?.totalMemoryMb) add('Memory in use', totals.totalMemoryMb + ' MB');
-          add('Tabs', totals?.tabCount ?? (this.tabs ? this.tabs.list().length : 0));
-          add('Game Mode', this.resources.config.gameMode ? 'On' : 'Off');
-        } else if (id === 'passwords') {
-          const state = this.passwords?.state?.() || {};
-          add('Saved logins', (this.passwords?.list?.() || []).length);
-          add('Encryption', state.available === false ? 'Unavailable' : 'Available');
-        } else if (id === 'dashboard') {
-          add('Open tabs', this.tabs ? this.tabs.list().length : 0);
-          add('Blocked all time', this.shields.stats.lifetime().blocked.toLocaleString());
-        }
-
-        const mode = MODES[id];
-        return {
-          id,
-          name: mode?.name || id,
-          tagline: mode?.tagline || '',
-          page: mode?.page || '',
-          rows,
-        };
-      },
 
       /**
        * The omnibox dropdown is inside the chrome view, which is only as tall

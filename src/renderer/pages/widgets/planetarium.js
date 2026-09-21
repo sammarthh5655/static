@@ -117,6 +117,43 @@ function build(ctx, options) {
     context.fill();
     context.restore();
 
+    // Surface detail: a few soft mottles in the planet's own colours, placed
+    // from the planet's NAME so they are stable rather than jittering every
+    // frame. Without these a planet is a smooth gradient ball, which is what
+    // made them read as generated rather than observed.
+    context.save();
+    context.beginPath();
+    context.arc(0, 0, radius, 0, Math.PI * 2);
+    context.clip();
+    const seedText = String(planet.id || planet.name || 'x');
+    let hash = 0;
+    for (let i = 0; i < seedText.length; i++) hash = (hash * 31 + seedText.charCodeAt(i)) >>> 0;
+    for (let i = 0; i < 5; i++) {
+      hash = (hash * 1103515245 + 12345) >>> 0;
+      const ax = ((hash % 200) / 100 - 1) * radius * 0.6;
+      hash = (hash * 1103515245 + 12345) >>> 0;
+      const ay = ((hash % 200) / 100 - 1) * radius * 0.6;
+      hash = (hash * 1103515245 + 12345) >>> 0;
+      const ar = radius * (0.14 + (hash % 100) / 100 * 0.24);
+      context.globalAlpha = 0.16;
+      context.fillStyle = i % 2 ? deep : secondary;
+      context.beginPath();
+      context.ellipse(ax, ay, ar, ar * 0.72, 0, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+
+    // A specular highlight, so the body reads as lit from one side rather
+    // than evenly coloured.
+    const spec = context.createRadialGradient(
+      -radius * 0.35, -radius * 0.38, 0, -radius * 0.35, -radius * 0.38, radius * 0.9);
+    spec.addColorStop(0, 'rgba(255,255,255,0.28)');
+    spec.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = spec;
+    context.beginPath();
+    context.arc(0, 0, radius, 0, Math.PI * 2);
+    context.fill();
+
     // Shadow side, so the light has a direction.
     const shade = context.createLinearGradient(-radius * 0.2, -radius, radius, radius);
     shade.addColorStop(0, 'rgba(0,0,0,0)');
@@ -158,7 +195,14 @@ function build(ctx, options) {
   };
 
   const frame = () => {
-    if (!wrap.isConnected) return;
+    // Keep waiting rather than giving up. The loop is started before the node
+    // is appended, so isConnected is false on the first frame - returning
+    // there killed the loop permanently and the canvas stayed blank, which is
+    // why the planetarium failed to draw about one launch in three.
+    if (!wrap.isConnected) { requestAnimationFrame(frame); return; }
+    // The canvas has no size until it is in the document, so measure once it
+    // is rather than at construction.
+    if (!width || !height) resize();
     if (!reduced) time += 0.0022;
 
     context.clearRect(0, 0, canvas.width, canvas.height);

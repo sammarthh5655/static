@@ -23,6 +23,35 @@ async function run(browser) {
       if (e?.level === 'error' || e?.level === 3) errors.push(String(e.message).slice(0, 170));
     });
 
+    // The planetarium draws on requestAnimationFrame, so a fixed sleep races
+    // the first paint - this failed about one run in three. Wait for actual
+    // pixels instead.
+    for (let i = 0; i < 40; i++) {
+      const painted = await wc.executeJavaScript(`(function(){
+        var c = document.querySelector('.planetarium-canvas');
+        if (!c || !c.width) return 0;
+        var d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        var lit = 0;
+        for (var i = 3; i < d.length; i += 400) if (d[i] > 12) lit++;
+        return lit;
+      })()`).catch(() => 0);
+      if (painted > 40) break;
+      await wait(250);
+    }
+    const why = await wc.executeJavaScript(`(function(){
+      var c = document.querySelector('.planetarium-canvas');
+      if (!c) return { canvas: false };
+      return {
+        canvas: true, w: c.width, h: c.height,
+        cssW: c.getBoundingClientRect().width,
+        connected: c.isConnected,
+        hostChildren: (document.getElementById('planetarium-host')||{children:[]}).children.length,
+        sectionHidden: (c.closest('[data-section]')||{}).hidden,
+        display: getComputedStyle(c).display,
+      };
+    })()`).catch((e) => ({ err: e.message }));
+    console.log('  [diag]', JSON.stringify(why));
+
     const view = await wc.executeJavaScript(`({
       hasCanvas: !!document.querySelector('.planetarium-canvas'),
       noDropdown: !document.getElementById('theme'),
