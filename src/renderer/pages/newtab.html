@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: http: data:; style-src 'self' 'unsafe-inline';" />
+  <title>New Tab</title>
+  <link rel="stylesheet" href="/assets/pages.css" />
+  <style>
+    body { background: #fff; }
+    .ntp { display: flex; flex-direction: column; align-items: center; padding-top: 14vh; }
+    .logo { font-size: 44px; font-weight: 300; letter-spacing: -1px; color: #202124; margin-bottom: 28px; }
+    .logo b { font-weight: 600; color: var(--accent); }
+    form { width: min(600px, 90vw); }
+    .box {
+      display: flex; align-items: center; gap: 10px;
+      height: 46px; padding: 0 18px;
+      border-radius: 24px; border: 1px solid var(--border); background: #fff;
+      box-shadow: 0 1px 6px rgba(32, 33, 36, 0.12);
+    }
+    .box:focus-within { box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28); }
+    .box svg { width: 20px; height: 20px; fill: #9aa0a6; flex: 0 0 20px; }
+    .box input { flex: 1; border: none; outline: none; font: 16px var(--font); background: transparent; min-width: 0; }
+    .shortcuts {
+      display: grid; grid-template-columns: repeat(auto-fit, 112px); justify-content: center;
+      gap: 8px; width: min(600px, 90vw); margin-top: 36px;
+    }
+    .shortcut {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      padding: 14px 6px; border-radius: 8px; color: var(--text); font-size: 12px;
+    }
+    .shortcut:hover { background: var(--hover); text-decoration: none; }
+    .shortcut .icon {
+      width: 44px; height: 44px; border-radius: 50%; background: #f1f3f4;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 500; color: var(--muted);
+    }
+    .shortcut span { max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 40px; }
+    .hint a { margin: 0 6px; }
+  </style>
+</head>
+<body>
+  <div class="ntp">
+    <div class="logo">Static</div>
+    <form id="search">
+      <div class="box">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input id="q" type="text" autofocus autocomplete="off" spellcheck="false" placeholder="Search the web or type a URL" />
+      </div>
+    </form>
+    <div id="shortcuts" class="shortcuts"></div>
+    <div class="hint">
+      <a href="static://history/">History</a> ·
+      <a href="static://bookmarks/">Bookmarks</a> ·
+      <a href="static://downloads/">Downloads</a> ·
+      <a href="static://extensions/">Extensions</a> ·
+      <a href="static://settings/">Settings</a>
+    </div>
+  </div>
+  <script src="/assets/pages.js"></script>
+  <script src="/newtab.js"></script>
+</body>
+</html>

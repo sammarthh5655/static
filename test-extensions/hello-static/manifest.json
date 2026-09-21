@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Hello Static",
+  "version": "1.0.0",
+  "description": "Sample MV3 extension for testing the extensions bridge: toolbar popup, badge, context menu, options page, tabs API.",
+  "action": {
+    "default_title": "Hello Static",
+    "default_popup": "popup.html",
+    "default_icon": { "16": "icon.png", "32": "icon.png", "128": "icon.png" }
+  },
+  "icons": { "16": "icon.png", "32": "icon.png", "128": "icon.png" },
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "permissions": ["contextMenus", "tabs", "storage", "activeTab"]
+}

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13px system-ui, sans-serif; width: 260px; padding: 12px; margin: 0; color: #202124; }
+    h1 { font-size: 15px; margin: 0 0 8px; }
+    button { margin-top: 8px; padding: 6px 12px; }
+    .muted { color: #5f6368; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Hello from an extension popup</h1>
+  <div class="muted">Active tab: <span id="url">…</span></div>
+  <div class="muted">Context-menu clicks: <span id="clicks">0</span></div>
+  <button id="newtab">Open example.com in a new tab</button>
+  <button id="options">Open options page</button>
+  <script src="popup.js"></script>
+</body>
+</html>

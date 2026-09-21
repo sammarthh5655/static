@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>Can't reach this page</title>
+  <link rel="stylesheet" href="/assets/pages.css" />
+  <style>
+    body { background: #fff; }
+    .err { max-width: 560px; margin: 18vh auto 0; padding: 0 24px; }
+    .err .glyph { width: 72px; height: 72px; fill: #9aa0a6; margin-bottom: 20px; }
+    .err h1 { font-size: 22px; font-weight: 400; margin: 0 0 12px; }
+    .err p { color: var(--muted); margin: 0 0 8px; }
+    .err code { display: inline-block; margin-top: 12px; }
+    .err .actions { margin-top: 24px; display: flex; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="err">
+    <svg class="glyph" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+    <h1 id="title">This site can't be reached</h1>
+    <p id="msg"></p>
+    <p id="url" style="word-break: break-all"></p>
+    <code id="code"></code>
+    <div class="actions">
+      <button class="primary" id="reload">Reload</button>
+    </div>
+  </div>
+  <script src="/assets/pages.js"></script>
+  <script src="/error.js"></script>
+</body>
+</html>

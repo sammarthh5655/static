@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+  <title>Settings</title>
+  <link rel="stylesheet" href="/assets/pages.css" />
+</head>
+<body>
+  <div class="page">
+    <div class="page-header"><h1>Settings</h1></div>
+
+    <div class="card" id="search-card">
+      <h2>Search engine</h2>
+      <div class="row">
+        <div class="label">Search engine used in the address bar<div class="desc">Also used by the new tab page search box.</div></div>
+        <select id="searchEngine"></select>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>On startup and new tabs</h2>
+      <div class="row">
+        <div class="label">Homepage<div class="desc">Opened by the Home button (Alt+Home).</div></div>
+        <input id="homepage" type="url" placeholder="static://newtab/" />
+      </div>
+      <div class="row">
+        <div class="label">New tab opens<div class="desc">What Ctrl+T and the + button show.</div></div>
+        <select id="newTabBehavior">
+          <option value="newtab">The New Tab page</option>
+          <option value="homepage">My homepage</option>
+          <option value="blank">A blank page</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Appearance</h2>
+      <div class="row">
+        <div class="label">Show bookmarks bar<div class="desc">Ctrl+Shift+B toggles it too.</div></div>
+        <label class="switch"><input id="showBookmarksBar" type="checkbox" /><span class="track"></span></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Downloads</h2>
+      <div class="row">
+        <div class="label">Ask where to save each file before downloading</div>
+        <label class="switch"><input id="askWhereToSave" type="checkbox" /><span class="track"></span></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Extensions</h2>
+      <div class="row">
+        <div class="label">Manage extensions<div class="desc">Install from the Chrome Web Store, load unpacked, enable/disable.</div></div>
+        <a class="btn" href="static://extensions/">Open</a>
+      </div>
+    </div>
+
+    <div class="card" id="clear">
+      <h2>Clear browsing data</h2>
+      <label class="checkbox"><input type="checkbox" id="cbd-history" checked /> Browsing history</label>
+      <label class="checkbox"><input type="checkbox" id="cbd-cookies" /> Cookies, site data and cached files <span class="desc" style="color:var(--muted)">(signs you out of sites)</span></label>
+      <label class="checkbox"><input type="checkbox" id="cbd-downloads" /> Download list</label>
+      <div class="row">
+        <div class="label"><span id="cbd-status" style="color:var(--muted)"></span></div>
+        <button class="subtle" id="cbd-all">Select all</button>
+        <button class="primary" id="cbd-go">Clear data</button>
+      </div>
+    </div>
+
+    <div class="card" id="about">
+      <h2>About Static</h2>
+      <div class="row"><div class="label">Version</div><span id="ver"></span></div>
+      <div class="note">
+        Built on Electron with <code>electron-chrome-extensions</code> and <code>electron-chrome-web-store</code>.
+        Data is stored as JSON in your user-data folder (⋮ → More tools → Open user data folder).
+      </div>
+    </div>
+  </div>
+  <script src="/assets/pages.js"></script>
+  <script src="/settings.js"></script>
+</body>
+</html>

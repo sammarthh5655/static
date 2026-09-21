@@ -1,0 +1,57 @@
+# electron-builder configuration — `npm run dist` (current OS) or
+# `npm run dist:win` / `dist:mac` / `dist:linux`. Output goes to ./release.
+appId: com.static.browser
+productName: Static
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build   # put icon.ico / icon.icns / icon.png here when you have them
+
+files:
+  - src/**/*
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+# Preload scripts are loaded by path at runtime; keep them outside the asar
+# archive so Chromium can read them directly.
+asarUnpack:
+  - dist/*.js
+  - node_modules/electron-chrome-extensions/dist/*.preload.js
+  - node_modules/electron-chrome-web-store/dist/*.preload.js
+
+# Register as a handler for web links so the OS can offer it as a browser.
+protocols:
+  - name: Web
+    schemes: [http, https]
+
+win:
+  target:
+    - nsis
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  # Required for microphone/camera prompts on macOS.
+  extendInfo:
+    NSCameraUsageDescription: Websites may ask to use your camera.
+    NSMicrophoneUsageDescription: Websites may ask to use your microphone.
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Network
+  maintainer: sammarth025@gmail.com

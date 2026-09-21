@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: http: data:; style-src 'self' 'unsafe-inline';" />
+  <title>History</title>
+  <link rel="stylesheet" href="/assets/pages.css" />
+</head>
+<body>
+  <div class="page">
+    <div class="page-header">
+      <h1>History</h1>
+      <button id="clear" class="danger">Clear browsing data…</button>
+    </div>
+    <div class="toolbar-row">
+      <input id="q" class="search" type="search" placeholder="Search history" autofocus />
+      <span class="spacer"></span>
+      <span id="count" style="color:var(--muted);font-size:12px"></span>
+    </div>
+    <div id="results"></div>
+  </div>
+  <script src="/assets/pages.js"></script>
+  <script src="/history.js"></script>
+</body>
+</html>

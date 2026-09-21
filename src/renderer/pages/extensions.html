@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+  <title>Extensions</title>
+  <link rel="stylesheet" href="/assets/pages.css" />
+  <style>
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+    .ext { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .ext.disabled { opacity: 0.6; }
+    .ext .head { display: flex; gap: 14px; align-items: flex-start; }
+    .ext .icon { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 8px; background: #f1f3f4; background-size: contain; background-repeat: no-repeat; background-position: center; }
+    .ext .name { font-size: 15px; font-weight: 500; }
+    .ext .ver { color: var(--muted); font-size: 12px; margin-left: 6px; font-weight: 400; }
+    .ext .desc { color: var(--muted); font-size: 12px; max-height: 3.4em; overflow: hidden; }
+    .ext .foot { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+    .ext .foot .spacer { flex: 1; }
+    .ext .foot button { font-size: 12px; padding: 5px 10px; }
+    .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+    .ext .id { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--muted); }
+    #status { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="page" style="max-width: 900px">
+    <div class="page-header">
+      <h1>Extensions</h1>
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button id="updates">Check for updates</button>
+        <button id="unpacked">Load unpacked</button>
+        <a class="btn primary" style="color:#fff;background:var(--accent);border-color:var(--accent)" href="https://chromewebstore.google.com/">Chrome Web Store</a>
+      </div>
+    </div>
+    <div class="toolbar-row"><span id="status"></span></div>
+    <div id="grid" class="grid"></div>
+  </div>
+  <script src="/assets/pages.js"></script>
+  <script src="/extensions.js"></script>
+</body>
+</html>
