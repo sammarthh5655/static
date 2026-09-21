@@ -10,11 +10,65 @@ if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile
 
 app.enableSandbox();
 
-// Every menu in this app is custom DOM drawn by the renderer. Electron installs
-// a DEFAULT application menu when none is set, which would both show a native
-// menu bar and bind its own accelerators, so clear it explicitly. Shortcuts are
-// handled in src/main/shortcuts.js via before-input-event instead.
-Menu.setApplicationMenu(null);
+/**
+ * The application menu.
+ *
+ * Every menu in this app is custom DOM drawn by the renderer, so on Windows
+ * and Linux the native menu is cleared entirely - Electron installs a default
+ * one otherwise, which both shows a menu bar and binds its own accelerators.
+ *
+ * macOS is NOT the same case. The menu bar there belongs to the system, not to
+ * the window, and clearing it takes the standard edit commands with it: Cmd+C,
+ * Cmd+V, Cmd+X, Cmd+A, Cmd+Z, Cmd+Q and Cmd+H all stop working, because those
+ * are menu items rather than key handlers. A Mac user cannot copy a URL or
+ * quit the app.
+ *
+ * So macOS gets a minimal menu with the roles the system expects, and nothing
+ * that duplicates our own in-window menus.
+ */
+if (process.platform === 'darwin') {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      // Without this, a Mac user cannot copy or paste anywhere in the browser.
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
+  ]));
+} else {
+  Menu.setApplicationMenu(null);
+}
 
 // registerSchemesAsPrivileged may only be called once, before 'ready', and a
 // later call replaces the earlier list - so both schemes must be declared here.

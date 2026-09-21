@@ -106,7 +106,11 @@ html, body {
 
 /* macOS puts its traffic lights top-left; inset our own controls so a user
    who expects them on the left is not fighting the drag region. */
+/* macOS keeps its REAL traffic lights (titleBarStyle: 'hiddenInset'), so the
+   title bar is inset to clear them and our own drawn controls are hidden -
+   two sets of window buttons on one window is worse than either alone. */
 body.mac .titlebar { padding-left: 78px; }
+body.mac .window-controls { display: none; }
 
 /* ---- tab strip (40px) ---------------------------------------------------- */
 

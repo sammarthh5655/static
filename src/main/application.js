@@ -361,13 +361,24 @@ class BrowserApplication {
     // own renderer. `frame: false` removes the OS bar entirely (rather than
     // titleBarStyle: 'hidden', which keeps native traffic lights on macOS).
     // Dragging is handled by -webkit-app-region in renderer/chrome.css.
+    // macOS gets `titleBarStyle: 'hiddenInset'` rather than `frame: false`.
+    //
+    // `frame: false` removes the OS bar entirely, and on macOS that takes the
+    // TRAFFIC LIGHTS with it - a Mac user would have no way to close,
+    // minimise or zoom the window, and no amount of drawing our own buttons
+    // is a substitute for the ones every Mac app has in the same place.
+    // 'hiddenInset' keeps the real traffic lights, inset into our own chrome,
+    // which is what every Mac browser does.
+    const mac = process.platform === 'darwin';
     this.window = new BaseWindow({
       width: 1280,
       height: 820,
       minWidth: 640,
       minHeight: 420,
       title: 'static',
-      frame: false,
+      ...(mac
+        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 13, y: 13 } }
+        : { frame: false }),
       backgroundColor: THEMES[this.settings.value.theme]?.tokens.bg || '#161718',
       show: false,
     });

@@ -39,7 +39,10 @@
     "check:security": "node scripts/security.cjs",
     "test:shields": "npm run build && node scripts/start.cjs --shields",
     "test:privacy": "npm run build && node scripts/start.cjs --privacy",
-    "test:productivity": "npm run build && node scripts/start.cjs --productivity"
+    "test:productivity": "npm run build && node scripts/start.cjs --productivity",
+    "prepack": "npm run build",
+    "dist:mac:arm": "npm run build && electron-builder --mac --arm64",
+    "dist:mac:intel": "npm run build && electron-builder --mac --x64"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",
@@ -77,10 +80,42 @@
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "A website you visit may ask to use the camera. Static only allows it when you agree.",
+        "NSMicrophoneUsageDescription": "A website you visit may ask to use the microphone. Static only allows it when you agree.",
+        "NSLocationWhenInUseUsageDescription": "A website you visit may ask for your location. Static only shares it when you agree.",
+        "NSDownloadsFolderUsageDescription": "Static saves files you download to your Downloads folder.",
+        "NSDocumentsFolderUsageDescription": "Static can save pages and notes to a folder you choose.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "Web site URL",
+            "CFBundleURLSchemes": [
+              "http",
+              "https"
+            ]
+          }
+        ],
+        "LSMinimumSystemVersion": "11.0"
+      },
+      "identity": null
     },
     "linux": {
       "target": [
@@ -90,6 +125,25 @@
       "category": "Network",
       "maintainer": "static contributors"
     },
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "dmg": {
+      "contents": [
+        {
+          "x": 140,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
   }
 }
