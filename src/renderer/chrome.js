@@ -131,6 +131,7 @@ function mainMenuItems() {
       action: action('tabs:navigate', { input: 'browser://profiles' }),
     } },
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
+    { label: 'New incognito window', icon: 'incognito', shortcut: accel('window:incognito'), action: doAction('window:incognito') },
     { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },
     { label: 'Organise Tabs', icon: 'grid', shortcut: accel('open:organizer'), action: doAction('open:organizer') },
     { label: 'Screen Time', icon: 'clock', shortcut: accel('open:screentime'), action: doAction('open:screentime') },
@@ -245,6 +246,8 @@ function bookmarkContextMenu(item, event) {
 function render() {
   applyTheme(state.settings || {});
   document.body.classList.toggle('mac', state.platform === 'darwin');
+  document.body.classList.toggle('incognito', !!state.incognito);
+  document.getElementById('incognito-pill').hidden = !state.incognito;
   renderWindowControls();
   renderTabs();
   renderToolbar();

@@ -1019,3 +1019,30 @@ body.has-photo .widget {
   -webkit-backdrop-filter: blur(14px);
 }
 body.has-photo .search input { background: color-mix(in srgb, var(--surface) 88%, transparent); }
+
+/* ---- incognito ---------------------------------------------------------- */
+body.incognito {
+  --bg: #0d0a14;
+  --surface: #1b1528;
+  --accent: #a78bfa;
+  --text: #ece8f5;
+  --text-dim: #a59bbd;
+  background: radial-gradient(120% 80% at 50% 0%, #2a1650 0%, #0d0a14 60%) fixed;
+}
+body.incognito .widgets,
+body.incognito .frequent,
+body.incognito .sense,
+body.incognito #ambient,
+body.incognito .status-strip { display: none !important; }
+.incognito-note {
+  max-width: 620px; margin: 0 auto 22px; padding: 20px 22px; border-radius: 18px;
+  background: rgba(27, 21, 40, 0.75); border: 1px solid #3b2d5c;
+  box-shadow: 0 20px 60px rgba(76, 29, 149, 0.25);
+}
+.incognito-note h2 { margin: 0 0 6px; font-size: 20px; color: #e9e2ff; }
+.incognito-note p { margin: 0 0 14px; color: #bfb4d9; line-height: 1.55; font-size: 13.5px; }
+.incognito-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.incognito-columns div { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: #a59bbd; line-height: 1.5; }
+.incognito-columns strong { color: #ddd3f7; font-size: 12.5px; }
+.incognito-note[hidden] { display: none; }
+@media (max-width: 640px) { .incognito-columns { grid-template-columns: 1fr; } }

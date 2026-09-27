@@ -25,6 +25,26 @@ if (testFlag) {
   app.commandLine.appendSwitch('disable-background-timer-throttling');
 }
 
+// Incognito is its own process with its own throwaway data folder: nothing
+// it does can reach the normal profile, and everything it wrote is deleted
+// when it closes. The single-instance lock is per data folder, so it runs
+// beside the normal browser rather than being folded into it.
+const incognito = process.argv.includes('--incognito');
+if (incognito) {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'static-incognito-'));
+  fs.writeFileSync(path.join(scratch, 'owner.pid'), String(process.pid));
+  app.setPath('userData', scratch);
+  process.env.STATIC_INCOGNITO = '1';
+  const wipe = () => { try { fs.rmSync(scratch, { recursive: true, force: true }); } catch { /* best effort */ } };
+  app.on('will-quit', wipe);
+  process.on('exit', wipe);
+}
+
+const { sweepIncognito } = require('./incognito');
+if (!testFlag) setTimeout(sweepIncognito, 5000);
+
 app.enableSandbox();
 
 /**
@@ -129,6 +149,6 @@ else {
 
   app.on('second-instance', () => browser?.focusWindow());
   app.on('activate', () => browser?.focusWindow());
-  app.on('window-all-closed', () => { if (process.platform !== 'darwin' || testFlag) app.quit(); });
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin' || testFlag || incognito) app.quit(); });
   app.on('before-quit', () => browser?.flush());
 }

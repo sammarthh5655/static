@@ -442,3 +442,35 @@ browser-action-list { display: flex; align-items: center; gap: 2px; }
 /* Set as a class, never an inline style: the CSP on this page blocks the
    style attribute (style-src 'self'). */
 .hidden { visibility: hidden; }
+
+/* ---- incognito ------------------------------------------------------------
+   Unmistakable at a glance: a different, darker world, and a label. */
+body.incognito {
+  --bg: #0d0a14;
+  --bg-strip: #08060d;
+  --bg-raised: #15101f;
+  --surface: #1b1528;
+  --surface-hover: #251d36;
+  --surface-active: #2e2442;
+  --tab-active: #1b1528;
+  --field: #120e1b;
+  --border: #2c2340;
+  --border-soft: #1f182d;
+  --accent: #a78bfa;
+  --accent-dim: #3b2d5c;
+  --text: #ece8f5;
+  --text-dim: #a59bbd;
+}
+.incognito-pill {
+  display: inline-flex; align-items: center; gap: 6px; margin-right: 10px;
+  padding: 3px 10px 3px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em;
+  color: #e9e2ff; background: linear-gradient(90deg, #4c1d95, #6d28d9);
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.45);
+}
+.incognito-pill::before {
+  content: ''; width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff, #c4b5fd 45%, transparent 70%);
+  opacity: 0.8;
+}
+.incognito-pill[hidden] { display: none; }

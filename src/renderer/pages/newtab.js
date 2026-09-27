@@ -455,6 +455,8 @@ function renderStatusStrip() {
 
 onState((next) => {
   state = next;
+  document.body.classList.toggle('incognito', !!state.incognito);
+  document.getElementById('incognito-note').hidden = !state.incognito;
   renderActions();
   renderFrequent();
   renderWidgets();

@@ -87,9 +87,14 @@ class BrowserApplication {
     // cookies because they are not in the same store to begin with.
     this.session = session.fromPartition(this.profiles.partition(this.profiles.active.id));
 
+    // Incognito: a partition name without `persist:` lives in memory only, so
+    // cookies, cache, storage and permissions vanish with the process.
+    this.incognito = process.env.STATIC_INCOGNITO === '1';
+    if (this.incognito) this.session = session.fromPartition('incognito');
+
     // Set when the browser was relaunched by a profile switch, so the picker
     // does not immediately reappear and trap the user in a loop.
-    this.profilePicked = process.argv.includes('--profile-chosen');
+    this.profilePicked = process.argv.includes('--profile-chosen') || this.incognito;
     this.window = null;
     this.chrome = null;
     this.tabs = null;
@@ -115,6 +120,7 @@ class BrowserApplication {
   }
 
   async start() {
+    if (this.incognito) this.#stockIncognitoLists();
     this.settings = new Settings(this.dir);
     this.bookmarks = new Bookmarks(this.dir);
     this.history = new History(this.dir);
@@ -218,6 +224,8 @@ class BrowserApplication {
       aiAvailable: gemini.hasKey(),
       onChange: () => this.push(),
     });
+    // An incognito window is not a place to set anything up.
+    if (this.incognito && this.onboarding.due) this.onboarding.complete();
 
     // Filter lists refresh in the background: a first run should not wait on
     // a network fetch, and a failure must not stop the browser starting.
@@ -225,7 +233,7 @@ class BrowserApplication {
     // blocks almost nothing. That is not something to discover four seconds
     // into a browsing session, so a first run fetches immediately and only an
     // already-stocked profile waits.
-    setTimeout(() => {
+    if (!this.incognito || this.shields.cachedListCount() < 12) setTimeout(() => {
       this.shields.refresh().catch((error) =>
         console.error('shields: refresh failed', error.message));
       // An incomplete cache is as urgent as no cache: a profile holding two
@@ -233,7 +241,9 @@ class BrowserApplication {
     }, this.shields.usingCache && this.shields.cachedListCount() >= 12 ? 4000 : 0);
 
     try {
-      await this.extensions.start();
+      // Extensions stay off in incognito, as in every browser: an extension
+      // could otherwise record what the window exists not to record.
+      if (!this.incognito) await this.extensions.start();
     } catch (error) {
       // A failed extension subsystem must not take the whole browser down.
       console.error('Extension subsystem failed to start:', error);
@@ -635,6 +645,7 @@ class BrowserApplication {
       },
       onChange: () => this.push(),
       onNavigate: (event) => {
+        if (this.incognito) return null;
         if (event.type === 'visit') return this.history.record(event.url, event.title);
         if (event.type === 'title') this.history.title(event.id, event.title);
         return null;
@@ -747,7 +758,7 @@ class BrowserApplication {
 
   /** Remember the open tabs, so the next launch can restore them. */
   saveSession() {
-    if (!this.tabs) return;
+    if (!this.tabs || this.incognito) return;
     // A guest profile deliberately remembers nothing.
     if (this.profiles?.active?.guest) { this.sessionStore.save({ tabs: [] }); return; }
     const tabs = this.tabs.list()
@@ -760,10 +771,52 @@ class BrowserApplication {
     this.sessionStore.save({ tabs, savedAt: Date.now() });
   }
 
+  /**
+   * Give an incognito window the filter lists the normal profile already has,
+   * so it blocks from its first page instead of downloading twenty lists.
+   * The copy lives in the throwaway folder and goes with it.
+   */
+  #stockIncognitoLists() {
+    const arg = process.argv.find((a) => a.startsWith('--incognito-lists='));
+    const from = arg ? arg.slice('--incognito-lists='.length) : '';
+    if (!from || !path.isAbsolute(from) || !fs.existsSync(path.join(from, 'filter-lists'))) return;
+    try {
+      fs.cpSync(path.join(from, 'filter-lists'), path.join(this.dir, 'filter-lists'), { recursive: true });
+      const shields = path.join(from, 'shields.json');
+      if (fs.existsSync(shields)) fs.copyFileSync(shields, path.join(this.dir, 'shields.json'));
+    } catch (error) {
+      console.error('[incognito] could not copy filter lists', error.message);
+    }
+  }
+
+  /** Open an incognito window: a separate Static process. */
+  openIncognito(url) {
+    if (this.incognito) {
+      if (url) this.tabs.create({ url });
+      else this.tabs.create({});
+      return;
+    }
+    const { spawn } = require('node:child_process');
+    const args = [
+      ...(app.isPackaged ? [] : [app.getAppPath()]),
+      '--incognito',
+      '--incognito-lists=' + this.dir,
+    ];
+    if (url && /^https?:\/\//i.test(url)) args.push('--incognito-url=' + url);
+    const child = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
+    child.unref();
+    return child.pid;
+  }
+
   #startUrl() {
     // The profile picker comes first when the user asked for it, because
     // which identity you are in decides what everything else shows.
     if (this.profiles?.startup().show && !this.profilePicked) return 'browser://profiles';
+    if (this.incognito) {
+      const arg = process.argv.find((a) => a.startsWith('--incognito-url='));
+      const url = arg ? arg.slice('--incognito-url='.length) : '';
+      return /^https?:\/\//i.test(url) ? url : NEW_TAB;
+    }
 
     // A profile that has never been set up opens the welcome flow instead of
     // the homepage. It is a normal tab: it can be closed, navigated away from
@@ -1063,6 +1116,7 @@ class BrowserApplication {
     const win = this.window && !this.window.isDestroyed() ? this.window : null;
     return {
       platform: process.platform,
+      incognito: !!this.incognito,
       // Drives the custom title bar: which maximise/restore glyph to draw,
       // and whether to inset for the macOS traffic-light area.
       window: {
@@ -2640,7 +2694,10 @@ class BrowserApplication {
       'passwords:state': () => this.passwords.state(),
       'passwords:list': (_sender, payload) => this.passwords.list(payload?.query),
       'passwords:for-url': (_sender, payload) => this.passwords.forUrl(payload?.url),
-      'passwords:save': (_sender, payload) => this.passwords.save_credential(payload || {}),
+      'passwords:save': (_sender, payload) => {
+        if (this.incognito) throw new Error('Passwords are not saved in incognito.');
+        return this.passwords.save_credential(payload || {});
+      },
       'passwords:reveal': (_sender, payload) => this.passwords.reveal(payload?.id),
       'passwords:remove': (_sender, payload) => this.passwords.remove(payload?.id),
       'passwords:clear': () => this.passwords.clear(),
