@@ -213,6 +213,29 @@ function closeOverlayMenu() {
 window.addEventListener('blur', closeOverlayMenu);
 window.browser.on('ui:menu-closed', closeOverlayMenu);
 
+/**
+ * The layout choice, offered wherever the tab strip is right-clicked. The
+ * hint says what vertical tabs are for, because the name alone does not.
+ */
+function tabLayoutItems() {
+  return [
+    { heading: true, label: 'Tab layout' },
+    {
+      label: 'Show tabs vertically', icon: 'sidebar',
+      hint: 'See whole titles, manage groups easily and free up vertical space. Best with many tabs open.',
+      action: action('settings:update', { tabLayout: 'vertical' }),
+    },
+  ];
+}
+
+/** A link dragged in from a page or another app, if there is one. */
+function droppedLink(event) {
+  const types = event.dataTransfer?.types || [];
+  if (!types.includes('text/uri-list') && !types.includes('text/plain')) return '';
+  const raw = event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain') || '';
+  return (raw.split(/\r?\n/).find((line) => line && !line.startsWith('#')) || '').trim();
+}
+
 /** Right-click menu for a tab. */
 function tabContextMenu(tab, event) {
   contextMenu([
@@ -223,6 +246,8 @@ function tabContextMenu(tab, event) {
     { label: 'Duplicate', icon: 'plus', action: action('tabs:new', { url: tab.url }) },
     { separator: true },
     { label: 'Bookmark', icon: 'star', action: action('bookmarks:toggle', { url: tab.url, title: tab.title }) },
+    { separator: true },
+    ...tabLayoutItems(),
     { separator: true },
     {
       label: 'Close tab', icon: 'close', danger: true, shortcut: accel('tab:close'),
@@ -247,6 +272,7 @@ function render() {
   applyTheme(state.settings || {});
   document.body.classList.toggle('mac', state.platform === 'darwin');
   document.body.classList.toggle('incognito', !!state.incognito);
+  document.body.classList.toggle('vertical-tabs', state.settings?.tabLayout === 'vertical');
   document.getElementById('incognito-pill').hidden = !state.incognito;
   renderWindowControls();
   renderTabs();
@@ -603,13 +629,35 @@ el.tabs.addEventListener('dragstart', (event) => {
 });
 
 el.tabs.addEventListener('dragover', (event) => {
-  if (!local.dragId) return;
+  if (!local.dragId) {
+    // A link from a page: onto a tab replaces it, anywhere else opens one.
+    const types = event.dataTransfer?.types || [];
+    if (!types.includes('text/uri-list') && !types.includes('text/plain')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    el.tabs.querySelectorAll('.link-target').forEach((n) => n.classList.remove('link-target'));
+    event.target.closest('.tab')?.classList.add('link-target');
+    return;
+  }
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
 });
 
+el.tabs.addEventListener('dragleave', () => {
+  el.tabs.querySelectorAll('.link-target').forEach((n) => n.classList.remove('link-target'));
+});
+
 el.tabs.addEventListener('drop', (event) => {
-  if (!local.dragId) return;
+  if (!local.dragId) {
+    el.tabs.querySelectorAll('.link-target').forEach((n) => n.classList.remove('link-target'));
+    const url = droppedLink(event);
+    if (!url) return;
+    event.preventDefault();
+    const over = event.target.closest('.tab');
+    if (over) invoke('tabs:navigate', { id: over.dataset.id, input: url });
+    else invoke('tabs:new', { url });
+    return;
+  }
   event.preventDefault();
   const groupChip = event.target.closest('[data-group-id]');
   if (groupChip) {
@@ -632,6 +680,35 @@ el.tabs.addEventListener('dragend', () => {
   local.dragId = null;
   el.tabs.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
   renderTabs();
+});
+
+// Links dropped on the + button or the empty strip open in a new tab.
+for (const target of [el.newtab, document.querySelector('.strip-drag')]) {
+  if (!target) continue;
+  target.addEventListener('dragover', (event) => {
+    const types = event.dataTransfer?.types || [];
+    if (local.dragId || (!types.includes('text/uri-list') && !types.includes('text/plain'))) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  target.addEventListener('drop', (event) => {
+    const url = droppedLink(event);
+    if (!url || local.dragId) return;
+    event.preventDefault();
+    invoke('tabs:new', { url });
+  });
+}
+
+// Right-click on the empty strip: the strip's own menu.
+document.querySelector('.strip')?.addEventListener('contextmenu', (event) => {
+  if (event.target.closest('.tab, .tab-group-chip, button')) return;
+  contextMenu([
+    { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
+    { label: 'Reopen closed tab', icon: 'reload', shortcut: accel('tab:reopen'), action: doAction('tab:reopen') },
+    { label: 'Organise tabs', icon: 'grid', action: doAction('open:organizer') },
+    { separator: true },
+    ...tabLayoutItems(),
+  ], event);
 });
 
 // Suppress the default context menu everywhere we have not built our own.

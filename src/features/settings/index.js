@@ -21,6 +21,10 @@ const DEFAULTS = {
    *   'homepage' the homepage
    */
   onStartup: 'restore',
+  /** Where the tabs live: along the top, or down the left edge. */
+  tabLayout: 'horizontal',
+  /** Vertical tabs folded down to favicons. */
+  verticalTabsCollapsed: false,
 
   // Appearance. Every one of these feeds shared/theme.js#cssVariables, which
   // is the only place that turns them into actual CSS.
@@ -79,6 +83,8 @@ class Settings {
     if (!FONTS[next.font]) next.font = DEFAULTS.font;
     if (!DENSITY[next.density]) next.density = DEFAULTS.density;
     if (!['on', 'autohide', 'off'].includes(next.sidebarMode)) next.sidebarMode = DEFAULTS.sidebarMode;
+    if (!['horizontal', 'vertical'].includes(next.tabLayout)) next.tabLayout = DEFAULTS.tabLayout;
+    if (typeof next.verticalTabsCollapsed !== 'boolean') next.verticalTabsCollapsed = DEFAULTS.verticalTabsCollapsed;
     if (!ACCENTS[next.accent]) next.accent = DEFAULTS.accent;
     next.fontSize = clampSize(next.fontSize, DEFAULTS.fontSize);
     next.accentCustom = normalizeHex(next.accentCustom) || '';
@@ -130,6 +136,8 @@ class Settings {
       }
       else if (key === 'newTabBehavior' && ['newtab', 'homepage'].includes(value)) next[key] = value;
       else if (key === 'onStartup' && ['restore', 'newtab', 'homepage'].includes(value)) next[key] = value;
+      else if (key === 'tabLayout' && ['horizontal', 'vertical'].includes(value)) next[key] = value;
+      else if (key === 'verticalTabsCollapsed' && typeof value === 'boolean') next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
       else if (key === 'theme' && (THEMES[value] || value === 'custom')) next[key] = value;
       // A forged world: one colour and a direction, expanded into a full

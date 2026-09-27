@@ -50,9 +50,14 @@ const BOOKMARKS_BAR_HEIGHT = 34;
 const SUGGESTIONS_HEIGHT = 340;
 
 function chromeHeight(settings) {
-  return TITLEBAR_HEIGHT + TABSTRIP_HEIGHT + TOOLBAR_HEIGHT +
+  // Vertical tabs take the strip out of the top bar entirely.
+  return TITLEBAR_HEIGHT + (settings.tabLayout === 'vertical' ? 0 : TABSTRIP_HEIGHT) + TOOLBAR_HEIGHT +
     (settings.bookmarksBar ? BOOKMARKS_BAR_HEIGHT : 0);
 }
+
+/** Width of the vertical tab list, open and folded to favicons. */
+const VERTICAL_TABS_WIDTH = 248;
+const VERTICAL_TABS_FOLDED = 56;
 
 /**
  * Top-level application object: owns the window, the chrome UI view, all
@@ -666,6 +671,7 @@ class BrowserApplication {
 
     // Chrome renders first; the tab view is positioned by layout().
     this.chrome.webContents.once('did-finish-load', () => {
+      this.applyTabLayout();
       this.layout();
       if (!this.tabs.order.length) this.#openStartupTabs();
       // Honour the saved sidebar setting on startup rather than always
@@ -915,6 +921,32 @@ class BrowserApplication {
     this.layout();
   }
 
+  /** Create or remove the vertical tab list to match the setting. */
+  applyTabLayout() {
+    if (!this.window || this.window.isDestroyed()) return;
+    const want = this.settings.value.tabLayout === 'vertical';
+    if (!want) {
+      if (this.vtabs) {
+        try { this.window.contentView.removeChildView(this.vtabs); } catch { /* already gone */ }
+        if (!this.vtabs.webContents.isDestroyed()) this.vtabs.webContents.close();
+        this.vtabs = null;
+      }
+      this.layout();
+      return;
+    }
+    if (this.vtabs && !this.vtabs.webContents.isDestroyed()) { this.layout(); return; }
+    this.vtabs = new WebContentsView({
+      webPreferences: {
+        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
+        contextIsolation: true, sandbox: true, nodeIntegration: false,
+      },
+    });
+    this.vtabs.setBackgroundColor(THEMES[this.settings.value.theme]?.tokens.bg || '#161718');
+    this.attachShortcuts(this.vtabs.webContents);
+    this.vtabs.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'pages', 'vtabs.html'));
+    this.layout();
+  }
+
   /** Reveal or re-hide an autohidden sidebar. */
   peekSidebar(show) {
     if (this.settings?.value?.sidebarMode !== 'autohide') return false;
@@ -1052,11 +1084,19 @@ class BrowserApplication {
     const full = Math.min(this.sidebarWidth, Math.max(0, Math.floor(width * 0.5)));
     const progress = this.sidebarProgress ?? (this.sidebarOpen ? 1 : 0);
     const side = immersive ? 0 : Math.round(full * progress);
+    const vertical = !immersive && this.settings.value.tabLayout === 'vertical' && this.vtabs;
+    const left = vertical
+      ? Math.min(this.settings.value.verticalTabsCollapsed ? VERTICAL_TABS_FOLDED : VERTICAL_TABS_WIDTH, Math.floor(width * 0.4))
+      : 0;
+    if (this.vtabs && !this.vtabs.webContents.isDestroyed()) {
+      this.window.contentView.addChildView(this.vtabs);
+      this.vtabs.setBounds(vertical ? { x: 0, y: top, width: left, height: Math.max(0, height - top) } : { x: 0, y: 0, width: 0, height: 0 });
+    }
 
     this.tabs?.setBounds({
-      x: 0,
+      x: left,
       y: top,
-      width: Math.max(0, width - side),
+      width: Math.max(0, width - side - left),
       height: Math.max(0, height - top),
     });
 
@@ -1225,6 +1265,9 @@ class BrowserApplication {
     if (this.sidebar && !this.sidebar.webContents.isDestroyed()) {
       this.sidebar.webContents.send('app:state', payload);
     }
+    if (this.vtabs && !this.vtabs.webContents.isDestroyed()) {
+      this.vtabs.webContents.send('app:state', payload);
+    }
     for (const tab of this.tabs?.tabs.values() || []) {
       const wc = tab.view.webContents;
       if (!wc.isDestroyed() && tab.state.internalUrl) wc.send('app:state', payload);
@@ -1268,8 +1311,15 @@ class BrowserApplication {
 
       // The chrome asks the overlay to draw a menu; the overlay reports back
       // whether one is open so we can toggle its mouse transparency.
-      'menu:open': (_sender, payload) => {
+      'menu:open': (sender, payload) => {
         if (!this.overlay || this.overlay.webContents.isDestroyed()) return false;
+        // Menus opened from a side panel arrive in that panel's coordinates;
+        // the overlay spans the window.
+        if (sender === this.vtabs?.webContents && payload?.anchor) {
+          const at = this.vtabs.getBounds();
+          const a = payload.anchor;
+          payload = { ...payload, anchor: { ...a, left: a.left + at.x, right: a.right + at.x, top: a.top + at.y, bottom: a.bottom + at.y } };
+        }
         // The overlay may not have registered its IPC listener yet (it loads
         // asynchronously, and the user can hit F10 immediately). Hold the most
         // recent request and replay it once the overlay reports ready, so an
@@ -1277,6 +1327,7 @@ class BrowserApplication {
         // Always queue, then nudge. The overlay drains the queue on the nudge
         // or on its next poll, so a send dropped during a commit still lands.
         this.pendingMenu = payload;
+        this.lastMenu = payload;
         this.overlay.webContents.send('ui:render-menu', payload);
         return true;
       },
@@ -1363,6 +1414,12 @@ class BrowserApplication {
         const next = this.settings.update(payload);
         // The sidebar setting has to actually reach the sidebar.
         if (payload && 'sidebarMode' in payload) this.applySidebarMode();
+        if (payload && 'tabLayout' in payload) {
+          this.applyTabLayout();
+          if (payload.tabLayout === 'vertical') {
+            this.notify('Tabs are down the side now: whole titles, tidy groups, more room for the page. Right-click the tab list to move them back.');
+          }
+        }
         this.layout(); // bookmarks bar toggle changes the chrome height
         this.push();
         return next;
@@ -1370,6 +1427,7 @@ class BrowserApplication {
       'settings:clear-data': (_sender, payload) => this.#clearData(payload),
       'settings:reset': (_sender, payload) => {
         const next = this.settings.reset(payload?.scope);
+        this.applyTabLayout();
         this.layout();
         this.push();
         return next;
@@ -2796,6 +2854,11 @@ class BrowserApplication {
     if (sender === this.edgeStrip?.webContents) {
       const url = sender.getURL();
       if (url.startsWith('file://') && url.includes('/renderer/pages/edge.html')) return;
+      throw new Error('Unauthorized sender');
+    }
+    if (sender === this.vtabs?.webContents) {
+      const url = sender.getURL();
+      if (url.startsWith('file://') && url.includes('/renderer/pages/vtabs.html')) return;
       throw new Error('Unauthorized sender');
     }
     if (sender === this.findBar?.webContents) {

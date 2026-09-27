@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https: http:">
+  <title>Tabs</title>
+  <link rel="stylesheet" href="vtabs.css">
+</head>
+<!-- Vertical tabs: the tab strip turned on its side, down the left edge.
+     Whole titles are readable, groups stack neatly, and the page gets the
+     vertical space the horizontal strip used to take. -->
+<body>
+  <header class="vt-head">
+    <button class="vt-new" id="new" title="New tab (Ctrl+T)"><span class="vt-new-icon" id="new-icon"></span><span class="vt-label">New tab</span></button>
+    <button class="vt-fold" id="fold" title="Collapse tabs"></button>
+  </header>
+  <nav class="vt-list" id="list" aria-label="Tabs"></nav>
+  <footer class="vt-foot">
+    <button class="vt-workspace" id="workspace" title="Switch workspace"></button>
+  </footer>
+  <script src="../../shared/theme.js"></script>
+  <script src="common.js"></script>
+  <script src="vtabs.js"></script>
+</body>
+</html>
