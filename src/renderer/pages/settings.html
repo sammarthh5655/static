@@ -15,7 +15,20 @@
 <div class="settings-sidebar-foot">CLEANER. SMARTER. MORE YOURS.</div>
 </aside>
 <main class="settings-main"><header class="settings-header"><div><span class="eyebrow">YOUR BROWSER, YOUR WAY</span><h1 id="settings-title">Get started</h1><p id="settings-description">Everything you need to feel at home.</p></div><span class="saved-indicator"><span></span>Changes saved automatically</span></header>
-<div id="settings-status" role="status" aria-live="polite"></div><div id="settings-content"><section class="settings-section" data-section="start" aria-label="Get started" hidden><div class="settings-hero"><span class="eyebrow">MAKE ROOM FOR YOUR WEB</span><h2>A browser that feels<br>like you.</h2><p>A little more focus. A lot more possibility.<br>Make Static your own, one detail at a time.</p><img src="../assets/static-mark.svg" alt="" class="hero-mark"></div><div class="settings-quick"><button data-section-target="appearance"><span data-icon="palette"></span><strong>Make it yours</strong><span>Theme, colors &amp; type</span></button><button data-section-target="privacy"><span data-icon="shield"></span><strong>Browse with control</strong><span>Privacy &amp; protection</span></button><button data-section-target="ai"><span data-icon="sparkle"></span><strong>A little intelligence</strong><span>Your AI workspace</span></button></div><h2>On startup & new tabs</h2><div class="card">
+<div id="settings-status" role="status" aria-live="polite"></div><section id="settings-jump" class="settings-jump" hidden></section><div id="settings-content"><section class="settings-section" data-section="start" aria-label="Get started" hidden><div class="settings-hero"><span class="eyebrow">MAKE ROOM FOR YOUR WEB</span><h2>A browser that feels<br>like you.</h2><p>A little more focus. A lot more possibility.<br>Make Static your own, one detail at a time.</p><img src="../assets/static-mark.svg" alt="" class="hero-mark"></div><div class="settings-quick"><button data-section-target="appearance"><span data-icon="palette"></span><strong>Make it yours</strong><span>Theme, colors &amp; type</span></button><button data-section-target="privacy"><span data-icon="shield"></span><strong>Browse with control</strong><span>Privacy &amp; protection</span></button><button data-section-target="ai"><span data-icon="sparkle"></span><strong>A little intelligence</strong><span>Your AI workspace</span></button></div><h2>On startup & new tabs</h2><div class="card">
+      <div class="field" data-keywords="startup launch restore session reopen tabs continue where you left off">
+        <div>
+          <label for="onStartup">When Static opens</label>
+          <div class="hint">Bring back the tabs you had open, or start fresh.</div>
+        </div>
+        <div class="control">
+          <select id="onStartup">
+            <option value="restore">Continue where you left off</option>
+            <option value="newtab">Open a new tab</option>
+            <option value="homepage">Open the homepage</option>
+          </select>
+        </div>
+      </div>
       <div class="field">
         <div>
           <label for="behavior">New tab opens</label>
@@ -44,6 +57,27 @@
         <div class="control"><button id="rerun-setup" type="button">Run setup</button></div>
       </div>
     </div></section>
+<section class="settings-section" data-section="profiles" aria-label="Profiles" hidden>
+  <div class="card">
+    <div class="field" data-keywords="add create new profile user person space account">
+      <div>
+        <label for="profile-new">Create a profile</label>
+        <div class="hint">A separate space with its own history, tabs, passwords, extensions and planet. Takes four quick choices.</div>
+      </div>
+      <div class="control right"><button id="profile-new" type="button" class="primary">New profile</button></div>
+    </div>
+    <div class="field" data-keywords="picker choose switch user selection startup">
+      <div>
+        <label for="profile-startup">Profile picker</label>
+        <div class="hint">When the "Choose your space" screen appears as Static opens.</div>
+      </div>
+      <div class="control"><select id="profile-startup"></select></div>
+    </div>
+  </div>
+  <h2>Your profiles</h2>
+  <div class="card profile-rows" id="profile-list"></div>
+  <p class="settings-note">Each profile keeps its own cookies, logins, history, bookmarks and settings. Nothing is shared between them, and deleting one removes its data from this device.</p>
+</section>
 <section class="settings-section" data-section="appearance" aria-label="Appearance" hidden><div class="card">
       <!-- The theme is chosen by looking, not by reading a name in a list.
            Hover a planet to see it named, click to wear it, drag to turn the
@@ -298,5 +332,6 @@
 <script src="common.js"></script>
 <script src="settings-navigation.js"></script>
 <script src="settings.js"></script>
+<script src="settings-profiles.js"></script>
 </body>
 </html>

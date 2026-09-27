@@ -491,6 +491,26 @@ const ICONS = {
   key: { outline: 'M14 4a6 6 0 1 1-4 10l-7 7v-4l2-2v-3h3a6 6 0 0 1 6-8ZM16 8h.01', fill: null },
   accessibility: { outline: 'M12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 9l8 2 8-2M12 11v5M8 22l4-6 4 6M8 10v6M16 10v6', fill: null },
   reset: { outline: 'M4 4v6h6M4 10a8 8 0 1 1 0 5', fill: null },
+  user: { outline: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0', fill: null },
+  tabs: { outline: 'M3 8h18v12H3ZM3 8l2-4h6l2 4', fill: null },
+  split: { outline: 'M3 4h18v16H3ZM12 4v16', fill: null },
+  import: { outline: 'M12 3v12M7 10l5 5 5-5M4 21h16', fill: null },
+  doc: { outline: 'M6 3h9l4 4v14H6ZM14 3v5h5M9 13h7M9 17h7', fill: null },
+  chat: { outline: 'M4 5h16v11H9l-5 4Z', fill: null },
+  image: { outline: 'M3 5h18v14H3ZM3 16l5-5 4 4 3-3 6 6M15 9h.01', fill: null },
+  heart: { outline: 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z', fill: 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10Z' },
+  shuffle: { outline: 'M3 7h4l10 10h4M3 17h4l3-3M14 10l3-3h4M18 4l3 3-3 3M18 14l3 3-3 3', fill: null },
+  // Profile avatars (features/profiles AVATARS). Every id there must exist here.
+  planet: { outline: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM6.5 14.5C3 16.5 2 18 3.5 18.5c2 .6 7.5-1.3 12-4.3S21.8 7.6 20.5 7c-.8-.4-2.3 0-4 .8', fill: null },
+  moon: { outline: 'M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z', fill: null },
+  comet: { outline: 'M16 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM13.5 10.5 4 20M11 8l-6 6M16 13l-6 6', fill: null },
+  orbit: { outline: 'M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM3 12a9 4 0 1 0 18 0 9 4 0 1 0-18 0', fill: null },
+  rocket: { outline: 'M12 2c3 2 5 6 5 10l-2 4H9l-2-4c0-4 2-8 5-10ZM12 9h.01M9 16l-3 3M15 16l3 3M10 20h4', fill: null },
+  leaf: { outline: 'M5 19C5 10 10 5 20 4c0 10-5 15-14 15ZM5 19l8-8', fill: null },
+  flame: { outline: 'M12 22a7 7 0 0 0 7-7c0-4-3-6-4-10-2 2-3 4-3 6-1-1-2-2-2-4-3 3-5 5-5 8a7 7 0 0 0 7 7Z', fill: null },
+  wave: { outline: 'M2 10c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-2M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-2', fill: null },
+  peak: { outline: 'M3 20l6-10 4 6 3-4 5 8Z', fill: null },
+  incognito: { outline: 'M3 11h18M6 11l2-6h8l2 6M7 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM17 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM10 17h4', fill: null },
 };
 
 /**

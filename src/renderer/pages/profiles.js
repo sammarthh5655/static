@@ -117,7 +117,7 @@ function ago(timestamp) {
 function avatarFor(profile) {
   if (profile.emoji) return element('span', { class: 'picker-emoji', text: profile.emoji });
   try {
-    const glyph = icon(profile.avatar === 'planet' ? 'grid' : profile.avatar, { size: 30 });
+    const glyph = window.theme?.ICONS?.[profile.avatar] && icon(profile.avatar, { size: 30 });
     if (glyph) return glyph;
   } catch { /* not a known glyph; fall through to the initial */ }
   return element('span', { class: 'picker-emoji', text: (profile.name[0] || '?').toUpperCase() });
@@ -236,9 +236,106 @@ function addCard(index) {
     element('div', { class: 'picker-enter', text: 'Create' }),
   ]);
   card.style.setProperty('--i', index);
-  card.addEventListener('click', () => invoke('profiles:manage').catch((e) => fail(e.message)));
+  card.addEventListener('click', openCreator);
   return card;
 }
+
+/* ---- new profile --------------------------------------------------------- */
+
+const draft = { name: '', theme: 'neptune', avatar: 'planet', template: 'blank' };
+
+function planetList() {
+  return Object.values(window.theme?.THEMES || {}).sort((a, b) => (a.order || 0) - (b.order || 0));
+}
+
+function planetFill(planet) {
+  const p = planet.palette || {};
+  return `radial-gradient(circle at 32% 28%, ${p.primary}, ${p.secondary} 55%, ${p.deep})`;
+}
+
+/** A radio-like choice: one button per option, arrow keys move within. */
+function choices(host, options, key, draw) {
+  host.replaceChildren(...options.map((option) => {
+    const button = element('button', {
+      type: 'button', role: 'radio', class: 'creator-choice',
+      'aria-checked': String(draft[key] === option.id),
+      'aria-label': option.label,
+      title: option.label,
+      onclick: () => { draft[key] = option.id; paint(); },
+    }, draw(option));
+    return button;
+  }));
+}
+
+/** Redraw the sheet and the preview from the draft. */
+function paint() {
+  const planet = window.theme?.THEMES?.[draft.theme];
+  choices($('#creator-planets'), planetList().map((p) => ({ id: p.id, label: p.name, planet: p })), 'theme',
+    (o) => {
+      // Through the style object: the page CSP refuses style attributes.
+      const swatch = element('span', { class: 'creator-planet' });
+      swatch.style.background = planetFill(o.planet);
+      return [swatch, element('span', { class: 'creator-choice-name', text: o.label })];
+    });
+  choices($('#creator-avatars'), (state?.avatars || []).map((id) => ({ id, label: id })), 'avatar',
+    (o) => [avatarFor({ avatar: o.id, name: o.id })]);
+  choices($('#creator-templates'), (state?.templates || []).map((t) => ({ id: t.id, label: t.name, summary: t.summary })), 'template',
+    (o) => [element('strong', { text: o.label }), element('span', { text: o.summary })]);
+
+  const orb = $('#creator-orb');
+  if (planet) {
+    orb.style.background = planetFill(planet);
+    orb.style.setProperty('--glow', planet.palette.primary);
+    $('#creator-form').style.setProperty('--tone', planet.palette.primary);
+  }
+  $('#creator-glyph').replaceChildren(avatarFor({ avatar: draft.avatar, name: draft.name || 'N' }));
+  $('#creator-preview-name').textContent = draft.name.trim() || 'New profile';
+  $('#creator-preview-planet').textContent = planet ? planet.name + ' · ' + (planet.blurb || '') : '';
+}
+
+function openCreator() {
+  fail('');
+  Object.assign(draft, { name: '', theme: 'neptune', avatar: state?.avatars?.[0] || 'planet', template: 'blank' });
+  $('#creator-name').value = '';
+  paint();
+  $('#creator').hidden = false;
+  requestAnimationFrame(() => $('#creator').classList.add('is-open'));
+  $('#creator-name').focus();
+}
+
+function closeCreator() {
+  const host = $('#creator');
+  host.classList.remove('is-open');
+  setTimeout(() => { host.hidden = true; }, reduced ? 0 : 220);
+}
+
+$('#creator-name').addEventListener('input', (event) => { draft.name = event.target.value; paint(); });
+$('#creator-cancel').addEventListener('click', closeCreator);
+$('#creator').addEventListener('click', (event) => { if (event.target.id === 'creator') closeCreator(); });
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !$('#creator').hidden) closeCreator();
+});
+$('#creator-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const name = draft.name.trim();
+  if (!name) { $('#creator-name').focus(); return; }
+  const go = $('#creator-go');
+  go.disabled = true;
+  go.textContent = 'Creating…';
+  try {
+    const profile = await invoke('profiles:create', {
+      name, theme: draft.theme, avatar: draft.avatar, template: draft.template,
+      accent: window.theme?.THEMES?.[draft.theme]?.palette?.primary || '',
+    });
+    go.textContent = 'Opening ' + profile.name + '…';
+    await invoke('profiles:enter', { id: profile.id });
+  } catch (error) {
+    go.disabled = false;
+    go.textContent = 'Create and open';
+    fail(error.message);
+    closeCreator();
+  }
+});
 
 function render() {
   if (!state) return;
@@ -264,8 +361,7 @@ function render() {
 
 /* ---- boot ---------------------------------------------------------------- */
 
-$('#create').addEventListener('click', () =>
-  invoke('profiles:manage').catch((error) => fail(error.message)));
+$('#create').addEventListener('click', openCreator);
 $('#manage').addEventListener('click', () =>
   invoke('profiles:manage').catch((error) => fail(error.message)));
 
@@ -276,6 +372,8 @@ async function load() {
     // Focus the default profile so the keyboard works from the first press.
     const first = $('#grid').querySelector('.picker-card');
     if (first) first.focus({ preventScroll: true });
+    // Settings -> Profiles -> New profile lands here.
+    if (location.hash === '#new') openCreator();
   } catch (error) {
     fail('Could not read your profiles: ' + error.message);
   }

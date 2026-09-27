@@ -141,6 +141,13 @@ class BrowserApplication {
     this.shields = new Shields(this.dir, {
       onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
     });
+    const seed = this.profiles.takeSeed(this.profiles.active.id);
+    if (seed) {
+      try { this.settings.update(seed.settings); } catch (error) { console.error('[profiles] seed settings', error); }
+      if (seed.shields) {
+        try { this.shields.update(seed.shields); } catch (error) { console.error('[profiles] seed shields', error); }
+      }
+    }
     this.passwords = new Passwords(this.dir, {
       onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
     });

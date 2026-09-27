@@ -16,6 +16,7 @@ function update(patch) {
 
 $('#engine').addEventListener('change', (e) => update({ searchEngine: e.target.value }));
 $('#behavior').addEventListener('change', (e) => update({ newTabBehavior: e.target.value }));
+$('#onStartup').addEventListener('change', (e) => update({ onStartup: e.target.value }));
 $('#bookmarksBar').addEventListener('change', (e) => update({ bookmarksBar: e.target.checked }));
 
 // Appearance. Every one of these feeds shared/theme.js, so a change repaints
@@ -212,6 +213,7 @@ onState((state) => {
 
   $('#engine').value = s.searchEngine || 'google';
   $('#behavior').value = s.newTabBehavior || 'newtab';
+  $('#onStartup').value = s.onStartup || 'restore';
   $('#bookmarksBar').checked = !!s.bookmarksBar;
   if (document.activeElement !== homepage) homepage.value = s.homepage || '';
 

@@ -3,9 +3,16 @@ const path = require('node:path');
 app.setName('static');
 
 // Test modes run against a throwaway profile so they never touch real user data.
-const TEST_FLAGS = ['--smoke', '--smoke-store', '--shot', '--probe', '--appearance', '--ai', '--aipage', '--modes', '--homepage', '--shields', '--privacy', '--welcome', '--extract', '--planets', '--counters', '--picker', '--planetarium', '--sidebar', '--organise', '--bravejs', '--omnibox', '--menu', '--ytdeep', '--lists', '--adsites', '--stalecache', '--liveprofile', '--adshot', '--aispeed'] ;
-TEST_FLAGS.push('--productivity');
-const testFlag = !app.isPackaged && process.argv.find(arg => TEST_FLAGS.includes(arg));
+// `--name` runs tests/name.cjs; a probe file existing is what makes it a flag,
+// so a new probe cannot be forgotten in a list and launch a normal browser.
+const PROBE_ALIASES = { '--shot': 'screenshot', '--smoke': 'smoke', '--smoke-store': 'smoke' };
+function probeFile(arg) {
+  if (!/^--[a-z][a-z0-9-]*$/.test(arg)) return null;
+  const name = PROBE_ALIASES[arg] || arg.slice(2);
+  const file = path.join(__dirname, '..', '..', 'tests', name + '.cjs');
+  return require('node:fs').existsSync(file) ? file : null;
+}
+const testFlag = !app.isPackaged && process.argv.find(probeFile);
 if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
 
 app.enableSandbox();
@@ -86,37 +93,7 @@ else {
     const { BrowserApplication } = require('./application');
     browser = new BrowserApplication();
     await browser.start();
-    if (testFlag === '--shot') await require('../../tests/screenshot.cjs').run(browser);
-    else if (testFlag === '--probe') await require('../../tests/probe.cjs').run(browser);
-    else if (testFlag === '--productivity') await require('../../tests/productivity.cjs').run(browser);
-    else if (testFlag === '--privacy') await require('../../tests/privacy.cjs').run(browser);
-    else if (testFlag === '--shields') await require('../../tests/shields.cjs').run(browser);
-    else if (testFlag === '--homepage') await require('../../tests/homepage.cjs').run(browser);
-    else if (testFlag === '--modes') await require('../../tests/modes.cjs').run(browser);
-    else if (testFlag === '--aipage') await require('../../tests/aipage.cjs').run(browser);
-    else if (testFlag === '--counters') await require('../../tests/counters.cjs').run(browser);
-    else if (testFlag === '--planetarium') await require('../../tests/planetarium.cjs').run(browser);
-    else if (testFlag === '--liveprofile') await require('../../tests/liveprofile.cjs').run(browser);
-    else if (testFlag === '--adsites') await require('../../tests/adsites.cjs').run(browser);
-    else if (testFlag === '--licences') await require('../../tests/licences.cjs').run(browser);
-    else if (testFlag === '--licences') await require('../../tests/licences.cjs').run(browser);
-    else if (testFlag === '--aispeed') await require('../../tests/aispeed.cjs').run(browser);
-    else if (testFlag === '--adshot') await require('../../tests/adshot.cjs').run(browser);
-    else if (testFlag === '--stalecache') await require('../../tests/stalecache.cjs').run(browser);
-    else if (testFlag === '--lists') await require('../../tests/lists.cjs').run(browser);
-    else if (testFlag === '--menu') await require('../../tests/menu.cjs').run(browser);
-    else if (testFlag === '--organise') await require('../../tests/organise.cjs').run(browser);
-    else if (testFlag === '--ytdeep') await require('../../tests/ytdeep.cjs').run(browser);
-    else if (testFlag === '--omnibox') await require('../../tests/omnibox.cjs').run(browser);
-    else if (testFlag === '--bravejs') await require('../../tests/bravejs.cjs').run(browser);
-    else if (testFlag === '--sidebar') await require('../../tests/sidebar.cjs').run(browser);
-    else if (testFlag === '--picker') await require('../../tests/picker.cjs').run(browser);
-    else if (testFlag === '--planets') await require('../../tests/planets.cjs').run(browser);
-    else if (testFlag === '--extract') await require('../../tests/extract.cjs').run(browser);
-    else if (testFlag === '--welcome') await require('../../tests/welcome.cjs').run(browser);
-    else if (testFlag === '--ai') await require('../../tests/ai.cjs').run(browser);
-    else if (testFlag === '--appearance') await require('../../tests/appearance.cjs').run(browser);
-    else if (testFlag) await require('../../tests/smoke.cjs').run(browser);
+    if (testFlag) await require(probeFile(testFlag)).run(browser);
   }).catch(error => { console.error(error); app.exit(1); });
   /**
    * The dock menu, which macOS shows on right-click.

@@ -261,3 +261,24 @@ test('there is a ceiling on how many profiles can exist', (t) => {
   for (let i = profiles.list.length; i < 30; i++) profiles.create({ name: 'P' + i });
   assert.throws(() => profiles.create({ name: 'One too many' }), /up to 30/);
 });
+
+test('a new profile starts with the planet and template it was made with, once', (t) => {
+  const { profiles } = fixture(t);
+  const made = profiles.create({ name: 'Study', theme: 'mars', template: 'privacy' });
+  const seed = profiles.takeSeed(made.id);
+  assert.equal(seed.settings.theme, 'mars');
+  assert.deepEqual(seed.shields, TEMPLATES.privacy.shields);
+  assert.equal(profiles.takeSeed(made.id), null, 'and never again, so later changes stick');
+});
+
+test('profiles made before seeding existed are left alone', (t) => {
+  const { profiles } = fixture(t);
+  const old = profiles.create({ name: 'Old', theme: 'mars' });
+  delete profiles.find(old.id).seeded;
+  assert.equal(profiles.takeSeed(old.id), null);
+});
+
+test('every avatar a profile can pick has an icon drawn for it', () => {
+  const { ICONS } = require('../src/shared/theme.js');
+  assert.deepEqual(AVATARS.filter((id) => !ICONS[id]), []);
+});

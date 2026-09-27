@@ -35,6 +35,42 @@
     <p class="picker-error" id="error" role="alert"></p>
   </main>
 
+  <!-- New profile, made here rather than in Settings: at startup no tab is
+       open, so there is no Settings page to send anyone to. -->
+  <div class="creator" id="creator" hidden>
+    <form class="creator-sheet" id="creator-form" role="dialog" aria-modal="true" aria-labelledby="creator-title">
+      <div class="creator-preview" aria-hidden="true">
+        <div class="creator-orb" id="creator-orb"><span id="creator-glyph"></span></div>
+        <div class="creator-preview-name" id="creator-preview-name">New profile</div>
+        <div class="creator-preview-planet" id="creator-preview-planet"></div>
+      </div>
+      <div class="creator-steps">
+        <h2 id="creator-title">Make a new space</h2>
+        <p class="creator-lede">Four quick choices. Every one can be changed later in Settings, under Profiles.</p>
+
+        <label class="creator-step" for="creator-name">
+          <span class="creator-num">1</span><span>Give it a name</span>
+        </label>
+        <input id="creator-name" class="creator-input" maxlength="40" autocomplete="off"
+               placeholder="Work, Study, Gaming…" required>
+
+        <div class="creator-step"><span class="creator-num">2</span><span>Pick its planet</span></div>
+        <div class="creator-planets" id="creator-planets" role="radiogroup" aria-label="Planet"></div>
+
+        <div class="creator-step"><span class="creator-num">3</span><span>Choose an icon</span></div>
+        <div class="creator-avatars" id="creator-avatars" role="radiogroup" aria-label="Icon"></div>
+
+        <div class="creator-step"><span class="creator-num">4</span><span>Start from</span></div>
+        <div class="creator-templates" id="creator-templates" role="radiogroup" aria-label="Starting setup"></div>
+
+        <div class="creator-buttons">
+          <button type="button" class="picker-button quiet" id="creator-cancel">Cancel</button>
+          <button type="submit" class="picker-button creator-go" id="creator-go">Create and open</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
   <script src="../../shared/theme.js"></script>
   <script src="../../shared/modes.js"></script>
   <script src="common.js"></script>

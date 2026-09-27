@@ -173,6 +173,9 @@ class Profiles {
       lastUsedAt: 0,
       // PIN, when set. Only ever a salt and a derived hash.
       pin: null,
+      // The template and theme are applied the first time the profile opens,
+      // because its settings store only exists once it is running.
+      seeded: false,
     };
 
     fs.mkdirSync(this.directory(id), { recursive: true });
@@ -376,6 +379,23 @@ class Profiles {
       isDefault: profile.id === this.store.data.defaultId,
       ...extra,
     };
+  }
+
+  /**
+   * What a brand-new profile should start with, returned exactly once.
+   *
+   * Profiles made before seeding existed have no `seeded` field and are left
+   * alone: their settings are already whatever the user made them.
+   */
+  takeSeed(id) {
+    const profile = this.find(id);
+    if (!profile || profile.seeded !== false) return null;
+    profile.seeded = true;
+    this.store.save();
+    const template = TEMPLATES[profile.template] || TEMPLATES.blank;
+    const settings = { ...template.settings };
+    if (profile.theme) settings.theme = profile.theme;
+    return { settings, shields: template.shields || null };
   }
 
   state() {
