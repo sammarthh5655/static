@@ -238,7 +238,17 @@ function droppedLink(event) {
 
 /** Right-click menu for a tab. */
 function tabContextMenu(tab, event) {
+  const activeId = state.tabs.find((t) => t.active)?.id;
   contextMenu([
+    ...(tab.splitWith
+      ? [
+        { label: 'Swap sides', icon: 'split', action: action('split:swap', { id: tab.id }) },
+        { label: 'Exit split view', icon: 'split', hint: 'Both tabs stay open', action: action('split:exit', { id: tab.id }) },
+        { separator: true },
+      ]
+      : tab.id !== activeId
+        ? [{ label: 'Open in split view', icon: 'split', hint: 'Beside the current tab', action: action('split:with', { id: tab.id }) }, { separator: true }]
+        : []),
     { label: tab.pinned ? 'Unpin tab' : 'Pin tab', icon: 'bookmark', action: action('organizer:pin', { ids: [tab.id], pinned: !tab.pinned }) },
     { label: state.organizer?.sleeping.includes(tab.id) ? 'Wake tab' : 'Sleep tab', icon: 'clock',
       action: state.organizer?.sleeping.includes(tab.id) ? action('organizer:wake', { id: tab.id }) : action('organizer:sleep', { ids: [tab.id] }) },
@@ -307,7 +317,7 @@ function renderTabs() {
     }
     if (group?.collapsed && !tab.active) return nodes;
     const node = document.createElement('div');
-    node.className = 'tab' + (tab.active ? ' active' : '') + (organizer.sleeping.includes(tab.id) ? ' sleeping' : '') + (group ? ' grouped' : '');
+    node.className = 'tab' + (tab.active ? ' active' : '') + (tab.splitSide ? ' split-' + tab.splitSide : '') + (organizer.sleeping.includes(tab.id) ? ' sleeping' : '') + (group ? ' grouped' : '');
     if (group) node.style.setProperty('--group-color', group.color);
     node.draggable = true;
     node.dataset.id = tab.id;
@@ -626,6 +636,8 @@ el.tabs.addEventListener('dragstart', (event) => {
   local.dragId = tab.dataset.id;
   tab.classList.add('dragging');
   event.dataTransfer.effectAllowed = 'move';
+  // Drop zones appear over the page: drag a tab there to split with it.
+  invoke('split:drag', { id: local.dragId });
 });
 
 el.tabs.addEventListener('dragover', (event) => {
@@ -678,6 +690,7 @@ el.tabs.addEventListener('drop', (event) => {
 
 el.tabs.addEventListener('dragend', () => {
   local.dragId = null;
+  invoke('split:drag', { id: null });
   el.tabs.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
   renderTabs();
 });

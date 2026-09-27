@@ -9,9 +9,10 @@ const NEW_TAB = 'browser://newtab';
  * Owns every web tab and the single active-view slot inside the window.
  *
  * Design notes (read before modifying):
- * - Each tab is an Electron `WebContentsView`. Only ONE is attached to the
- *   window contentView at a time; switching tabs detaches the previous view
- *   rather than hiding it, so background tabs cannot paint over the chrome.
+ * - Each tab is an Electron `WebContentsView`. Only the active tab is
+ *   attached to the window - or the active PAIR, in split view, where two
+ *   tabs share the page area. Switching detaches rather than hides, so
+ *   background tabs cannot paint over the chrome.
  * - Tab order lives in `this.order` (array of ids), NOT in a Map insertion
  *   order, because drag-to-reorder has to rewrite it independently of creation.
  * - Every webContents is created sandboxed with no node integration. The
@@ -33,6 +34,120 @@ class Tabs {
     this.activeId = null;
     this.activeWorkspace = 'main';
     this.bounds = { x: 0, y: 0, width: 0, height: 0 };
+    // Recently closed tabs, newest last, for Ctrl+Shift+T.
+    this.closed = [];
+  }
+
+  /** Gap between split panes; the divider handle sits in it. */
+  static get DIVIDER() { return 8; }
+
+  /** The two tabs sharing the page with `id`, left first, or null. */
+  pairOf(id) {
+    const tab = this.tabs.get(id);
+    if (!tab?.splitWith || !this.tabs.has(tab.splitWith)) return null;
+    return tab.splitSide === 'left' ? { left: id, right: tab.splitWith } : { left: tab.splitWith, right: id };
+  }
+
+  /** Put two tabs side by side. The pair keeps its ratio until it is undone. */
+  split(leftId, rightId) {
+    if (leftId === rightId || !this.tabs.has(leftId) || !this.tabs.has(rightId)) return false;
+    this.unsplit(leftId);
+    this.unsplit(rightId);
+    const left = this.tabs.get(leftId);
+    const right = this.tabs.get(rightId);
+    Object.assign(left, { splitWith: rightId, splitSide: 'left', splitRatio: 0.5 });
+    Object.assign(right, { splitWith: leftId, splitSide: 'right', splitRatio: 0.5 });
+    // Neighbours in the strip, so the pair reads as one unit.
+    this.order.splice(this.order.indexOf(rightId), 1);
+    this.order.splice(this.order.indexOf(leftId) + 1, 0, rightId);
+    right.workspaceId = left.workspaceId;
+    right.groupId = left.groupId;
+    if (this.activeId === leftId || this.activeId === rightId) this.select(this.activeId);
+    this.onChange();
+    return true;
+  }
+
+  /** Separate a pair; both tabs stay open. */
+  unsplit(id) {
+    const pair = this.pairOf(id);
+    if (!pair) return false;
+    for (const key of [pair.left, pair.right]) {
+      const tab = this.tabs.get(key);
+      tab.splitWith = null; tab.splitSide = null;
+      if (key !== this.activeId && this.window.contentView.children.includes(tab.view)) {
+        this.window.contentView.removeChildView(tab.view);
+      }
+    }
+    this.#place();
+    this.onChange();
+    return true;
+  }
+
+  swapSplit(id) {
+    const pair = this.pairOf(id);
+    if (!pair) return false;
+    const left = this.tabs.get(pair.left);
+    const right = this.tabs.get(pair.right);
+    left.splitSide = 'right'; right.splitSide = 'left';
+    const ratio = 1 - (left.splitRatio || 0.5);
+    left.splitRatio = ratio; right.splitRatio = ratio;
+    this.order.splice(this.order.indexOf(pair.left), 1);
+    this.order.splice(this.order.indexOf(pair.right) + 1, 0, pair.left);
+    this.#place();
+    this.onChange();
+    return true;
+  }
+
+  /** Share of the width the LEFT pane gets, 0.2 to 0.8. */
+  setSplitRatio(id, ratio) {
+    const pair = this.pairOf(id);
+    if (!pair) return false;
+    const value = Math.min(0.8, Math.max(0.2, Number(ratio) || 0.5));
+    this.tabs.get(pair.left).splitRatio = value;
+    this.tabs.get(pair.right).splitRatio = value;
+    this.#place();
+    return true;
+  }
+
+  /** Where the divider goes, in window coordinates, or null without a split. */
+  dividerBounds() {
+    const pair = this.solo ? null : this.pairOf(this.activeId);
+    if (!pair) return null;
+    const { x, y, width, height } = this.bounds;
+    const leftWidth = Math.round((width - Tabs.DIVIDER) * (this.tabs.get(pair.left).splitRatio || 0.5));
+    return { x: x + leftWidth, y, width: Tabs.DIVIDER, height };
+  }
+
+  /** Size and attach whatever is on screen: one tab, or a pair. */
+  #place() {
+    const active = this.active;
+    if (!active) return;
+    // `solo`: a pane in fullscreen takes the whole area; its partner steps aside.
+    const pair = this.solo ? null : this.pairOf(active.id);
+    if (!pair) {
+      const partner = this.tabs.get(active.splitWith)?.view;
+      if (this.solo && partner && this.window.contentView.children.includes(partner)) {
+        this.window.contentView.removeChildView(partner);
+      }
+      active.view.setBounds(this.bounds);
+      return;
+    }
+    const divider = this.dividerBounds();
+    const { x, y, width, height } = this.bounds;
+    const left = this.tabs.get(pair.left);
+    const right = this.tabs.get(pair.right);
+    for (const tab of [left, right]) {
+      if (!this.window.contentView.children.includes(tab.view)) this.window.contentView.addChildView(tab.view);
+    }
+    left.view.setBounds({ x, y, width: divider.x - x, height });
+    right.view.setBounds({ x: divider.x + divider.width, y, width: Math.max(0, x + width - divider.x - divider.width), height });
+  }
+
+  /** Ctrl+Shift+T: bring back the most recently closed tab. */
+  reopenClosed() {
+    const last = this.closed.pop();
+    if (!last) return null;
+    return this.create({ url: last.url, index: Math.min(last.index, this.order.length) });
   }
 
   get active() { return this.tabs.get(this.activeId) || null; }
@@ -48,6 +163,7 @@ class Tabs {
         favicon: tab.state.favicon,
         loading: tab.state.loading,
         pinned: tab.pinned, groupId: tab.groupId, workspaceId: tab.workspaceId,
+        splitWith: tab.splitWith || null, splitSide: tab.splitSide || null,
         createdAt: tab.createdAt, lastActiveAt: tab.lastActiveAt,
       };
     });
@@ -147,6 +263,18 @@ class Tabs {
       this.onChange();
     };
 
+    // In split view, clicking into a pane makes it the active tab, so the
+    // address bar and every command follow what you are working in.
+    wc.on('focus', () => {
+      if (this.activeId === tab.id) return;
+      const pair = this.pairOf(this.activeId);
+      if (!pair || (pair.left !== tab.id && pair.right !== tab.id)) return;
+      this.activeId = tab.id;
+      tab.lastActiveAt = Date.now();
+      this.onSelected?.(tab.id);
+      this.onChange();
+    });
+
     wc.on('page-title-updated', (_event, title) => {
       tab.state.title = title;
       // Titles often arrive after the visit was recorded; patch that row.
@@ -226,8 +354,15 @@ class Tabs {
     if (id !== this.activeId) {
       const previous = this.active;
       if (previous) previous.lastActiveAt = Date.now();
-      if (previous && this.window.contentView.children.includes(previous.view)) {
-        this.window.contentView.removeChildView(previous.view);
+      // Detach what was on screen, except what stays on screen: selecting the
+      // other half of a pair keeps both panes.
+      const keep = new Set([id, this.tabs.get(id)?.splitWith].filter(Boolean));
+      const shown = previous ? [previous.id, previous.splitWith].filter(Boolean) : [];
+      for (const shownId of shown) {
+        const view = this.tabs.get(shownId)?.view;
+        if (view && !keep.has(shownId) && this.window.contentView.children.includes(view)) {
+          this.window.contentView.removeChildView(view);
+        }
       }
       this.activeId = id;
     }
@@ -245,12 +380,21 @@ class Tabs {
     if (!this.window.contentView.children.includes(tab.view)) {
       this.window.contentView.addChildView(tab.view);
     }
-    tab.view.setBounds(this.bounds);
+    this.#place();
   }
 
   close(id) {
     const tab = this.tabs.get(id);
     if (!tab) return;
+    // Closing one half of a pair leaves the other as an ordinary tab, and
+    // selected if the closed one was.
+    const partner = tab.splitWith && this.tabs.has(tab.splitWith) ? tab.splitWith : null;
+    if (partner) this.unsplit(id);
+    const url = tab.state.displayUrl;
+    if (url && !/^browser:\/\/(newtab|welcome|profiles)/.test(url)) {
+      this.closed.push({ url, index: this.order.indexOf(id) });
+      if (this.closed.length > 25) this.closed.shift();
+    }
     const position = this.order.indexOf(id);
     if (position >= 0) this.order.splice(position, 1);
     this.tabs.delete(id);
@@ -265,6 +409,7 @@ class Tabs {
 
     if (this.activeId === id) {
       this.activeId = null;
+      if (partner) { this.select(partner); this.onChange(); return; }
       // Chrome selects the tab to the right, falling back to the left.
       const next = this.order.slice(position).find(id => this.tabs.get(id).workspaceId === this.activeWorkspace) ||
         this.order.slice(0, position).reverse().find(id => this.tabs.get(id).workspaceId === this.activeWorkspace);
@@ -296,7 +441,7 @@ class Tabs {
   /** Called by the layout manager whenever the chrome height changes. */
   setBounds(bounds) {
     this.bounds = bounds;
-    if (this.active) this.active.view.setBounds(bounds);
+    this.#place();
   }
 
   navigateActive(action) {

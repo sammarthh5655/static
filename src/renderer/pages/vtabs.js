@@ -41,7 +41,17 @@ function layoutItems() {
 
 function tabMenu(tab) {
   const sleeping = state.organizer?.sleeping?.includes(tab.id);
+  const activeId = state.tabs.find((t) => t.active)?.id;
   return [
+    ...(tab.splitWith
+      ? [
+        { label: 'Swap sides', icon: 'split', action: act('split:swap', { id: tab.id }) },
+        { label: 'Exit split view', icon: 'split', hint: 'Both tabs stay open', action: act('split:exit', { id: tab.id }) },
+        { separator: true },
+      ]
+      : tab.id !== activeId
+        ? [{ label: 'Open in split view', icon: 'split', hint: 'Beside the current tab', action: act('split:with', { id: tab.id }) }, { separator: true }]
+        : []),
     { label: 'New tab below', icon: 'plus', action: act('tabs:new', { index: state.tabs.findIndex((t) => t.id === tab.id) + 1 }) },
     { label: 'Duplicate', icon: 'plus', action: act('tabs:new', { url: tab.url }) },
     { label: tab.pinned ? 'Unpin tab' : 'Pin tab', icon: 'bookmark', action: act('organizer:pin', { ids: [tab.id], pinned: !tab.pinned }) },
@@ -66,7 +76,7 @@ function linkFrom(event) {
 function row(tab, group) {
   const sleeping = state.organizer?.sleeping?.includes(tab.id);
   const node = element('div', {
-    class: 'vt-tab' + (tab.active ? ' active' : '') + (group ? ' grouped' : '') + (sleeping ? ' sleeping' : ''),
+    class: 'vt-tab' + (tab.active ? ' active' : '') + (tab.splitSide ? ' split' : '') + (group ? ' grouped' : '') + (sleeping ? ' sleeping' : ''),
     draggable: 'true', 'data-id': tab.id, title: tab.title || tab.url || '',
     role: 'tab', 'aria-selected': String(!!tab.active),
   });
@@ -131,6 +141,7 @@ list.addEventListener('dragstart', (event) => {
   if (!node) return;
   dragId = node.dataset.id;
   node.classList.add('dragging');
+  invoke('split:drag', { id: dragId });
   event.dataTransfer.effectAllowed = 'move';
   event.dataTransfer.setData('application/x-static-tab', dragId);
 });
@@ -165,7 +176,7 @@ list.addEventListener('drop', (event) => {
   if (over) invoke('tabs:navigate', { id: over.dataset.id, input: url });
   else invoke('tabs:new', { url });
 });
-list.addEventListener('dragend', () => { dragId = null; render(); });
+list.addEventListener('dragend', () => { dragId = null; invoke('split:drag', { id: null }); render(); });
 
 list.addEventListener('contextmenu', (event) => {
   if (event.target.closest('.vt-tab')) return;

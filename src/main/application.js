@@ -921,6 +921,44 @@ class BrowserApplication {
     this.layout();
   }
 
+  /** A small trusted view of one of our own pages, for panels and handles. */
+  #panelView(page) {
+    const view = new WebContentsView({
+      webPreferences: {
+        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
+        contextIsolation: true, sandbox: true, nodeIntegration: false,
+      },
+    });
+    view.setBackgroundColor('#00000000');
+    this.attachShortcuts(view.webContents);
+    view.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'pages', page));
+    return view;
+  }
+
+  /** Open `url` beside a tab, in split view. */
+  openSplit(url, fromTabId = this.tabs?.activeId) {
+    if (!this.tabs?.tabs.has(fromTabId)) return null;
+    const index = this.tabs.order.indexOf(fromTabId) + 1;
+    const id = this.tabs.create({ url, background: true, index });
+    this.tabs.split(fromTabId, id);
+    this.tabs.select(fromTabId);
+    this.layout();
+    return id;
+  }
+
+  /** Show or hide the drop zones while a tab is dragged. */
+  showSplitDrop(id) {
+    const valid = id && id !== this.tabs?.activeId && this.tabs?.tabs.has(id);
+    this.splitDragId = valid ? id : null;
+    if (!valid) {
+      if (this.splitDrop) this.splitDrop.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+      return;
+    }
+    if (!this.splitDrop || this.splitDrop.webContents.isDestroyed()) this.splitDrop = this.#panelView('splitdrop.html');
+    this.window.contentView.addChildView(this.splitDrop);
+    this.splitDrop.setBounds(this.tabs.bounds);
+  }
+
   /** Create or remove the vertical tab list to match the setting. */
   applyTabLayout() {
     if (!this.window || this.window.isDestroyed()) return;
@@ -1063,6 +1101,7 @@ class BrowserApplication {
     const { width, height } = this.window.getContentBounds();
     // Fullscreen (a page's own, or F11) gives the page every pixel.
     const immersive = !!(this.htmlFullscreen || this.windowFullscreen);
+    if (this.tabs) this.tabs.solo = !!this.htmlFullscreen;
     const top = immersive ? 0 : chromeHeight(this.settings.value);
     // The omnibox dropdown is drawn INSIDE the chrome view, so the view has to
     // be tall enough to show it. At the resting chrome height the list was
@@ -1099,6 +1138,16 @@ class BrowserApplication {
       width: Math.max(0, width - side - left),
       height: Math.max(0, height - top),
     });
+
+    // The handle between split panes, when the active tab has a partner.
+    const divider = immersive ? null : this.tabs?.dividerBounds();
+    if (divider) {
+      if (!this.splitDivider || this.splitDivider.webContents.isDestroyed()) this.splitDivider = this.#panelView('split.html');
+      this.window.contentView.addChildView(this.splitDivider);
+      this.splitDivider.setBounds(divider);
+    } else if (this.splitDivider) {
+      this.splitDivider.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
 
     // The autohide strip hugs the right edge, under the chrome. It sits above
     // the tab so it can see the pointer, and is narrow enough not to steal
@@ -1352,6 +1401,56 @@ class BrowserApplication {
         return true;
       },
       'find:close': () => { this.closeFind(); return true; },
+      'split:resize': (_sender, payload) => {
+        const bounds = this.tabs.bounds;
+        const content = this.window.getContentBounds();
+        const x = Number(payload?.screenX) - content.x - bounds.x;
+        this.tabs.setSplitRatio(this.tabs.activeId, x / Math.max(1, bounds.width));
+        this.layout();
+        return true;
+      },
+      'split:reset': () => { this.tabs.setSplitRatio(this.tabs.activeId, 0.5); this.layout(); return true; },
+      'split:swap': (_sender, payload) => { this.tabs.swapSplit(payload?.id || this.tabs.activeId); this.layout(); return true; },
+      'split:exit': (_sender, payload) => { this.tabs.unsplit(payload?.id || this.tabs.activeId); this.layout(); return true; },
+      'split:with': (_sender, payload) => {
+        const id = String(payload?.id || '');
+        const active = this.tabs.activeId;
+        if (!this.tabs.tabs.has(id) || id === active) return false;
+        this.tabs.split(active, id);
+        this.layout();
+        return true;
+      },
+      'split:drag': (_sender, payload) => { this.showSplitDrop(payload?.id ? String(payload.id) : null); return true; },
+      'split:drop': (_sender, payload) => {
+        const id = this.splitDragId;
+        const active = this.tabs.activeId;
+        this.showSplitDrop(null);
+        if (!id || id === active) return false;
+        if (payload?.side === 'left') this.tabs.split(id, active);
+        else this.tabs.split(active, id);
+        this.tabs.select(active);
+        this.layout();
+        return true;
+      },
+      'split:menu': (_sender, payload) => {
+        const d = this.splitDivider?.getBounds();
+        if (!d) return false;
+        const x = d.x + (Number(payload?.x) || 0);
+        const y = d.y + (Number(payload?.y) || 0);
+        const run = (channel, body = {}) => ({ channel, payload: body });
+        this.pendingMenu = this.lastMenu = {
+          items: [
+            { label: 'Split evenly', icon: 'split', action: run('split:reset') },
+            { label: 'Swap sides', icon: 'reload', action: run('split:swap') },
+            { separator: true },
+            { label: 'Exit split view', icon: 'close', hint: 'Both tabs stay open', action: run('split:exit') },
+          ],
+          anchor: { left: x, right: x, top: y, bottom: y, width: 0, height: 0 },
+          align: 'left',
+        };
+        this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+        return true;
+      },
       'context:run': (_sender, payload) => {
         const target = this.contextTarget;
         if (!target) return false;
@@ -2855,6 +2954,13 @@ class BrowserApplication {
       const url = sender.getURL();
       if (url.startsWith('file://') && url.includes('/renderer/pages/edge.html')) return;
       throw new Error('Unauthorized sender');
+    }
+    for (const [view, page] of [[this.splitDivider, 'split.html'], [this.splitDrop, 'splitdrop.html']]) {
+      if (view && sender === view.webContents) {
+        const url = sender.getURL();
+        if (url.startsWith('file://') && url.includes('/renderer/pages/' + page)) return;
+        throw new Error('Unauthorized sender');
+      }
     }
     if (sender === this.vtabs?.webContents) {
       const url = sender.getURL();

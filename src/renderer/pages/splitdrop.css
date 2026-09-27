@@ -1,0 +1,15 @@
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { display: grid; grid-template-columns: 1fr 1fr 1fr; font: 600 14px system-ui, sans-serif; }
+.zone {
+  margin: 14px; border-radius: 18px; display: grid; place-items: center;
+  border: 2px dashed color-mix(in srgb, var(--accent, #5aa7f0) 45%, transparent);
+  background: color-mix(in srgb, var(--bg, #111) 55%, transparent);
+  color: var(--text, #eee); opacity: 0.75;
+  transition: background 140ms ease, opacity 140ms ease, transform 160ms ease;
+}
+.zone span { padding: 8px 14px; border-radius: 999px; background: color-mix(in srgb, var(--bg, #111) 80%, transparent); }
+.zone.over {
+  opacity: 1; transform: scale(1.02);
+  background: color-mix(in srgb, var(--accent, #5aa7f0) 30%, transparent);
+  border-style: solid;
+}

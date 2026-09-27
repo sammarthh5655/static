@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'">
+  <title>Split drop zones</title>
+  <link rel="stylesheet" href="splitdrop.css">
+</head>
+<!-- Shown over the page only while a tab is being dragged: drop it on the
+     left or right to open it beside the current tab. -->
+<body>
+  <div class="zone" data-side="left"><span>Drop to open on the left</span></div>
+  <div class="middle"></div>
+  <div class="zone" data-side="right"><span>Drop to open on the right</span></div>
+  <script src="../../shared/theme.js"></script>
+  <script src="common.js"></script>
+  <script src="splitdrop.js"></script>
+</body>
+</html>

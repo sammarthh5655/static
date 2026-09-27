@@ -89,3 +89,10 @@ body.collapsed .vt-tab.grouped { margin-left: 0; }
 body.collapsed .vt-group { justify-content: center; padding: 4px 0; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* A split pair: two rows joined by a bracket. */
+.vt-tab.split { margin-left: 14px; }
+.vt-tab.split::after {
+  content: ''; position: absolute; left: -10px; top: 6px; bottom: 6px; width: 6px;
+  border: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); border-right: 0; border-radius: 4px 0 0 4px;
+}
