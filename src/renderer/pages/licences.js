@@ -120,7 +120,34 @@ function card(credit) {
 $('#list').replaceChildren(
   element('h2', { text: 'Built on' }),
   element('div', { class: 'credits' }, CREDITS.map(card)),
+  element('h2', { text: 'Wallpapers' }),
+  element('p', { class: 'hint', id: 'wallpaper-note', text: 'Loading…' }),
+  element('div', { class: 'credits', id: 'wallpaper-credits' }),
 );
+
+/** Every built-in wallpaper's photographer, grouped by where it came from. */
+const LICENCE_URLS = {
+  Unsplash: 'https://unsplash.com/license',
+  Pexels: 'https://www.pexels.com/license/',
+  Pixabay: 'https://pixabay.com/service/license-summary/',
+};
+window.page.invoke('wallpapers:catalog').then(({ wallpapers }) => {
+  const bySource = new Map();
+  for (const w of wallpapers) {
+    const list = bySource.get(w.credit.source) || new Set();
+    list.add(w.credit.by);
+    bySource.set(w.credit.source, list);
+  }
+  $('#wallpaper-note').textContent = wallpapers.length + ' photographs, used under each site\'s free licence. ' +
+    'None of these licences requires credit; it is given anyway.';
+  $('#wallpaper-credits').replaceChildren(...[...bySource].map(([source, people]) => card({
+    name: source,
+    licence: source + ' License',
+    what: [...people].sort().join(', '),
+    url: LICENCE_URLS[source] || '',
+    obligation: 'Free to use, including commercially. The photos may not be sold unaltered or gathered into a competing collection.',
+  })));
+}).catch(() => { $('#wallpaper-note').textContent = 'Wallpaper credits could not be loaded.'; });
 
 $('#privacy').replaceChildren(...PRIVACY.map(([title, body]) =>
   element('div', { class: 'field' }, [

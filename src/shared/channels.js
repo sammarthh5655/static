@@ -8,7 +8,7 @@ module.exports = {
     'screentime:state', 'screentime:update', 'screentime:save-rule', 'screentime:remove-rule',
     'screentime:preset', 'screentime:clear-usage', 'screentime:unlock',
     'app:state', 'ui:layout', 'ui:shortcuts', 'ui:action', 'ui:suggestions',
-    'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending', 'context:run', 'find:query', 'find:close', 'split:resize', 'split:reset', 'split:swap', 'split:exit', 'split:with', 'split:drag', 'split:drop', 'split:menu',
+    'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending', 'context:run', 'find:query', 'find:close', 'wallpapers:catalog', 'wallpapers:random', 'split:resize', 'split:reset', 'split:swap', 'split:exit', 'split:with', 'split:drag', 'split:drop', 'split:menu',
     'tabs:new', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
     'navigation:back', 'navigation:forward', 'navigation:reload', 'navigation:stop', 'navigation:home',
     'omnibox:suggest', 'bookmarks:toggle', 'bookmarks:remove',

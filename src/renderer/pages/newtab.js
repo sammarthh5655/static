@@ -286,7 +286,13 @@ function renderWidgets() {
     if (typeof render !== 'function') continue;
     try {
       const node = render(ctx);
-      if (node) { nodes.push(node); mounted.push(node); }
+      if (node) {
+        node.dataset.widget = id;
+        node.tabIndex = 0;
+        node.prepend(element('span', { class: 'widget-grip', title: 'Drag to move', 'aria-hidden': 'true' }));
+        nodes.push(node);
+        mounted.push(node);
+      }
     } catch (error) {
       // One failing widget must not take the page with it.
       nodes.push(element('section', { class: 'widget' }, [
@@ -297,26 +303,45 @@ function renderWidgets() {
   }
   host.replaceChildren(...nodes);
 
-  // Customise mode: the bar mounts above the grid and the cards become
-  // draggable. Both are rebuilt on every render so they always reflect the
-  // saved layout rather than a stale copy.
+  // Widgets float: each sits where the user put it, or down a side.
+  const float = (window.widgetRenderers || {}).__float;
+  if (float) {
+    float.place(host, state.settings?.newTab?.positions || {});
+    float.enableDrag(host, {
+      customising: () => customising,
+      positions: () => state.settings?.newTab?.positions || {},
+      save: (positions) => invoke('settings:update', { newTab: { positions } }).catch(() => {}),
+    });
+  }
+
+  // The studio is built once per visit to customise mode and refreshed from
+  // state after that, so a change never rebuilds (and flashes) the gallery.
   const tools = (window.widgetRenderers || {}).__customise;
   const bar = $('#customise-bar');
   if (bar) {
     if (customising && tools) {
-      bar.replaceChildren(tools.build(ctx, {
-        getLayout: currentLayout,
-        setLayout: saveLayout,
-        onExit: () => setCustomising(false),
-      }));
+      if (!bar.firstChild) {
+        bar.replaceChildren(tools.build({ element, icon, invoke, state: () => state }, {
+          getLayout: currentLayout,
+          setLayout: saveLayout,
+          onExit: () => setCustomising(false),
+        }));
+      } else {
+        bar.firstChild.refresh?.();
+      }
       bar.hidden = false;
-      tools.makeDraggable(host, { getLayout: currentLayout, setLayout: saveLayout });
     } else {
       bar.replaceChildren();
       bar.hidden = true;
     }
   }
 }
+
+window.addEventListener('resize', () => {
+  const float = (window.widgetRenderers || {}).__float;
+  const host = $('#widgets');
+  if (float && host) float.place(host, state?.settings?.newTab?.positions || {});
+});
 
 function plural(count, noun) {
   return count + ' ' + noun + (count === 1 ? '' : 's');
@@ -365,6 +390,66 @@ $('#search-engine')?.addEventListener('change', async (event) => {
    The chosen wallpaper. This setting existed and was validated and stored,
    and nothing ever painted it - so choosing a background did nothing at all. */
 
+/** The wallpaper catalogue, fetched once per page. */
+let wallpaperCatalog = null;
+function wallpaperList() {
+  if (!wallpaperCatalog) wallpaperCatalog = invoke('wallpapers:catalog').catch(() => ({ wallpapers: [] }));
+  return wallpaperCatalog;
+}
+
+/**
+ * Which wallpaper this page shows. 'fixed' is the chosen one, 'launch' is
+ * the one main drew at startup, 'newtab' is drawn afresh for this page and
+ * then kept for as long as the page is open.
+ */
+let pageWallpaper = null;
+async function resolveWallpaper(config) {
+  const { wallpapers } = await wallpaperList();
+  const byId = (id) => wallpapers.find((w) => w.id === id) || null;
+  if (config.wallpaperMode === 'launch' && state.launchWallpaper) return byId(state.launchWallpaper);
+  if (config.wallpaperMode === 'newtab') {
+    if (!pageWallpaper || !pageWallpaperFits(config)) pageWallpaper = await invoke('wallpapers:random', {}).catch(() => null);
+    return pageWallpaper;
+  }
+  return byId(config.backgroundValue);
+}
+function pageWallpaperFits(config) {
+  const pool = config.wallpaperPool || 'all';
+  if (!pageWallpaper || pool === 'all') return !!pageWallpaper;
+  if (pool === 'favourites') return (config.wallpaperFavourites || []).includes(pageWallpaper.id);
+  return pageWallpaper.category === pool;
+}
+
+let wallpaperDrawn = '';
+function paintWallpaper(layer, entry) {
+  const credit = $('#wallpaper-credit');
+  window.currentWallpaperId = entry?.id || '';
+  if (!entry) return false;
+  if (wallpaperDrawn !== entry.id) {
+    wallpaperDrawn = entry.id;
+    // The average colour paints at once; the photo fades in over it.
+    layer.style.setProperty('background-color', entry.tone);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = '../assets/' + entry.file;
+    layer.classList.remove('is-ready');
+    img.onload = () => {
+      if (wallpaperDrawn !== entry.id) return;
+      layer.style.setProperty('background-image',
+        'linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.55)), url("../assets/' + entry.file.replace(/["'()\\]/g, '') + '")');
+      layer.style.setProperty('background-size', 'cover');
+      layer.style.setProperty('background-position', 'center');
+      layer.classList.add('is-ready');
+    };
+  }
+  if (credit) {
+    credit.hidden = false;
+    credit.textContent = 'Photo: ' + entry.credit.by + ' · ' + entry.credit.source;
+  }
+  document.body.classList.add('has-photo');
+  return true;
+}
+
 function renderBackground() {
   const config = state.settings?.newTab || {};
   const layer = $('#ambient');
@@ -372,6 +457,22 @@ function renderBackground() {
 
   const kind = config.background || 'plain';
   const value = config.backgroundValue || '';
+  if (kind !== 'wallpaper') {
+    wallpaperDrawn = '';
+    window.currentWallpaperId = '';
+    const credit = $('#wallpaper-credit');
+    if (credit) credit.hidden = true;
+    layer.style.removeProperty('background-color');
+    layer.classList.remove('is-ready');
+  }
+
+  if (kind === 'wallpaper') {
+    resolveWallpaper(config).then((entry) => {
+      if ((state.settings?.newTab?.background || 'plain') !== 'wallpaper') return;
+      if (!paintWallpaper(layer, entry)) document.body.classList.remove('has-photo');
+    });
+    return;
+  }
 
   if ((kind === 'photo' || kind === 'image') && value) {
     // A photo needs a scrim, or text over a bright picture is unreadable.

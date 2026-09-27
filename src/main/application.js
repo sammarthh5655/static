@@ -32,6 +32,7 @@ const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
+const wallpapers = require('../features/wallpapers');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
 
@@ -153,6 +154,12 @@ class BrowserApplication {
     this.shields = new Shields(this.dir, {
       onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
     });
+    {
+      const tab = this.settings.value.newTab;
+      if (tab.background === 'wallpaper' && tab.wallpaperMode === 'launch') {
+        this.launchWallpaper = wallpapers.pick(tab.wallpaperPool, tab.wallpaperFavourites, tab.backgroundValue)?.id || null;
+      }
+    }
     const seed = this.profiles.takeSeed(this.profiles.active.id);
     if (seed) {
       try { this.settings.update(seed.settings); } catch (error) { console.error('[profiles] seed settings', error); }
@@ -1206,6 +1213,8 @@ class BrowserApplication {
     return {
       platform: process.platform,
       incognito: !!this.incognito,
+      // In 'launch' mode the wallpaper is drawn once per start and kept.
+      launchWallpaper: this.launchWallpaper || null,
       // Drives the custom title bar: which maximise/restore glyph to draw,
       // and whether to inset for the macOS traffic-light area.
       window: {
@@ -1401,6 +1410,11 @@ class BrowserApplication {
         return true;
       },
       'find:close': () => { this.closeFind(); return true; },
+      'wallpapers:catalog': () => wallpapers.catalog(),
+      'wallpapers:random': (_sender, payload) => {
+        const tab = this.settings.value.newTab;
+        return wallpapers.pick(tab.wallpaperPool, tab.wallpaperFavourites, String(payload?.previous || ''));
+      },
       'split:resize': (_sender, payload) => {
         const bounds = this.tabs.bounds;
         const content = this.window.getContentBounds();

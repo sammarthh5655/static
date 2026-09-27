@@ -4,6 +4,7 @@ const { THEMES, SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY,
         ALIGNMENTS, WIDGET_SPANS, normalizeHex } = require('../../shared/theme');
 const { WIDGETS, BACKGROUNDS, DEFAULT_LAYOUT } = require('../../shared/widgets');
 const { MODES } = require('../../shared/modes');
+const wallpapers = require('../wallpapers');
 
 const DEFAULTS = {
   searchEngine: 'google',
@@ -57,6 +58,15 @@ const DEFAULTS = {
     // Per-widget appearance overrides, keyed by widget id. Anything absent
     // falls through to the global theme - see theme.js#widgetVariables.
     widgetStyles: {},
+    // Where each widget sits, as fractions (0-1) of the free space across and
+    // down the page, so a layout survives any window size. Absent = default.
+    positions: {},
+    // Wallpapers: one chosen ('fixed'), a new one every new tab ('newtab'),
+    // or a new one each time Static starts ('launch'); drawn from 'all',
+    // 'favourites' or one category.
+    wallpaperMode: 'fixed',
+    wallpaperPool: 'all',
+    wallpaperFavourites: [],
   },
 };
 
@@ -67,6 +77,20 @@ const DEFAULTS = {
  * still web content, so `settings:update` must never be able to write an
  * arbitrary key or an out-of-range value into the store.
  */
+/** Widget positions: known widget ids only, each a pair of fractions. */
+function normalisePositions(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  for (const [id, at] of Object.entries(value)) {
+    if (!WIDGETS[id] || !at || typeof at !== 'object') continue;
+    const x = Number(at.x);
+    const y = Number(at.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    out[id] = { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+  }
+  return out;
+}
+
 class Settings {
   constructor(dir) {
     this.store = new JsonStore(dir, 'settings', DEFAULTS);
@@ -113,6 +137,14 @@ class Settings {
       showStatusStrip: typeof source.showStatusStrip === 'boolean'
         ? source.showStatusStrip : DEFAULTS.newTab.showStatusStrip,
       widgetStyles: normaliseWidgetStyles(source.widgetStyles),
+      positions: normalisePositions(source.positions),
+      wallpaperMode: wallpapers.MODES.includes(source.wallpaperMode) ? source.wallpaperMode : 'fixed',
+      wallpaperPool: source.wallpaperPool === 'all' || source.wallpaperPool === 'favourites' ||
+        wallpapers.catalog().categories.some((c) => c.id === source.wallpaperPool)
+        ? source.wallpaperPool : 'all',
+      wallpaperFavourites: Array.isArray(source.wallpaperFavourites)
+        ? [...new Set(source.wallpaperFavourites.filter((id) => typeof id === 'string' && wallpapers.find(id)))].slice(0, 200)
+        : [],
     };
   }
 

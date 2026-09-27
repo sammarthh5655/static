@@ -95,6 +95,8 @@ const BACKGROUNDS = {
   // A picture from the user's own machine, copied into the profile so it
   // still works after the original is moved or deleted.
   photo: { id: 'photo', name: 'Photo from this computer', takesFile: true },
+  // One of the built-in wallpapers (src/shared/wallpapers.json), by id.
+  wallpaper: { id: 'wallpaper', name: 'Wallpaper' },
 };
 
 const shared = { WIDGETS, DEFAULT_LAYOUT, BACKGROUNDS };

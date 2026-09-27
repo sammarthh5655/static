@@ -1,0 +1,698 @@
+{
+ "categories": [
+  {
+   "id": "landscapes",
+   "name": "Landscapes"
+  },
+  {
+   "id": "cityscapes",
+   "name": "Cityscapes"
+  },
+  {
+   "id": "colours",
+   "name": "Colours"
+  },
+  {
+   "id": "patterns",
+   "name": "Patterns"
+  },
+  {
+   "id": "space",
+   "name": "Space"
+  }
+ ],
+ "wallpapers": [
+  {
+   "id": "landscapes-ales-krivec-4mibe6zg5r0",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/ales-krivec-4mibe6zg5r0.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/ales-krivec-4mibe6zg5r0.jpg",
+   "width": 2560,
+   "height": 1426,
+   "tone": "#95855b",
+   "credit": {
+    "by": "Ales Krivec",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-benjamin-voros-phifdc6la4e",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/benjamin-voros-phifdc6la4e.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/benjamin-voros-phifdc6la4e.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#465371",
+   "credit": {
+    "by": "Benjamin Voros",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-daniela-cuevas-t7yycgaovsw",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/daniela-cuevas-t7yycgaovsw.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/daniela-cuevas-t7yycgaovsw.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#a88a67",
+   "credit": {
+    "by": "Daniela Cuevas",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-john-fowler-03pv2ikm5hk",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/john-fowler-03pv2ikm5hk.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/john-fowler-03pv2ikm5hk.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#3a3029",
+   "credit": {
+    "by": "John Fowler",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-kalen-emsley-lulijc1cdo",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/kalen-emsley-lulijc1cdo.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/kalen-emsley-lulijc1cdo.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#7195a8",
+   "credit": {
+    "by": "Kalen Emsley",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-ken-cheung-konwfwuaauk",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/ken-cheung-konwfwuaauk.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/ken-cheung-konwfwuaauk.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#856fb1",
+   "credit": {
+    "by": "Ken Cheung",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-pexels-vanngo-ng-105653827-38504182",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/pexels-vanngo-ng-105653827-38504182.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/pexels-vanngo-ng-105653827-38504182.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#434320",
+   "credit": {
+    "by": "Vanngo Ng",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "landscapes-pietro-de-grandi-t7k4aepoggk",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/pietro-de-grandi-t7k4aepoggk.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/pietro-de-grandi-t7k4aepoggk.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#6d8f84",
+   "credit": {
+    "by": "Pietro De Grandi",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-robert-lukeman-rbcxo9au-u",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/robert-lukeman-rbcxo9au-u.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/robert-lukeman-rbcxo9au-u.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#768036",
+   "credit": {
+    "by": "Robert Lukeman",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-tobias-keller-73f4pkoukm0",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/tobias-keller-73f4pkoukm0.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/tobias-keller-73f4pkoukm0.jpg",
+   "width": 2560,
+   "height": 1706,
+   "tone": "#757f7d",
+   "credit": {
+    "by": "Tobias Keller",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "landscapes-v2osk-1z2niibpg5a",
+   "category": "landscapes",
+   "file": "wallpapers/landscapes/v2osk-1z2niibpg5a.jpg",
+   "thumb": "wallpapers/landscapes/thumbs/v2osk-1z2niibpg5a.jpg",
+   "width": 2560,
+   "height": 1525,
+   "tone": "#676f68",
+   "credit": {
+    "by": "V2osk",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "cityscapes-jesse-echevarria-4mifasqss8",
+   "category": "cityscapes",
+   "file": "wallpapers/cityscapes/jesse-echevarria-4mifasqss8.jpg",
+   "thumb": "wallpapers/cityscapes/thumbs/jesse-echevarria-4mifasqss8.jpg",
+   "width": 2500,
+   "height": 1406,
+   "tone": "#6a7170",
+   "credit": {
+    "by": "Jesse Echevarria",
+    "source": "Unsplash",
+    "licence": "Unsplash License"
+   }
+  },
+  {
+   "id": "cityscapes-pexels-burst-374827",
+   "category": "cityscapes",
+   "file": "wallpapers/cityscapes/pexels-burst-374827.jpg",
+   "thumb": "wallpapers/cityscapes/thumbs/pexels-burst-374827.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#849194",
+   "credit": {
+    "by": "Burst",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "cityscapes-pexels-nathan-tran-292691073-17139203",
+   "category": "cityscapes",
+   "file": "wallpapers/cityscapes/pexels-nathan-tran-292691073-17139203.jpg",
+   "thumb": "wallpapers/cityscapes/thumbs/pexels-nathan-tran-292691073-17139203.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#6c7578",
+   "credit": {
+    "by": "Nathan Tran",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "cityscapes-pexels-rbrigant44-771881",
+   "category": "cityscapes",
+   "file": "wallpapers/cityscapes/pexels-rbrigant44-771881.jpg",
+   "thumb": "wallpapers/cityscapes/thumbs/pexels-rbrigant44-771881.jpg",
+   "width": 2304,
+   "height": 1536,
+   "tone": "#433c43",
+   "credit": {
+    "by": "Rbrigant44",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "cityscapes-pexels-yoshihiro-fucuda-1227507314-25988",
+   "category": "cityscapes",
+   "file": "wallpapers/cityscapes/pexels-yoshihiro-fucuda-1227507314-25988.jpg",
+   "thumb": "wallpapers/cityscapes/thumbs/pexels-yoshihiro-fucuda-1227507314-25988.jpg",
+   "width": 2160,
+   "height": 1350,
+   "tone": "#8a7968",
+   "credit": {
+    "by": "Yoshihiro Fucuda",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-6985001",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-6985001.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-6985001.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#dc82ab",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-6985259",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-6985259.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-6985259.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#234d92",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7130464",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7130464.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7130464.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#c4ccb1",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7130481",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7130481.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7130481.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#93989f",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7130490",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7130490.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7130490.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#ecf1e6",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7134981",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7134981.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7134981.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#d8d2de",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7135012",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7135012.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7135012.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#a5a9cf",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7135013",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7135013.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7135013.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#c2d3b5",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7135034",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7135034.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7135034.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#477271",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7135037",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7135037.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7135037.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#2f0050",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-codioful-7135053-1",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-codioful-7135053-1.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-codioful-7135053-1.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#c699bb",
+   "credit": {
+    "by": "Codioful",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-francesco-ungaro-13216333",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-francesco-ungaro-13216333.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-francesco-ungaro-13216333.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#35150a",
+   "credit": {
+    "by": "Francesco Ungaro",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "colours-pexels-martinpechy-2078266",
+   "category": "colours",
+   "file": "wallpapers/colours/pexels-martinpechy-2078266.jpg",
+   "thumb": "wallpapers/colours/thumbs/pexels-martinpechy-2078266.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#627762",
+   "credit": {
+    "by": "Martinpechy",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "patterns-geralt-ellipse-784354-1920",
+   "category": "patterns",
+   "file": "wallpapers/patterns/geralt-ellipse-784354-1920.jpg",
+   "thumb": "wallpapers/patterns/thumbs/geralt-ellipse-784354-1920.jpg",
+   "width": 1920,
+   "height": 1200,
+   "tone": "#3e6b79",
+   "credit": {
+    "by": "geralt",
+    "source": "Pixabay",
+    "licence": "Pixabay Content License"
+   }
+  },
+  {
+   "id": "patterns-macey11-rainbow-8221835-1920",
+   "category": "patterns",
+   "file": "wallpapers/patterns/macey11-rainbow-8221835-1920.jpg",
+   "thumb": "wallpapers/patterns/thumbs/macey11-rainbow-8221835-1920.jpg",
+   "width": 1920,
+   "height": 1200,
+   "tone": "#4a5e9f",
+   "credit": {
+    "by": "macey11",
+    "source": "Pixabay",
+    "licence": "Pixabay Content License"
+   }
+  },
+  {
+   "id": "patterns-pexels-edward-jenner-4252661",
+   "category": "patterns",
+   "file": "wallpapers/patterns/pexels-edward-jenner-4252661.jpg",
+   "thumb": "wallpapers/patterns/thumbs/pexels-edward-jenner-4252661.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#a39875",
+   "credit": {
+    "by": "Edward Jenner",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "patterns-pexels-edward-jenner-4253053",
+   "category": "patterns",
+   "file": "wallpapers/patterns/pexels-edward-jenner-4253053.jpg",
+   "thumb": "wallpapers/patterns/thumbs/pexels-edward-jenner-4253053.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#425468",
+   "credit": {
+    "by": "Edward Jenner",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "patterns-pexels-edward-jenner-4253056",
+   "category": "patterns",
+   "file": "wallpapers/patterns/pexels-edward-jenner-4253056.jpg",
+   "thumb": "wallpapers/patterns/thumbs/pexels-edward-jenner-4253056.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#a8bba3",
+   "credit": {
+    "by": "Edward Jenner",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "patterns-pexels-edward-jenner-4253060",
+   "category": "patterns",
+   "file": "wallpapers/patterns/pexels-edward-jenner-4253060.jpg",
+   "thumb": "wallpapers/patterns/thumbs/pexels-edward-jenner-4253060.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#bcb175",
+   "credit": {
+    "by": "Edward Jenner",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "patterns-pexels-edward-jenner-4253264",
+   "category": "patterns",
+   "file": "wallpapers/patterns/pexels-edward-jenner-4253264.jpg",
+   "thumb": "wallpapers/patterns/thumbs/pexels-edward-jenner-4253264.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#a9958b",
+   "credit": {
+    "by": "Edward Jenner",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "patterns-pezibear-template-1905818-1920",
+   "category": "patterns",
+   "file": "wallpapers/patterns/pezibear-template-1905818-1920.jpg",
+   "thumb": "wallpapers/patterns/thumbs/pezibear-template-1905818-1920.jpg",
+   "width": 1920,
+   "height": 1200,
+   "tone": "#f7c2d5",
+   "credit": {
+    "by": "pezibear",
+    "source": "Pixabay",
+    "licence": "Pixabay Content License"
+   }
+  },
+  {
+   "id": "patterns-yandidesigns-background-7171509-1920",
+   "category": "patterns",
+   "file": "wallpapers/patterns/yandidesigns-background-7171509-1920.jpg",
+   "thumb": "wallpapers/patterns/thumbs/yandidesigns-background-7171509-1920.jpg",
+   "width": 1920,
+   "height": 1200,
+   "tone": "#74716c",
+   "credit": {
+    "by": "yandidesigns",
+    "source": "Pixabay",
+    "licence": "Pixabay Content License"
+   }
+  },
+  {
+   "id": "space-pexels-adis-resic-297996969-37149440",
+   "category": "space",
+   "file": "wallpapers/space/pexels-adis-resic-297996969-37149440.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-adis-resic-297996969-37149440.jpg",
+   "width": 2560,
+   "height": 1463,
+   "tone": "#453d38",
+   "credit": {
+    "by": "Adis Resic",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-anunturigratuite-14676",
+   "category": "space",
+   "file": "wallpapers/space/pexels-anunturigratuite-14676.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-anunturigratuite-14676.jpg",
+   "width": 1920,
+   "height": 1200,
+   "tone": "#36343a",
+   "credit": {
+    "by": "Anunturigratuite",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-frank-cone-140140-6508134",
+   "category": "space",
+   "file": "wallpapers/space/pexels-frank-cone-140140-6508134.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-frank-cone-140140-6508134.jpg",
+   "width": 2560,
+   "height": 1600,
+   "tone": "#090b0c",
+   "credit": {
+    "by": "Frank Cone",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-nicole-avagliano-1132392-2706654",
+   "category": "space",
+   "file": "wallpapers/space/pexels-nicole-avagliano-1132392-2706654.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-nicole-avagliano-1132392-2706654.jpg",
+   "width": 2560,
+   "height": 1707,
+   "tone": "#1c3856",
+   "credit": {
+    "by": "Nicole Avagliano",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-pixabay-87009",
+   "category": "space",
+   "file": "wallpapers/space/pexels-pixabay-87009.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-pixabay-87009.jpg",
+   "width": 2400,
+   "height": 1500,
+   "tone": "#090a0b",
+   "credit": {
+    "by": "Pixabay",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-yihan-wang-2148192610-29998041",
+   "category": "space",
+   "file": "wallpapers/space/pexels-yihan-wang-2148192610-29998041.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-yihan-wang-2148192610-29998041.jpg",
+   "width": 2560,
+   "height": 1528,
+   "tone": "#1e1713",
+   "credit": {
+    "by": "Yihan Wang",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-zelch-12491650",
+   "category": "space",
+   "file": "wallpapers/space/pexels-zelch-12491650.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-zelch-12491650.jpg",
+   "width": 2560,
+   "height": 1440,
+   "tone": "#0a121e",
+   "credit": {
+    "by": "Zelch",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-zelch-12491775",
+   "category": "space",
+   "file": "wallpapers/space/pexels-zelch-12491775.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-zelch-12491775.jpg",
+   "width": 2560,
+   "height": 1440,
+   "tone": "#1c1c1b",
+   "credit": {
+    "by": "Zelch",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-zelch-20337604",
+   "category": "space",
+   "file": "wallpapers/space/pexels-zelch-20337604.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-zelch-20337604.jpg",
+   "width": 2560,
+   "height": 1440,
+   "tone": "#232a2a",
+   "credit": {
+    "by": "Zelch",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  },
+  {
+   "id": "space-pexels-zelch-20376388",
+   "category": "space",
+   "file": "wallpapers/space/pexels-zelch-20376388.jpg",
+   "thumb": "wallpapers/space/thumbs/pexels-zelch-20376388.jpg",
+   "width": 2560,
+   "height": 1440,
+   "tone": "#24395c",
+   "credit": {
+    "by": "Zelch",
+    "source": "Pexels",
+    "licence": "Pexels License"
+   }
+  }
+ ]
+}
