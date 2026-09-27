@@ -98,6 +98,8 @@ else {
     else if (testFlag === '--planetarium') await require('../../tests/planetarium.cjs').run(browser);
     else if (testFlag === '--liveprofile') await require('../../tests/liveprofile.cjs').run(browser);
     else if (testFlag === '--adsites') await require('../../tests/adsites.cjs').run(browser);
+    else if (testFlag === '--licences') await require('../../tests/licences.cjs').run(browser);
+    else if (testFlag === '--licences') await require('../../tests/licences.cjs').run(browser);
     else if (testFlag === '--aispeed') await require('../../tests/aispeed.cjs').run(browser);
     else if (testFlag === '--adshot') await require('../../tests/adshot.cjs').run(browser);
     else if (testFlag === '--stalecache') await require('../../tests/stalecache.cjs').run(browser);

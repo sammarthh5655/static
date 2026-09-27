@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the hardened runtime, which notarization requires.
+
+  Each one is here because Electron genuinely needs it, not as a precaution:
+  an entitlement is permission to do something the hardened runtime would
+  otherwise stop, and asking for more than the app uses weakens the sandbox
+  for no benefit.
+-->
+<plist version="1.0">
+<dict>
+  <!-- V8 compiles JavaScript to machine code at runtime. Without this the
+       renderer cannot execute any page's scripts and the browser is a blank
+       window. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+
+  <!-- Chromium maps writable pages as executable in places the JIT
+       entitlement alone does not cover. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+
+  <!-- Electron loads its own framework dylibs, which are signed with a
+       different team identifier than the app bundle. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- A browser is a network client by definition. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- Extensions are loaded from unpacked folders the user chooses, and
+       downloads are written to a location the user picks. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+</dict>
+</plist>

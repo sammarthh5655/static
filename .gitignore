@@ -1,6 +1,8 @@
 ﻿node_modules/
 dist/
-build/
+# build/ holds hand-made packaging assets (icon, macOS entitlements) that must
+# be committed; only the preload bundles esbuild writes there are generated.
+build/*.preload.cjs
 .test-profile/
 .test-output/
 *.log

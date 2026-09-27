@@ -1,0 +1,68 @@
+name: Build Static
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  package:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Static-Windows
+            command: dist:win
+            files: |
+              dist/*.exe
+              dist/*.blockmap
+          - os: macos-latest
+            name: Static-macOS
+            command: dist:mac
+            files: |
+              dist/*.dmg
+              dist/*.zip
+          - os: ubuntu-latest
+            name: Static-Linux
+            command: dist:linux
+            files: |
+              dist/*.AppImage
+              dist/*.deb
+    runs-on: ${{ matrix.os }}
+    env:
+      # No Apple Developer ID yet: package.json sets identity to null, and this
+      # stops electron-builder searching the runner's keychain for one.
+      CSC_IDENTITY_AUTO_DISCOVERY: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # src/main/secure/keys.js is gitignored, so these builds have no Gemini
+      # key: everything works except the assistant, which says it has no key.
+      - run: npm run ${{ matrix.command }} -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+          retention-days: 14
