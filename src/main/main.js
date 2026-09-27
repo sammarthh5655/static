@@ -13,7 +13,17 @@ function probeFile(arg) {
   return require('node:fs').existsSync(file) ? file : null;
 }
 const testFlag = !app.isPackaged && process.argv.find(probeFile);
-if (testFlag) app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
+if (testFlag) {
+  app.setPath('userData', path.join(app.getAppPath(), '.test-profile', testFlag.slice(2)));
+  // Probes run while someone is using this machine: the window is kept
+  // off-screen and unfocusable (see ensureWindow). Chromium would treat an
+  // off-screen window as occluded and stop painting it, which breaks
+  // screenshots and animation checks, so occlusion tracking is disabled.
+  process.env.STATIC_OFFSCREEN = '1';
+  app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+}
 
 app.enableSandbox();
 
@@ -68,6 +78,7 @@ if (process.platform === 'darwin') {
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
+        { role: 'togglefullscreen' },
         { type: 'separator' },
         { role: 'front' },
       ],

@@ -80,6 +80,9 @@ class Tabs {
         // one; ours only exposes the internal-page bridge.
         preload: this.preload,
         session: this.session,
+        // Test runs are off-screen; a page going fullscreen must not drag the
+        // window onto the user's monitor. Layout still reacts to the request.
+        disableHtmlFullscreenWindowResize: process.env.STATIC_OFFSCREEN === '1',
       },
     });
 

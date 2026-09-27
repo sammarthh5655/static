@@ -53,3 +53,11 @@ test('reports the security state of a URL', () => {
   assert.strictEqual(securityState('browser://newtab'), 'internal');
   assert.strictEqual(securityState('https://example.com', 'ERR_FAILED'), 'error');
 });
+
+test('view-source is allowed for web pages only', () => {
+  assert.strictEqual(allowedURL('view-source:https://example.com/'), true);
+  assert.strictEqual(allowedURL('view-source:file:///etc/passwd'), false);
+  assert.strictEqual(allowedURL('view-source:browser://settings'), false);
+  assert.strictEqual(allowedURL('view-source:javascript:alert(1)'), false);
+  assert.strictEqual(resolveInput('view-source:https://example.com/'), 'view-source:https://example.com/');
+});

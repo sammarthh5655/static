@@ -11,7 +11,9 @@ function allowedURL(input) {
     const u = new URL(input);
     return ['http:', 'https:'].includes(u.protocol) ||
       (u.protocol === 'chrome-extension:' && /^[a-p]{32}$/.test(u.hostname)) ||
-      (!!internalPage(input) && !u.username && !u.password) || input === 'about:blank';
+      (!!internalPage(input) && !u.username && !u.password) || input === 'about:blank' ||
+      // Source of a web page only; never of an internal or file page.
+      (u.protocol === 'view-source:' && /^https?:\/\//i.test(String(input).slice('view-source:'.length)));
   } catch { return false; }
 }
 function resolveInput(input, engine = 'google') {

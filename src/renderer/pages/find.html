@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'">
+  <title>Find in page</title>
+  <link rel="stylesheet" href="find.css">
+</head>
+<!-- Find in page. Its own small view floating over the page's top-right
+     corner, so it never covers the toolbar and never shifts the page. -->
+<body>
+  <form class="find" id="form" role="search" aria-label="Find in page">
+    <input id="query" type="text" placeholder="Find in page" autocomplete="off" spellcheck="false" aria-label="Find in page">
+    <span class="count" id="count" aria-live="polite"></span>
+    <span class="rule" aria-hidden="true"></span>
+    <button type="button" id="previous" aria-label="Previous match" title="Previous (Shift+Enter)">&#x2303;</button>
+    <button type="button" id="next" aria-label="Next match" title="Next (Enter)">&#x2304;</button>
+    <button type="button" id="close" aria-label="Close" title="Close (Esc)">&#x2715;</button>
+  </form>
+  <script src="../../shared/theme.js"></script>
+  <script src="common.js"></script>
+  <script src="find.js"></script>
+</body>
+</html>

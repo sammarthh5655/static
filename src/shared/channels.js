@@ -8,7 +8,7 @@ module.exports = {
     'screentime:state', 'screentime:update', 'screentime:save-rule', 'screentime:remove-rule',
     'screentime:preset', 'screentime:clear-usage', 'screentime:unlock',
     'app:state', 'ui:layout', 'ui:shortcuts', 'ui:action', 'ui:suggestions',
-    'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending',
+    'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending', 'context:run', 'find:query', 'find:close',
     'tabs:new', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
     'navigation:back', 'navigation:forward', 'navigation:reload', 'navigation:stop', 'navigation:home',
     'omnibox:suggest', 'bookmarks:toggle', 'bookmarks:remove',
@@ -41,5 +41,5 @@ module.exports = {
     'passwords:reveal', 'passwords:remove', 'passwords:clear', 'passwords:generate',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
-  events: ['app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'organizer:changed', 'screentime:changed'],
+  events: ['find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'organizer:changed', 'screentime:changed'],
 };

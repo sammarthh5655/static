@@ -1,0 +1,24 @@
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font: 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 6px; box-sizing: border-box; }
+.find {
+  display: flex; align-items: center; gap: 4px; height: 100%; box-sizing: border-box;
+  padding: 0 6px 0 12px; border-radius: 14px;
+  background: var(--menu-bg-solid, #1a1b1e); color: var(--text, #eee);
+  border: 1px solid color-mix(in srgb, var(--accent, #5aa7f0) 35%, var(--border, #333));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+  animation: drop 180ms cubic-bezier(.2, .9, .25, 1.2);
+}
+@keyframes drop { from { transform: translateY(-10px); opacity: 0; } }
+input {
+  flex: 1; min-width: 0; border: 0; outline: none; background: transparent;
+  color: inherit; font: inherit; font-size: 13.5px;
+}
+.count { color: var(--text-dim, #999); font-variant-numeric: tabular-nums; font-size: 12px; white-space: nowrap; }
+.count.none { color: var(--danger, #f07); }
+.rule { width: 1px; height: 18px; background: var(--border, #333); margin: 0 4px; }
+button {
+  width: 28px; height: 28px; border: 0; border-radius: 8px; cursor: pointer;
+  background: transparent; color: var(--text-dim, #aaa); font-size: 14px;
+}
+button:hover { background: var(--surface-hover, #2a2a2a); color: var(--text, #fff); }
+@media (prefers-reduced-motion: reduce) { .find { animation: none; } }

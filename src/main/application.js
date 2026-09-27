@@ -31,6 +31,7 @@ const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
+const pageMenu = require('./page-menu');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
 
@@ -301,6 +302,128 @@ class BrowserApplication {
     return this.#tabByWebContentsId(id)?.id ?? null;
   }
 
+  /** Open find-in-page over the active tab, or refocus it if open. */
+  openFind(text) {
+    const tab = this.tabs?.active;
+    if (!tab || !this.window) return;
+    this.findTabId = tab.id;
+    if (this.findBar && !this.findBar.webContents.isDestroyed()) {
+      this.findBar.webContents.focus();
+      this.findBar.webContents.send('find:focus', { text });
+      return;
+    }
+    this.findBar = new WebContentsView({
+      webPreferences: {
+        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
+        contextIsolation: true, sandbox: true, nodeIntegration: false,
+      },
+    });
+    this.findBar.setBackgroundColor('#00000000');
+    this.attachShortcuts(this.findBar.webContents);
+    this.findBar.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'pages', 'find.html'));
+    this.findBar.webContents.once('did-finish-load', () => {
+      if (!this.findBar || this.findBar.webContents.isDestroyed()) return;
+      this.findBar.webContents.focus();
+      if (text) this.findBar.webContents.send('find:focus', { text });
+    });
+    this.layout();
+  }
+
+  closeFind() {
+    const wc = this.tabs?.tabs.get(this.findTabId)?.view.webContents;
+    if (wc && !wc.isDestroyed()) wc.stopFindInPage('keepSelection');
+    if (this.findBar) {
+      try { this.window.contentView.removeChildView(this.findBar); } catch { /* already gone */ }
+      if (!this.findBar.webContents.isDestroyed()) this.findBar.webContents.close();
+      this.findBar = null;
+    }
+    this.findTabId = null;
+    if (wc && !wc.isDestroyed()) wc.focus();
+  }
+
+  enterHtmlFullscreen(contents) {
+    const tab = this.#tabByContents(contents);
+    if (!tab || !this.window) return;
+    this.htmlFullscreen = tab.id;
+    this.wasFullscreen = this.window.isFullScreen();
+    if (!this.wasFullscreen) this.setWindowFullScreen(true);
+    this.layout();
+  }
+
+  leaveHtmlFullscreen() {
+    if (!this.htmlFullscreen) return;
+    const tab = this.tabs?.tabs.get(this.htmlFullscreen);
+    this.htmlFullscreen = null;
+    const wc = tab?.view.webContents;
+    // Leaving because the user switched tabs: the page still thinks it is
+    // fullscreen, so tell it.
+    if (wc && !wc.isDestroyed()) {
+      wc.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => {});
+    }
+    if (!this.wasFullscreen && !this.windowFullscreen && this.window && !this.window.isDestroyed()) {
+      this.setWindowFullScreen(false);
+    }
+    this.layout();
+  }
+
+  /** OS fullscreen, except in test runs, where it would take over the screen. */
+  setWindowFullScreen(on) {
+    if (process.env.STATIC_OFFSCREEN === '1' || !this.window || this.window.isDestroyed()) return;
+    this.window.setFullScreen(on);
+  }
+
+  /** F11: the whole browser fullscreen, toolbar hidden, like every browser. */
+  toggleWindowFullscreen() {
+    if (!this.window) return;
+    if (this.htmlFullscreen) { this.leaveHtmlFullscreen(); return; }
+    this.windowFullscreen = !this.windowFullscreen;
+    this.setWindowFullScreen(this.windowFullscreen);
+    this.layout();
+    if (this.windowFullscreen) {
+      this.notify(process.platform === 'darwin' ? 'Press Ctrl+Cmd+F to exit full screen' : 'Press F11 to exit full screen');
+    }
+  }
+
+  /** Zoom the active page in the steps browsers share: 25% to 500%. */
+  zoom(direction) {
+    const wc = this.tabs?.active?.view.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    const STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+    const now = wc.getZoomFactor();
+    let next = 1;
+    if (direction > 0) next = STEPS.find((step) => step > now + 0.001) || 5;
+    else if (direction < 0) next = [...STEPS].reverse().find((step) => step < now - 0.001) || 0.25;
+    wc.setZoomFactor(next);
+    this.notify(next === 1 ? 'Zoom reset to 100%' : 'Zoom ' + Math.round(next * 100) + '%');
+  }
+
+  /** Draw the right-click menu for a page, at the pointer, in the overlay. */
+  openPageMenu(contents, params) {
+    const tab = this.#tabByWebContentsId(contents.id);
+    if (!tab || !this.overlay || this.overlay.webContents.isDestroyed()) return;
+    const extensionItems = this.extensions?.contextMenuItems(contents, params) || [];
+    this.contextTarget = { tabId: tab.id, contents, params, extensionItems };
+    const items = pageMenu.buildItems(params, {
+      canGoBack: contents.navigationHistory.canGoBack(),
+      canGoForward: contents.navigationHistory.canGoForward(),
+      pageUrl: contents.getURL(),
+      extensionItems,
+      has: {
+        incognito: typeof this.openIncognito === 'function',
+        split: typeof this.openSplit === 'function',
+        blockElement: typeof this.startElementPicker === 'function',
+      },
+    });
+    // params are in the page's own coordinates; the overlay spans the window.
+    const bounds = tab.view.getBounds();
+    const x = bounds.x + params.x;
+    const y = bounds.y + params.y;
+    this.pendingMenu = { items, anchor: { left: x, right: x, top: y, bottom: y, width: 0, height: 0 }, align: 'left' };
+    // The overlay takes pendingMenu as soon as it polls; this copy stays.
+    this.lastPageMenu = this.pendingMenu;
+    this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+  }
+
   /**
    * Session-wide security policy applied to ALL web content.
    * Permissions default to denied; only a small explicit set may even prompt.
@@ -401,7 +524,17 @@ class BrowserApplication {
         : { frame: false }),
       backgroundColor: THEMES[this.settings.value.theme]?.tokens.bg || '#161718',
       show: false,
+      ...(process.env.STATIC_OFFSCREEN === '1'
+        ? { x: -32000, y: -32000, skipTaskbar: true, focusable: false }
+        : {}),
     });
+    if (process.env.STATIC_OFFSCREEN === '1') {
+      // Test runs must never appear on screen or take focus from whatever the
+      // user is doing, however a probe asks for the window.
+      this.window.show = () => this.window.showInactive();
+      this.window.focus = () => {};
+      this.window.setPosition(-32000, -32000);
+    }
 
     // Two-finger swipe back and forward, which is how Mac users navigate.
     // Electron reports it on the window; everything else ignores it.
@@ -479,12 +612,26 @@ class BrowserApplication {
       preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
       extensions: this.extensions,
       getEngine: () => this.settings.value.searchEngine,
-      onSelected: id => this.productivity?.organizer.wake(id).catch(() => this.notify('This tab could not wake. Try reloading it.')),
+      onSelected: (id) => {
+        if (this.findBar && this.findTabId && this.findTabId !== id) this.closeFind();
+        if (this.htmlFullscreen && this.htmlFullscreen !== id) this.leaveHtmlFullscreen();
+        return this.productivity?.organizer.wake(id).catch(() => this.notify('This tab could not wake. Try reloading it.'));
+      },
       // Every tab gets the shortcut interceptor, so Ctrl+T and friends fire
       // even while focus is inside page content.
       onTabCreated: (contents) => {
         this.attachShortcuts(contents);
         this.attachScriptlets(contents);
+        contents.on('context-menu', (_event, params) => this.openPageMenu(contents, params));
+        contents.on('found-in-page', (_event, result) => {
+          if (this.findBar && !this.findBar.webContents.isDestroyed() && this.tabs?.active?.view.webContents === contents) {
+            this.findBar.webContents.send('find:result', { active: result.activeMatchOrdinal, matches: result.matches });
+          }
+        });
+        // A page asking for fullscreen (a video, a game) gets the whole
+        // screen: the tab view does not grow by itself inside our window.
+        contents.on('enter-html-full-screen', () => this.enterHtmlFullscreen(contents));
+        contents.on('leave-html-full-screen', () => this.leaveHtmlFullscreen());
       },
       onChange: () => this.push(),
       onNavigate: (event) => {
@@ -495,6 +642,14 @@ class BrowserApplication {
     });
 
     this.window.on('resize', () => this.layout());
+    // macOS enters fullscreen from its own menu and green button too.
+    this.window.on('enter-full-screen', () => {
+      if (!this.htmlFullscreen && !this.windowFullscreen) { this.windowFullscreen = true; this.layout(); }
+    });
+    this.window.on('leave-full-screen', () => {
+      if (this.htmlFullscreen) this.leaveHtmlFullscreen();
+      if (this.windowFullscreen) { this.windowFullscreen = false; this.layout(); }
+    });
     this.window.on('close', () => this.flush());
     this.window.once('ready-to-show', () => this.window.show());
 
@@ -821,16 +976,18 @@ class BrowserApplication {
   layout() {
     if (!this.window || this.window.isDestroyed()) return;
     const { width, height } = this.window.getContentBounds();
-    const top = chromeHeight(this.settings.value);
+    // Fullscreen (a page's own, or F11) gives the page every pixel.
+    const immersive = !!(this.htmlFullscreen || this.windowFullscreen);
+    const top = immersive ? 0 : chromeHeight(this.settings.value);
     // The omnibox dropdown is drawn INSIDE the chrome view, so the view has to
     // be tall enough to show it. At the resting chrome height the list was
     // clipped to a few pixels and looked like it was not appearing at all.
     // While it is open the view grows and the tab is pushed down behind it;
     // the extra strip is mouse-transparent everywhere except the list itself.
-    const chromeH = this.suggestionsOpen
+    const chromeH = this.suggestionsOpen && !immersive
       ? Math.min(height, top + SUGGESTIONS_HEIGHT)
       : top;
-    this.chrome.setBounds({ x: 0, y: 0, width, height: chromeH });
+    this.chrome.setBounds(immersive ? { x: 0, y: 0, width: 0, height: 0 } : { x: 0, y: 0, width, height: chromeH });
     // Re-added so it stays above the tab view while it is expanded.
     if (this.suggestionsOpen) this.window.contentView.addChildView(this.chrome);
 
@@ -841,7 +998,7 @@ class BrowserApplication {
     // Scaled by the slide progress, so the page and the sidebar move together.
     const full = Math.min(this.sidebarWidth, Math.max(0, Math.floor(width * 0.5)));
     const progress = this.sidebarProgress ?? (this.sidebarOpen ? 1 : 0);
-    const side = Math.round(full * progress);
+    const side = immersive ? 0 : Math.round(full * progress);
 
     this.tabs?.setBounds({
       x: 0,
@@ -854,7 +1011,7 @@ class BrowserApplication {
     // the tab so it can see the pointer, and is narrow enough not to steal
     // real estate from the page.
     if (this.edgeStrip && !this.edgeStrip.webContents.isDestroyed()) {
-      const STRIP = 8;
+      const STRIP = immersive ? 0 : 8;
       this.window.contentView.addChildView(this.edgeStrip);
       this.edgeStrip.setBounds({
         x: Math.max(0, width - STRIP - side),
@@ -873,6 +1030,12 @@ class BrowserApplication {
       } else {
         this.sidebar.setBounds({ x: 0, y: 0, width: 0, height: 0 });
       }
+    }
+
+    if (this.findBar && !this.findBar.webContents.isDestroyed()) {
+      const FIND_W = Math.min(400, Math.max(0, width - side - 24));
+      this.window.contentView.addChildView(this.findBar);
+      this.findBar.setBounds({ x: Math.max(0, width - side - FIND_W - 14), y: top + 6, width: FIND_W, height: 54 });
     }
 
     // Re-add the overlay so it stays the topmost child: adding a tab view
@@ -1075,6 +1238,20 @@ class BrowserApplication {
       // dropped, and a dropped menu is indistinguishable from a broken one, so
       // the request is also readable on demand.
       'menu:pending': () => this.takePendingMenu(),
+      'find:query': (_sender, payload) => {
+        const wc = this.tabs?.tabs.get(this.findTabId)?.view.webContents;
+        if (!wc || wc.isDestroyed()) return false;
+        const text = String(payload?.text || '').slice(0, 500);
+        if (!text) { wc.stopFindInPage('clearSelection'); return true; }
+        wc.findInPage(text, { forward: payload?.forward !== false, findNext: !!payload?.findNext });
+        return true;
+      },
+      'find:close': () => { this.closeFind(); return true; },
+      'context:run': (_sender, payload) => {
+        const target = this.contextTarget;
+        if (!target) return false;
+        return pageMenu.runCommand(this, target, String(payload?.command || ''), payload?.arg);
+      },
       'menu:state': (_sender, payload) => {
         this.setOverlayInteractive(!!payload?.open);
         return true;
@@ -2564,6 +2741,11 @@ class BrowserApplication {
       if (url.startsWith('file://') && url.includes('/renderer/pages/edge.html')) return;
       throw new Error('Unauthorized sender');
     }
+    if (sender === this.findBar?.webContents) {
+      const url = sender.getURL();
+      if (url.startsWith('file://') && url.includes('/renderer/pages/find.html')) return;
+      throw new Error('Unauthorized sender');
+    }
     const tab = this.#tabByContents(sender);
     // Internal pages are file:// loads that we tagged with a browser:// identity.
     if (tab && tab.state.internalUrl && internalPage(tab.state.internalUrl)) {
@@ -2606,7 +2788,8 @@ class BrowserApplication {
       if (!action) return;
       // Escape is only ours while a page is actually loading; otherwise it
       // belongs to the page (closing its own dialogs, clearing selection).
-      if (action === 'page:stop' && !this.tabs?.active?.state.loading) return;
+      if (action === 'page:stop' &&
+        (!this.tabs?.active?.state.loading || this.htmlFullscreen || contents === this.findBar?.webContents)) return;
       event.preventDefault();
       this.dispatch(action);
     });
@@ -2901,7 +3084,38 @@ class BrowserApplication {
       }
       // Asks the renderer to open its own menu; main never draws one.
       case 'menu:main': this.chrome?.webContents.send('ui:open-menu', { menu: 'main' }); break;
-      default: break;
+      case 'window:console': {
+        const wc = this.tabs.active?.view.webContents;
+        if (wc) wc.openDevTools({ mode: 'right', activate: true });
+        break;
+      }
+      case 'window:fullscreen': this.toggleWindowFullscreen(); break;
+      case 'window:incognito': this.openIncognito?.(); break;
+      case 'find:open': this.openFind(''); break;
+      case 'find:next': if (this.findBar) this.findBar.webContents.send('find:focus', {}); break;
+      case 'page:zoom-in': this.zoom(1); break;
+      case 'page:zoom-out': this.zoom(-1); break;
+      case 'page:zoom-reset': this.zoom(0); break;
+      case 'page:reload-hard': this.tabs.active?.view.webContents.reloadIgnoringCache(); break;
+      case 'page:save':
+      case 'page:print':
+      case 'page:source': {
+        const tab = this.tabs.active;
+        if (!tab) break;
+        const command = { 'page:save': 'save-page', 'page:print': 'print', 'page:source': 'view-source' }[action];
+        pageMenu.runCommand(this, { tabId: tab.id, contents: tab.view.webContents, params: {} }, command);
+        break;
+      }
+      case 'data:clear': open('browser://settings#privacy'); break;
+      default:
+        // Ctrl+1..8 pick that tab; Ctrl+9 is always the last one.
+        if (/^tab:[1-9]$/.test(action)) {
+          const list = this.tabs.order;
+          const n = Number(action.slice(4));
+          const id = n === 9 ? list[list.length - 1] : list[n - 1];
+          if (id) this.tabs.select(id);
+        }
+        break;
     }
   }
 
