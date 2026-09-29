@@ -14,6 +14,23 @@ class History {
     this.schedule();
     return entry.id;
   }
+  /** Merge visits from another browser, newest first, without duplicates. */
+  importMany(entries) {
+    const seen = new Set(this.store.data.map(item => item.url + '|' + item.visitedAt));
+    let added = 0;
+    for (const item of entries || []) {
+      const url = String(item?.url || '');
+      const visitedAt = Number(item?.visitedAt) || 0;
+      if (!/^https?:\/\//.test(url) || !visitedAt || seen.has(url + '|' + visitedAt)) continue;
+      seen.add(url + '|' + visitedAt);
+      this.store.data.push({ id: randomUUID(), url, title: String(item.title || url).slice(0, 1000), visitedAt, imported: true });
+      added++;
+    }
+    this.store.data.sort((a, b) => b.visitedAt - a.visitedAt);
+    this.store.data.length = Math.min(this.store.data.length, 50000);
+    this.schedule();
+    return added;
+  }
   title(id, title) {
     const entry = this.store.data.find(item => item.id === id);
     if (entry) { entry.title = String(title).slice(0, 1000); this.schedule(); }

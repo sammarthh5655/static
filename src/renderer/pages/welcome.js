@@ -28,6 +28,7 @@ const LEDE = {
   welcome: 'A browser that blocks what you did not ask for, and keeps what you are doing to yourself. Setting up takes about a minute, and you can change any of it later.',
   profile: 'This sets your homepage and theme to something sensible. Everything stays editable in Settings.',
   theme: 'Every planet is a full colour scheme. Hover to see one named, click to wear it - the browser changes straight away, and you can change it again whenever you like.',
+  import: 'Bring your bookmarks and history from the browser you used before. Nothing is changed there, and you can skip this and do it later from Settings.',
   homepage: 'What you see when you open a new tab. Widgets can be added, removed and rearranged later.',
   privacy: 'How much Static blocks by default. You can change this per site from the shield in the toolbar.',
   ai: 'The assistant can summarise a page you are reading and answer questions about it.',
@@ -254,6 +255,11 @@ function body() {
       state.profiles.map((profile) => choice(
         profile, state.chosen.profile === profile.id,
         (id) => pickAndAdvance('onboarding:profile', id)))));
+    return box;
+  }
+
+  if (state.stepId === 'import') {
+    if (window.importPanel) box.append(window.importPanel.build({ element, invoke }));
     return box;
   }
 

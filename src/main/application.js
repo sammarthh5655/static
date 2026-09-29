@@ -34,6 +34,7 @@ const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
 const wallpapers = require('../features/wallpapers');
 const feedback = require('../features/feedback');
+const importer = require('../features/importer');
 const { Autofill, fillValues } = require('../features/autofill');
 const { kindOf, luhn } = require('../shared/autofill-fields');
 const os = require('node:os');
@@ -1722,6 +1723,17 @@ class BrowserApplication {
         return true;
       },
       'autofill:state': () => this.autofill.state(),
+      'import:detect': () => importer.detect(this.importRoots || null),
+      'import:run': (_sender, payload) => {
+        const data = importer.read(String(payload?.browser || ''), String(payload?.profile || ''), this.importRoots || null);
+        const name = importer.detect(this.importRoots || null).find((b) => b.id === payload.browser)?.name || payload.browser;
+        const result = { bookmarks: 0, history: 0, homepage: false };
+        if (payload.bookmarks !== false) result.bookmarks = this.bookmarks.importMany(data.bookmarks, name);
+        if (payload.history !== false && !this.incognito) result.history = this.history.importMany(data.history);
+        if (payload.homepage && data.homepage) { this.settings.update({ homepage: data.homepage }); result.homepage = true; }
+        this.push();
+        return result;
+      },
       'passwords:health': () => this.passwords.health(),
       'passwords:breach-check': () => this.passwords.breachCheck((url, options) => require('electron').net.fetch(url, options)),
       'passwords:export': async () => {

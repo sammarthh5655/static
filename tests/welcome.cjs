@@ -100,6 +100,10 @@ async function run(browser) {
 
     // Choosing advances, because choosing IS the answer.
     await clickChoice(2);
+    // Then the optional import step, which is passed over here.
+    const importTitle = await until(/bring your stuff/i, 'import');
+    check('choosing a profile leads to the optional import step', /bring your stuff/i.test(importTitle), importTitle);
+    await click('#skip');
     await until(/world/i, 'theme');
     view = await read();
     check('choosing a profile advances to the theme step',

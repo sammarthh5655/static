@@ -287,3 +287,5 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 .forge-made-orb { width: 26px; height: 26px; border-radius: 50%; flex: none; box-shadow: inset -4px -5px 8px rgba(0,0,0,0.35); }
 .forge-made-item button { padding: 5px 10px; font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { .forge-orb { animation: none; } }
+.import-card { padding-bottom: 14px; }
+.import-card .import-panel { padding: 0 18px; }

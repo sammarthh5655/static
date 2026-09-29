@@ -28,6 +28,7 @@ const { JsonStore } = require('../../main/storage');
 const STEPS = [
   { id: 'welcome', title: 'Welcome to Static', optional: false },
   { id: 'profile', title: 'How will you use Static?', optional: false },
+  { id: 'import', title: 'Bring your stuff', optional: true },
   { id: 'theme', title: 'Choose a world', optional: true },
   { id: 'homepage', title: 'Your homepage', optional: true },
   { id: 'privacy', title: 'Privacy level', optional: true },

@@ -1,0 +1,40 @@
+.import-panel { display: flex; flex-direction: column; gap: 12px; }
+.import-browsers { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.import-browser {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px; cursor: pointer;
+  border-radius: 14px; border: 1px solid var(--border-soft); background: color-mix(in srgb, var(--surface) 60%, transparent);
+  color: var(--text); font: inherit; font-size: 12.5px; transition: transform 150ms ease, border-color 150ms ease;
+}
+.import-browser:hover { transform: translateY(-2px); border-color: var(--border); }
+.import-browser[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 22%, transparent); }
+.import-badge {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 17px; color: #fff;
+  background: conic-gradient(#ea4335 0 33%, #fbbc05 0 66%, #34a853 0);
+}
+.import-badge.edge { background: linear-gradient(135deg, #0c59a4, #2ecfb1); }
+.import-badge.brave { background: linear-gradient(135deg, #fb542b, #d82e5f); }
+.import-badge.firefox { background: radial-gradient(circle at 35% 30%, #ffbd4f, #ff6a2c 55%, #b833e1); }
+.import-badge.opera { background: radial-gradient(circle, #ff1b2d 55%, #b3001b); }
+.import-badge.vivaldi { background: linear-gradient(135deg, #ef3939, #b71c1c); }
+.import-profile { align-self: flex-start; padding: 7px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--field); color: var(--text); font: inherit; }
+.import-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.import-switch {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 12px; cursor: pointer; text-align: left;
+  border: 1px solid var(--border-soft); background: transparent; color: var(--text-dim); font: inherit;
+}
+.import-switch strong { display: block; font-size: 12.5px; color: var(--text); }
+.import-switch small { font-size: 11px; }
+.import-knob { position: relative; width: 30px; height: 17px; border-radius: 99px; background: var(--border); flex: none; transition: background 150ms ease; }
+.import-knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--text); transition: transform 180ms ease; }
+.import-switch[aria-checked="true"] { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.import-switch[aria-checked="true"] .import-knob { background: var(--accent); }
+.import-switch[aria-checked="true"] .import-knob::after { transform: translateX(13px); background: var(--bg); }
+.import-note { margin: 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.import-actions { display: flex; justify-content: flex-end; }
+.import-go {
+  padding: 9px 18px; border: 0; border-radius: 12px; cursor: pointer; font: inherit; font-weight: 600; color: var(--bg);
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+}
+.import-go:disabled { opacity: 0.5; cursor: default; }
+.import-status { margin: 0; font-size: 12.5px; color: var(--accent); min-height: 16px; }
+.import-empty { color: var(--text-dim); font-size: 13px; }
