@@ -34,6 +34,8 @@ const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
 const wallpapers = require('../features/wallpapers');
 const feedback = require('../features/feedback');
+const { Autofill, fillValues } = require('../features/autofill');
+const { kindOf, luhn } = require('../shared/autofill-fields');
 const os = require('node:os');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -169,6 +171,7 @@ class BrowserApplication {
         try { this.shields.update(seed.shields); } catch (error) { console.error('[profiles] seed shields', error); }
       }
     }
+    this.autofill = new Autofill(this.dir, { onChange: () => this.push() });
     this.passwords = new Passwords(this.dir, {
       onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
     });
@@ -190,6 +193,7 @@ class BrowserApplication {
 
     this.ensureWindow();
     this.#registerIpc();
+    this.#installAutofill();
     this.productivity.start();
     this.attachVideoAdGate();
 
@@ -724,6 +728,145 @@ class BrowserApplication {
    * would be a privacy claim the browser does not keep.
    */
   /** Onboarding state plus everything the welcome page renders from. */
+  /**
+   * Autofill and password saving: the main half.
+   *
+   * Pages report focus and submissions on their own channels (they are web
+   * content, so they never get the internal-page bridge). Every message is
+   * checked: it must come from one of our tabs, from its top frame, and the
+   * site it concerns is read from that frame here - never taken from the
+   * message. A fill is sent back only to the same tab, still on the same site.
+   */
+  #installAutofill() {
+    this.autofillTokens = new Map();
+    const tabFor = (event) => {
+      const tab = this.#tabByContents(event.sender);
+      if (!tab || tab.state.internalUrl) return null;
+      if (event.senderFrame && event.senderFrame !== event.sender.mainFrame) return null;
+      let origin = '';
+      try { origin = new URL(event.sender.getURL()).origin; } catch { return null; }
+      if (!/^https?:/.test(origin)) return null;
+      return { tab, origin, host: new URL(origin).host };
+    };
+    const token = (data) => {
+      const id = require('node:crypto').randomUUID();
+      this.autofillTokens.set(id, { ...data, at: Date.now() });
+      for (const [key, value] of this.autofillTokens) if (Date.now() - value.at > 5 * 60 * 1000) this.autofillTokens.delete(key);
+      return id;
+    };
+    const showMenu = (items, anchor, align = 'left') => {
+      if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
+      this.pendingMenu = this.lastMenu = { items, anchor, align };
+      this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+    };
+
+    ipcMain.on('autofill:focus', (event, payload) => {
+      const at = tabFor(event);
+      if (!at || !payload || typeof payload.type !== 'string') return;
+      const type = payload.type;
+      const kind = kindOf(type);
+      const prefs = this.autofill.prefs();
+      const items = [];
+      // An email or phone box next to a password box is how most sites ask
+      // for the username.
+      const loginish = kind === 'login' || (['email', 'tel', 'username'].includes(type) && (payload.scope || []).includes('password'));
+      if (loginish && type !== 'new-password') {
+        for (const login of this.passwords.forUrl(at.origin).slice(0, 6)) {
+          items.push({ label: login.username || '(no username)', icon: 'key', hint: 'Saved password for ' + at.host,
+            action: { channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, login: login.id }) } } });
+        }
+      }
+      if (type === 'new-password') {
+        const suggestion = generatePassword({ length: 18, symbols: true });
+        items.push({ label: 'Use a strong password', icon: 'key', hint: suggestion.slice(0, 4) + '••••••••••••' + ' · saved when you submit',
+          action: { channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, generated: suggestion }) } } });
+      }
+      const allowed = kind === 'card' ? prefs.fillCards : kind === 'address' || kind === 'upi' || kind === 'document' ? prefs.fillAddresses : false;
+      if (allowed) {
+        for (const hit of this.autofill.suggestionsFor(type).slice(0, 6)) {
+          items.push({ label: hit.value, icon: kind === 'card' ? 'key' : 'user', hint: [hit.label, hit.kind === 'card' ? '' : hit.summary].filter(Boolean).join(' · ').slice(0, 80),
+            action: { channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, entry: hit.id, type }) } } });
+        }
+      }
+      if (!items.length) return;
+      items.push({ separator: true }, { label: kind === 'login' ? 'Manage passwords' : 'Manage autofill', icon: 'gear',
+        action: { channel: 'tabs:new', payload: { url: 'browser://passwords' + (kind === 'login' ? '' : '#autofill') } } });
+      const bounds = at.tab.view.getBounds();
+      const r = payload.rect || {};
+      const x = bounds.x + (Number(r.x) || 0);
+      const y = bounds.y + (Number(r.y) || 0);
+      showMenu(items, { left: x, right: x + (Number(r.width) || 0), top: y, bottom: y + (Number(r.height) || 0), width: Number(r.width) || 0, height: Number(r.height) || 0 });
+    });
+
+    ipcMain.on('autofill:typing', (event) => {
+      if (!tabFor(event) || !this.overlayInteractive) return;
+      const items = this.lastMenu?.items || [];
+      if (items.some((i) => i.action?.channel === 'autofill:choose')) this.overlay?.webContents.send('ui:render-menu', { items: [] });
+    });
+    ipcMain.on('autofill:filled', () => {});
+
+    ipcMain.on('autofill:submitted', (event, payload) => {
+      const at = tabFor(event);
+      const fields = payload?.fields;
+      if (!at || !fields || typeof fields !== 'object' || this.incognito) return;
+      const prefs = this.autofill.prefs();
+      const top = chromeHeight(this.settings.value);
+      const width = this.window.getContentBounds().width;
+      const anchor = { left: width - 16, right: width - 16, top: top - 6, bottom: top - 6, width: 0, height: 0 };
+      const decide = (data) => ({ channel: 'autofill:decide', payload: { token: token({ ...data, wc: event.sender.id, origin: at.origin }) } });
+
+      const password = fields.password || fields['new-password'];
+      const username = fields.username || fields.email || '';
+      if (password && prefs.offerPasswords && !this.autofill.never(at.origin)) {
+        const saved = this.passwords.forUrl(at.origin).find((l) => l.username === username);
+        const same = saved && this.passwords.reveal(saved.id)?.password === password;
+        if (!same) {
+          const data = { save: 'password', username, password };
+          showMenu([
+            { heading: saved ? 'Update password for ' + at.host + '?' : 'Save password for ' + at.host + '?' },
+            { label: saved ? 'Update' : 'Save', icon: 'key', hint: (username || 'No username') + ' · ••••••••', action: decide(data) },
+            { label: 'Never for this site', icon: 'close', action: decide({ save: 'never' }) },
+            { label: 'Not now', action: decide({ save: 'dismiss' }) },
+          ], anchor, 'right');
+          return;
+        }
+      }
+      const number = String(fields['cc-number'] || '').replace(/\D/g, '');
+      if (number && prefs.fillCards && luhn(number) && !this.autofill.has('card', { 'cc-number': number })) {
+        const combined = fields['cc-exp'] || (/\//.test(fields['cc-exp-month'] || '') ? fields['cc-exp-month'] : '');
+        if (combined && combined === fields['cc-exp-month']) delete fields['cc-exp-month'];
+        const [month, year] = String(combined || '').split(/\s*\/\s*/);
+        const card = { 'cc-name': fields['cc-name'], 'cc-number': number,
+          'cc-exp-month': fields['cc-exp-month'] || month, 'cc-exp-year': fields['cc-exp-year'] || (year ? (year.length === 2 ? '20' + year : year) : '') };
+        showMenu([
+          { heading: 'Save this card?' },
+          { label: 'Save card ending ' + number.slice(-4), icon: 'key', hint: 'Encrypted on this device. The security code is never saved.', action: decide({ save: 'card', fields: card }) },
+          { label: 'Not now', action: decide({ save: 'dismiss' }) },
+        ], anchor, 'right');
+        return;
+      }
+      const addressKeys = ['name', 'given-name', 'address-line1', 'address-level2', 'postal-code', 'tel', 'email'];
+      const filled = addressKeys.filter((k) => fields[k]);
+      if (prefs.fillAddresses && fields['address-line1'] && filled.length >= 3 && !this.autofill.has('address', fields)) {
+        const address = Object.fromEntries(Object.entries(fields).filter(([k]) => kindOf(k) === 'address'));
+        showMenu([
+          { heading: 'Save this address?' },
+          { label: [fields.name || fields['given-name'], fields['address-line1'], fields['address-level2']].filter(Boolean).join(', ').slice(0, 60),
+            icon: 'user', hint: 'For filling forms next time. Kept on this device.', action: decide({ save: 'address', fields: address }) },
+          { label: 'Not now', action: decide({ save: 'dismiss' }) },
+        ], anchor, 'right');
+        return;
+      }
+      if (fields.upi && prefs.fillAddresses && !this.autofill.has('upi', { upi: fields.upi })) {
+        showMenu([
+          { heading: 'Save this UPI ID?' },
+          { label: fields.upi, icon: 'key', action: decide({ save: 'upi', fields: { upi: fields.upi } }) },
+          { label: 'Not now', action: decide({ save: 'dismiss' }) },
+        ], anchor, 'right');
+      }
+    });
+  }
+
   /** What About and Diagnostics show. Read fresh each time. */
   async #systemInfo() {
     let gpu = '';
@@ -1535,6 +1678,76 @@ class BrowserApplication {
         return true;
       },
       'feedback:categories': () => feedback.CATEGORIES,
+      'autofill:choose': (_sender, payload) => {
+        const data = this.autofillTokens?.get(String(payload?.token || ''));
+        if (!data) return false;
+        const tab = this.#tabByWebContentsId(data.wc);
+        const wc = tab?.view.webContents;
+        let origin = '';
+        try { origin = new URL(wc?.getURL()).origin; } catch { return false; }
+        // The page must still be the site the suggestion was made for.
+        if (!wc || origin !== data.origin) return false;
+        let values = {};
+        if (data.login) {
+          const secret = this.passwords.reveal(data.login);
+          if (!secret?.ok) return false;
+          values = { username: secret.username, password: secret.password };
+          if (/@/.test(secret.username || '')) values.email = secret.username;
+        } else if (data.generated) {
+          values = { 'new-password': data.generated, password: data.generated };
+        } else if (data.entry) {
+          const entry = this.autofill.values(data.entry);
+          if (!entry) return false;
+          values = fillValues(entry.kind, entry.fields);
+        }
+        wc.send('autofill:apply', { values });
+        return true;
+      },
+      'autofill:decide': (_sender, payload) => {
+        const data = this.autofillTokens?.get(String(payload?.token || ''));
+        if (!data) return false;
+        this.autofillTokens.delete(String(payload.token));
+        if (data.save === 'password') {
+          const result = this.passwords.save_credential({ url: data.origin, username: data.username, password: data.password });
+          this.notify(result.ok ? 'Password saved for ' + new URL(data.origin).host : result.error);
+        } else if (data.save === 'never') {
+          this.autofill.addNever(data.origin);
+          this.notify('Static will not offer to save passwords on ' + new URL(data.origin).host);
+        } else if (['card', 'address', 'upi'].includes(data.save)) {
+          try {
+            this.autofill.put(data.save, data.fields);
+            this.notify(data.save === 'card' ? 'Card saved' : data.save === 'upi' ? 'UPI ID saved' : 'Address saved');
+          } catch (error) { this.notify(error.message); }
+        }
+        return true;
+      },
+      'autofill:state': () => this.autofill.state(),
+      'passwords:health': () => this.passwords.health(),
+      'passwords:breach-check': () => this.passwords.breachCheck((url, options) => require('electron').net.fetch(url, options)),
+      'passwords:export': async () => {
+        const result = await dialog.showSaveDialog(this.window, {
+          title: 'Export passwords', defaultPath: path.join(app.getPath('documents'), 'Static passwords.csv'),
+          filters: [{ name: 'CSV', extensions: ['csv'] }],
+        });
+        if (result.canceled || !result.filePath) return { canceled: true };
+        fs.writeFileSync(result.filePath, this.passwords.exportCsv(), { mode: 0o600 });
+        return { saved: result.filePath };
+      },
+      'passwords:import': async () => {
+        const result = await dialog.showOpenDialog(this.window, {
+          title: 'Import passwords from a CSV file', properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }],
+        });
+        if (result.canceled || !result.filePaths[0]) return { canceled: true };
+        const stat = fs.statSync(result.filePaths[0]);
+        if (stat.size > 20 * 1024 * 1024) return { ok: false, error: 'That file is too large to be a password export.' };
+        return this.passwords.importCsv(fs.readFileSync(result.filePaths[0], 'utf8'));
+      },
+      'autofill:list': (_sender, payload) => this.autofill.list(payload?.kind),
+      'autofill:values': (_sender, payload) => this.autofill.values(String(payload?.id || '')),
+      'autofill:put': (_sender, payload) => this.autofill.put(String(payload?.kind || ''), payload?.fields || {}, payload?.id),
+      'autofill:remove': (_sender, payload) => { this.autofill.remove(String(payload?.id || '')); return true; },
+      'autofill:prefs': (_sender, payload) => this.autofill.setPrefs(payload || {}),
+      'autofill:never-remove': (_sender, payload) => { this.autofill.removeNever(String(payload?.origin || '')); return true; },
       'feedback:available': () => this.#feedbackAvailable(),
       'feedback:attach': async () => {
         const result = await dialog.showOpenDialog(this.window, { properties: ['openFile', 'multiSelections'], title: 'Attach files' });

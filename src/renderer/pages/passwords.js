@@ -244,6 +244,9 @@ function render() {
     state.encryption?.available ? generatorCard() : null,
     vaultCard(),
     limitsCard(),
+    // Health, import/export and autofill: drawn by passwords-extra.js, kept
+    // across re-renders so an open form is not lost.
+    window.passwordExtras?.host,
   ].filter(Boolean));
 }
 

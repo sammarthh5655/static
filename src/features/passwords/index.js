@@ -219,6 +219,82 @@ class Passwords {
     return { ok: true };
   }
 
+  /** Every login with its password, for export and health checks only. */
+  #all() {
+    return this.data.entries.map((entry) => ({ entry, password: this.#decrypt(entry.password) }))
+      .filter((item) => item.password !== null);
+  }
+
+  /**
+   * Weak and reused passwords. Worked out here and returned as counts and
+   * ids; no password leaves main.
+   */
+  health() {
+    const all = this.#all();
+    const byPassword = new Map();
+    for (const { entry, password } of all) byPassword.set(password, [...(byPassword.get(password) || []), entry.id]);
+    const weak = all.filter(({ password }) => isWeak(password)).map(({ entry }) => entry.id);
+    const reused = [...byPassword.values()].filter((ids) => ids.length > 1).flat();
+    return { total: all.length, weak, reused, strong: all.length - new Set([...weak, ...reused]).size };
+  }
+
+  /**
+   * Have any of these passwords appeared in a known data breach?
+   *
+   * Uses Have I Been Pwned's range API (k-anonymity): only the first five
+   * characters of each password's SHA-1 hash are sent, the service returns
+   * every hash starting with them, and the match is made here. The password,
+   * and even its full hash, never leave this device. Runs only when asked.
+   */
+  async breachCheck(fetcher) {
+    const results = [];
+    const cache = new Map();
+    for (const { entry, password } of this.#all()) {
+      const hash = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
+      const prefix = hash.slice(0, 5);
+      if (!cache.has(prefix)) {
+        const response = await fetcher('https://api.pwnedpasswords.com/range/' + prefix, { headers: { 'Add-Padding': 'true' } });
+        if (!response.ok) throw new Error('The breach service did not answer (' + response.status + ').');
+        cache.set(prefix, await response.text());
+      }
+      const line = cache.get(prefix).split('\n').find((row) => row.startsWith(hash.slice(5)));
+      const count = line ? Number(line.split(':')[1]) || 0 : 0;
+      if (count > 0) results.push({ id: entry.id, origin: entry.origin, username: entry.username, count });
+    }
+    return { checked: this.#all().length, breached: results };
+  }
+
+  /** CSV in the format Chrome, Edge and Brave use: name,url,username,password. */
+  exportCsv() {
+    const quote = (value) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    return ['name,url,username,password', ...this.#all().map(({ entry, password }) =>
+      [entry.title, entry.origin, entry.username, password].map(quote).join(','))].join('\r\n') + '\r\n';
+  }
+
+  /**
+   * Import a password CSV exported by Chrome, Edge, Brave, Opera, Vivaldi or
+   * Firefox. Columns are found by their header names, so the order does not
+   * matter.
+   */
+  importCsv(text) {
+    const rows = parseCsv(String(text || ''));
+    if (rows.length < 2) return { ok: false, error: 'That file has no passwords in it.' };
+    const header = rows[0].map((h) => h.trim().toLowerCase());
+    const col = (...names) => header.findIndex((h) => names.includes(h));
+    const url = col('url', 'origin', 'login_uri', 'website', 'hostname');
+    const user = col('username', 'login_username', 'login', 'email');
+    const pass = col('password', 'login_password');
+    const name = col('name', 'title');
+    if (url < 0 || pass < 0) return { ok: false, error: 'This does not look like a password export (no url and password columns).' };
+    let added = 0;
+    let skipped = 0;
+    for (const row of rows.slice(1)) {
+      const result = row[pass] ? this.save_credential({ url: row[url], username: user >= 0 ? row[user] : '', password: row[pass], title: name >= 0 ? row[name] : '' }) : { ok: false };
+      if (result.ok) added++; else skipped++;
+    }
+    return { ok: true, added, skipped };
+  }
+
   state() {
     const status = this.encryptionStatus();
     return {
@@ -244,7 +320,9 @@ function originOf(url) {
   try {
     const parsed = new URL(url);
     if (!/^https?:$/.test(parsed.protocol)) return '';
-    return parsed.protocol + '//' + parsed.hostname.toLowerCase();
+    // Scheme, host AND port, as every browser matches logins: a server on
+    // another port is a different site.
+    return parsed.origin.toLowerCase();
   } catch {
     return '';
   }
@@ -285,4 +363,39 @@ function generatePassword({ length = 20, symbols = true } = {}) {
   return out.join('');
 }
 
-module.exports = { Passwords, generatePassword, originOf };
+const COMMON = new Set(['password', '123456', '12345678', '123456789', 'qwerty', 'abc123', 'password1', '111111', 'iloveyou', 'admin', 'welcome', 'letmein', 'monkey', 'dragon', '1234567890', 'qwerty123', '000000']);
+
+function isWeak(password) {
+  const p = String(password || '');
+  if (p.length < 8 || COMMON.has(p.toLowerCase())) return true;
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^\w]/].filter((r) => r.test(p)).length;
+  return p.length < 12 && classes < 3;
+}
+
+/** RFC 4180 CSV, including quoted fields with commas and newlines. */
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.some((cell) => cell !== '')) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  row.push(field);
+  if (row.some((cell) => cell !== '')) rows.push(row);
+  return rows;
+}
+
+module.exports = { Passwords, generatePassword, originOf, isWeak, parseCsv };

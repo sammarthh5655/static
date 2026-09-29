@@ -79,3 +79,8 @@ if (!isInternalPage && isYouTubeHost(location.hostname)) {
     }
   }
 }
+
+// Autofill and password saving, on web pages only.
+if (!isInternalPage && /^https?:$/.test(location.protocol)) {
+  try { require('./autofill'); } catch { /* a page that breaks the helper must not break the page */ }
+}
