@@ -216,7 +216,9 @@ class Shields {
       const file = path.join(this.cacheDir, list.id + '.txt');
       try {
         if (fs.existsSync(file)) {
-          this.engine.addList(fs.readFileSync(file, 'utf8'));
+          // uBlock's and Brave's own lists may use privileged scriptlets;
+          // anything else may not.
+          this.engine.addList(fs.readFileSync(file, 'utf8'), { id: list.id, trusted: /^(ubo|brave)-/.test(list.id) });
           loadedFromCache = true;
         }
       } catch (error) {
@@ -226,7 +228,7 @@ class Shields {
 
     // Always include the built-in list: it is small, and it guarantees the
     // biggest trackers are covered even if a downloaded list is truncated.
-    this.engine.addList(BUILTIN);
+    this.engine.addList(BUILTIN, { id: 'builtin', trusted: true });
     this.ready = true;
     this.usingCache = loadedFromCache;
     return this.engine.count;

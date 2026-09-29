@@ -151,7 +151,12 @@ function scriptFor(spec) {
   // and the resulting ReferenceError is swallowed by the scriptlet's own
   // try/catch - the page looks fine and nothing is blocked.
   const helpers = resolveDependencies([entry.source]);
-  return '(function(){\n' + helpers.join('\n') + '\n' + entry.source +
+  // uBlock's injector defines `scriptletGlobals` around every scriptlet, and
+  // safeSelf() - which nearly all of them call first - reads it. Without it
+  // each scriptlet threw a ReferenceError on its first line, which its own
+  // try/catch swallowed: every Brave scriptlet, YouTube's included, silently
+  // did nothing.
+  return '(function(){\nconst scriptletGlobals = {};\n' + helpers.join('\n') + '\n' + entry.source +
     '\ntry{ ' + fn[1] + '(' + callArgs + '); }catch(e){}\n})();';
 }
 

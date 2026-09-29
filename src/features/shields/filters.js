@@ -47,9 +47,22 @@ const TYPE_MAP = {
  * applying it as a plain network rule would be wrong in both directions.
  */
 const COSMETIC_ONLY_OPTIONS = new Set([
-  'generichide', 'elemhide', 'specifichide', 'ehide', 'ghide',
   'content', 'inline-script', 'inline-font',
 ]);
+
+/**
+ * Exception options that say what to switch OFF on a page rather than which
+ * request to allow: `@@||site^$generichide` keeps site-specific hiding but
+ * drops generic hiding there; `$elemhide` drops all hiding; `$document`
+ * switches blocking off for the page entirely.
+ */
+const PAGE_FLAGS = {
+  generichide: 'generichide', ghide: 'generichide',
+  elemhide: 'elemhide', ehide: 'elemhide',
+  specifichide: 'specifichide', shide: 'specifichide',
+  document: 'document', doc: 'document',
+  genericblock: 'genericblock',
+};
 
 /**
  * Options this engine does not implement, which make a rule UNSAFE to apply.
@@ -77,7 +90,7 @@ const UNSUPPORTED_SCOPE_OPTIONS = new Set([
   'header', 'replace', 'csp', 'permissions', 'removeparam', 'uritransform',
   // Behavioural, not network.
   'empty', 'mp4', 'cname', 'strict1p', 'strict3p', 'all', 'popup', 'popunder',
-  'webrtc', 'genericblock', 'badfilter', 'match-case',
+  'webrtc', 'badfilter', 'match-case',
 ]);
 
 const TYPE_OPTIONS = new Set([
@@ -99,6 +112,9 @@ class Rule {
     this.excludedDomains = null;
     // Set when the rule only governs behaviour this engine does not implement.
     this.inert = false;
+    // For @@ rules that switch features off on a page (see PAGE_FLAGS).
+    this.pageFlags = null;
+    this.list = '';
 
     this.#applyOptions(options);
     this.pattern = this.#normalise(pattern);
@@ -136,6 +152,11 @@ class Rule {
       // `@@||facebook.com^$generichide` as a plain network exception silently
       // unblocks the Facebook pixel everywhere - which is exactly what it did
       // before this check existed.
+      if (PAGE_FLAGS[name]) {
+        if (this.isException) (this.pageFlags ||= new Set()).add(PAGE_FLAGS[name]);
+        else this.inert = true;
+        continue;
+      }
       if (COSMETIC_ONLY_OPTIONS.has(name)) { this.inert = true; continue; }
 
       // Options that change WHAT a rule means, not just what it matches.
@@ -370,6 +391,8 @@ function parseCosmetic(line) {
   return { selector, domains };
 }
 
+const { CosmeticIndex } = require('./cosmetic');
+
 class FilterEngine {
   constructor() {
     this.blockBuckets = new Map();
@@ -377,36 +400,31 @@ class FilterEngine {
     this.allowBuckets = new Map();
     this.allowGeneric = [];
     this.count = 0;
-    /** Selectors that apply to every site. */
-    this.cosmeticGeneric = new Set();
-    /** domain -> Set of selectors that apply only on that domain. */
-    this.cosmeticByDomain = new Map();
+    /** CSS, procedural rules, scriptlets and their exceptions. */
+    this.cosmetic = new CosmeticIndex();
     this.cosmeticCount = 0;
-    /** host -> built CSS, so a repeat visit does not rebuild the string. */
-    this.cosmeticCache = new Map();
+    /** @@ rules that switch features off on matching pages. */
+    this.pageExceptions = [];
   }
 
-  addList(text) {
+  /**
+   * @param {string} text
+   * @param {{ id?: string, trusted?: boolean }} source - where the list came
+   *   from, recorded on each rule for the logger, and whether it may use
+   *   privileged (`trusted-*`) scriptlets.
+   */
+  addList(text, source = {}) {
     for (const line of String(text).split('\n')) {
       // Cosmetic rules outnumber network rules several times over in these
       // lists, so test for them first and skip the network parse entirely.
-      if (line.includes('##')) {
-        const cosmetic = parseCosmetic(line);
-        if (cosmetic) {
-          if (cosmetic.domains) {
-            for (const domain of cosmetic.domains) {
-              if (!this.cosmeticByDomain.has(domain)) this.cosmeticByDomain.set(domain, new Set());
-              this.cosmeticByDomain.get(domain).add(cosmetic.selector);
-            }
-          } else {
-            this.cosmeticGeneric.add(cosmetic.selector);
-          }
-          this.cosmeticCount++;
-        }
+      if (line.includes('#@#') || line.includes('##') || line.includes('#?#') || line.includes('#$#')) {
+        if (this.cosmetic.add(line, source)) this.cosmeticCount++;
         continue;
       }
       const rule = parseRule(line);
       if (!rule) continue;
+      rule.list = source.id || '';
+      if (rule.pageFlags) { this.pageExceptions.push(rule); continue; }
       const buckets = rule.isException ? this.allowBuckets : this.blockBuckets;
       const generic = rule.isException ? this.allowGeneric : this.blockGeneric;
       if (rule.token) {
@@ -464,7 +482,7 @@ class FilterEngine {
     }
     const hit = this.#findMatch(this.blockBuckets, this.blockGeneric,
                                 tokens, lower, host, page, type, isThird);
-    return hit ? { blocked: true, rule: hit.raw } : { blocked: false, rule: null };
+    return hit ? { blocked: true, rule: hit.raw, list: hit.list } : { blocked: false, rule: null };
   }
 
   /**
@@ -477,27 +495,36 @@ class FilterEngine {
    * thousands of selectors, and rebuilding that string on every navigation
    * would be pure waste.
    */
-  cosmeticFor(host) {
-    const clean = String(host || '').toLowerCase().replace(/^www\./, '');
-    if (!clean) return '';
-    const cached = this.cosmeticCache.get(clean);
-    if (cached !== undefined) return cached;
+  cosmeticFor(host, url) {
+    const flags = url ? this.pageFlagsFor(url) : new Set();
+    if (flags.has('elemhide') || flags.has('document')) return '';
+    return this.cosmetic.forHost(String(host || ''), { generic: !flags.has('generichide') }).css;
+  }
 
-    const selectors = new Set(this.cosmeticGeneric);
-    const parts = clean.split('.');
-    for (let i = 0; i < parts.length - 1; i++) {
-      const domain = parts.slice(i).join('.');
-      const scoped = this.cosmeticByDomain.get(domain);
-      if (scoped) for (const selector of scoped) selectors.add(selector);
+  /** Everything a page needs beyond network blocking. */
+  pageRules(host, url) {
+    const flags = this.pageFlagsFor(url || ('https://' + host + '/'));
+    if (flags.has('document')) return { css: '', procedural: [], scriptlets: [], flags: [...flags] };
+    const all = this.cosmetic.forHost(String(host || ''), { generic: !flags.has('generichide') });
+    const hide = !flags.has('elemhide');
+    return {
+      css: hide ? all.css : '',
+      procedural: hide ? all.procedural : [],
+      scriptlets: all.scriptlets,
+      flags: [...flags],
+    };
+  }
+
+  /** Which page-level switches the lists turn off for this page. */
+  pageFlagsFor(url) {
+    const flags = new Set();
+    let host = '';
+    try { host = new URL(url).hostname.toLowerCase(); } catch { return flags; }
+    const lower = String(url).toLowerCase();
+    for (const rule of this.pageExceptions) {
+      if (rule.matches(lower, host, host, 'document', false)) for (const f of rule.pageFlags) flags.add(f);
     }
-
-    // One rule rather than one per selector: a single selector list is both
-    // smaller and faster for the engine to apply than thousands of rule sets.
-    const css = selectors.size
-      ? [...selectors].join(',\n') + ' { display: none !important; }'
-      : '';
-    this.cosmeticCache.set(clean, css);
-    return css;
+    return flags;
   }
 }
 

@@ -31,6 +31,8 @@ const CATEGORIES = [
   'cookies',        // third-party cookies blocked
   'phishing',       // phishing/unsafe navigations blocked
   'videoAds',       // video ad payloads stripped (YouTube)
+  'scriptlet',      // pages where filter-list scriptlets were injected
+  'redirect',       // requests answered with a harmless stand-in resource
 ];
 
 /** How many days of history to keep. */
@@ -48,8 +50,12 @@ const RETENTION_DAYS = 400;
  */
 const BYTES_PER_BLOCK = 55 * 1024;
 
-/** Milliseconds of page time saved per blocked request. Also an estimate. */
-const MS_PER_BLOCK = 35;
+/**
+ * Milliseconds of page time saved per blocked request. Also an estimate, and
+ * the same one Brave uses (MILLISECONDS_PER_ITEM = 50 in brave-core's
+ * brave_new_tab_ui/containers/newTab/stats.tsx), so the two are comparable.
+ */
+const MS_PER_BLOCK = 50;
 
 /** Local-time YYYY-MM-DD for a timestamp. */
 function dayKey(at) {
@@ -79,6 +85,8 @@ class Stats {
     }
     // Dirty-count so a burst of blocks does not write the file per request.
     this.dirty = 0;
+    // Since Static started, in memory only.
+    this.session = emptyDay();
   }
 
   get days() { return this.store.data.days; }
@@ -94,6 +102,7 @@ class Stats {
     const key = dayKey();
     const day = (this.days[key] ||= emptyDay());
     day[category] = (day[category] || 0) + count;
+    this.session[category] = (this.session[category] || 0) + count;
 
     this.dirty += count;
     if (this.dirty >= 25) this.flush();
@@ -135,6 +144,16 @@ class Stats {
     sum.bytesSaved = networkBlocks * BYTES_PER_BLOCK;
     sum.msSaved = networkBlocks * MS_PER_BLOCK;
     sum.estimated = true;   // the UI must label bytesSaved/msSaved as estimates
+    return sum;
+  }
+
+  /** Totals plus the derived estimates, for a counter object. */
+  #decorate(sum) {
+    sum.total = CATEGORIES.reduce((n, category) => n + (sum[category] || 0), 0);
+    const networkBlocks = (sum.ads || 0) + (sum.trackers || 0);
+    sum.bytesSaved = networkBlocks * BYTES_PER_BLOCK;
+    sum.msSaved = networkBlocks * MS_PER_BLOCK;
+    sum.estimated = true;
     return sum;
   }
 
@@ -207,6 +226,7 @@ class Stats {
       week: this.totals(7),
       month: this.totals(30),
       allTime: this.totals(0),
+      session: this.#decorate({ ...this.session }),
       series: this.series(7),
       isEmpty: this.isEmpty,
       // So the UI never has to hardcode the disclaimer text.

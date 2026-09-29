@@ -25,7 +25,7 @@ const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
-const { youtubeCosmetic: braveCosmetic } = require('../features/shields/brave');
+const { youtubeCosmetic: braveCosmetic, bundle: braveBundle } = require('../features/shields/brave');
 const { Profiles } = require('../features/profiles');
 const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
@@ -3498,6 +3498,43 @@ class BrowserApplication {
       }
       event.returnValue = allow;
     });
+
+    // Scriptlets and procedural hiding from the filter lists, asked for
+    // synchronously by the tab preload so they are in place before the
+    // page's own first script runs. Answers only real tabs, top frame.
+    this.pageRuleCache = new Map();
+    ipcMain.on('shields:page-rules', (event, host) => {
+      const empty = { scriptlets: '', procedural: [] };
+      try {
+        const tab = this.#tabByContents(event.sender);
+        const name = String(host || '').toLowerCase();
+        if (!tab || tab.state.internalUrl || !name || !this.shields?.config.enabled || !this.shields.activeFor(name)) {
+          event.returnValue = empty;
+          return;
+        }
+        const key = name + '|' + this.shields.engine.count;
+        let answer = this.pageRuleCache.get(key);
+        if (!answer) {
+          const rules = this.shields.engine.pageRules(name, event.sender.getURL?.() || 'https://' + name + '/');
+          // YouTube has its own tested path (Brave's rules plus the player
+          // hooks); the lists' YouTube scriptlets are kept off it so the two
+          // cannot fight over the same player internals.
+          const scriptlets = isYouTubeHost(name) ? [] : rules.scriptlets;
+          answer = {
+            scriptlets: scriptlets.length ? braveBundle(scriptlets) : '',
+            procedural: this.shields.config.hideAdSlots ? rules.procedural.slice(0, 300) : [],
+            count: scriptlets.length,
+          };
+          if (this.pageRuleCache.size > 300) this.pageRuleCache.clear();
+          this.pageRuleCache.set(key, answer);
+        }
+        if (answer.count) this.shields.stats.record?.('scriptlet');
+        event.returnValue = answer;
+      } catch (error) {
+        console.error('[shields] page rules', error.message);
+        event.returnValue = empty;
+      }
+    });
   }
 
   attachScriptlets(contents) {
@@ -3592,7 +3629,7 @@ class BrowserApplication {
       // and the cosmetic rules from the downloaded filter lists, which are
       // what covers the rest of the web. The lists were previously parsed and
       // thrown away, so ad containers stayed visible everywhere but YouTube.
-      const fromLists = this.shields.engine.cosmeticFor(wanted);
+      const fromLists = this.shields.engine.cosmeticFor(wanted, contents.getURL());
       // Brave's own YouTube rules hide the ad SLOTS: the sidebar ad, the merch
       // shelf, the masthead banner and the promoted rows in search. The
       // scriptlets deal with the video ad; these deal with everything else on

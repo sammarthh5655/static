@@ -84,3 +84,21 @@ if (!isInternalPage && isYouTubeHost(location.hostname)) {
 if (!isInternalPage && /^https?:$/.test(location.protocol)) {
   try { require('./autofill'); } catch { /* a page that breaks the helper must not break the page */ }
 }
+
+/**
+ * Scriptlets and procedural hiding from the filter lists, for every web page.
+ *
+ * Asked for synchronously for the same reason as the YouTube hooks above: a
+ * scriptlet that stubs an ad library must be in place before the page's own
+ * first script. Main decides what applies (Shields on, site not excepted).
+ */
+if (!isInternalPage && /^https?:$/.test(location.protocol)) {
+  let rules = null;
+  try { rules = ipcRenderer.sendSync('shields:page-rules', location.hostname); } catch { /* main decides; no answer, no rules */ }
+  if (rules && rules.scriptlets) {
+    try { webFrame.executeJavaScript(rules.scriptlets); } catch { /* refused by the page's CSP; cosmetic and network rules still apply */ }
+  }
+  if (rules && Array.isArray(rules.procedural) && rules.procedural.length) {
+    try { require('./procedural').start(rules.procedural); } catch { /* a bad rule must not break the page */ }
+  }
+}
