@@ -52,18 +52,20 @@ function build(ctx, options) {
   let dragFrom = 0;
   let spinFrom = 0;
   let time = 0;
+  let disposed = false;
 
   const resize = () => {
     ratio = Math.min(window.devicePixelRatio || 1, 2);
-    const box = wrap.getBoundingClientRect();
-    const w = Math.max(280, box.width || 640);
+    // CSS decides the width (100% of the card); only the drawing buffer is
+    // sized here. Setting an inline pixel width made the card grow to fit the
+    // canvas instead of the canvas fitting the card.
+    const w = Math.max(280, canvas.clientWidth || wrap.clientWidth || 640);
     // The system is wider than it is tall, and must not push the page down.
     // Taller than it was: the inner orbits were bunched near the centre and
     // the planets overlapped each other.
     const h = Math.max(300, Math.min(440, w * 0.58));
     canvas.width = Math.floor(w * ratio);
     canvas.height = Math.floor(h * ratio);
-    canvas.style.width = w + 'px';
     canvas.style.height = h + 'px';
     width = w;
     height = h;
@@ -194,11 +196,46 @@ function build(ctx, options) {
     context.restore();
   };
 
+  /** The Sun: not a planet on an orbit but the light at the middle of them. */
+  const drawSun = (planet, x, y, r, lit) => {
+    const palette = planet.palette || {};
+    const pulse = reduced ? 0 : Math.sin(time * 40) * 0.06;
+    context.save();
+    context.translate(x * ratio, y * ratio);
+    const radius = r * ratio;
+    const corona = context.createRadialGradient(0, 0, radius * 0.6, 0, 0, radius * (3.4 + pulse * 4));
+    corona.addColorStop(0, (palette.primary || '#e8a020') + 'aa');
+    corona.addColorStop(0.35, (palette.secondary || '#e2622c') + '44');
+    corona.addColorStop(1, (palette.secondary || '#e2622c') + '00');
+    context.fillStyle = corona;
+    context.beginPath();
+    context.arc(0, 0, radius * 3.6, 0, Math.PI * 2);
+    context.fill();
+    const body = context.createRadialGradient(-radius * 0.25, -radius * 0.25, radius * 0.1, 0, 0, radius);
+    body.addColorStop(0, '#fffbe8');
+    body.addColorStop(0.45, palette.primary || '#e8a020');
+    body.addColorStop(1, palette.secondary || '#e2622c');
+    context.fillStyle = body;
+    context.beginPath();
+    context.arc(0, 0, radius * (1 + pulse * 0.3), 0, Math.PI * 2);
+    context.fill();
+    if (planet.id === current || lit >= 1) {
+      context.strokeStyle = palette.primary || '#e8a020';
+      context.globalAlpha = 0.9;
+      context.lineWidth = 1.6 * ratio;
+      context.beginPath();
+      context.arc(0, 0, radius * 1.35, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.restore();
+  };
+
   const frame = () => {
     // Keep waiting rather than giving up. The loop is started before the node
     // is appended, so isConnected is false on the first frame - returning
     // there killed the loop permanently and the canvas stayed blank, which is
     // why the planetarium failed to draw about one launch in three.
+    if (disposed) return;
     if (!wrap.isConnected) { requestAnimationFrame(frame); return; }
     // The canvas has no size until it is in the document, so measure once it
     // is rather than at construction.
@@ -217,38 +254,58 @@ function build(ctx, options) {
     const maxB = (height / 2) - margin;
 
     bodies = [];
-    planets.forEach((planet, index) => {
-      const step = (index + 1) / planets.length;
-      // Orbits start well away from the centre and spread evenly. Starting at
-      // 0.24 put the first four planets almost on top of one another.
-      const a = maxA * (0.42 + step * 0.58);
-      const b = maxB * (0.42 + step * 0.58);
+    const base = Math.max(10, Math.min(17, width / 52));
+    const sizeFor = (index, planet, scale = 1) =>
+      base * scale * (hovered === index ? 1.45 : planet.id === current ? 1.18 : 1);
+
+    // The Sun sits at the centre, the Moon goes round the Earth, and every
+    // other body - including the ones the user made - has an orbit of its own.
+    const sunIndex = planets.findIndex((planet) => planet.id === 'sun');
+    const moonIndex = planets.findIndex((planet) => planet.id === 'moon');
+    const orbiters = planets.map((planet, index) => index).filter((index) => index !== sunIndex && index !== moonIndex);
+    if (sunIndex >= 0) {
+      bodies.push({ planet: planets[sunIndex], x: cx, y: cy, r: sizeFor(sunIndex, planets[sunIndex], 1.7), index: sunIndex, sun: true });
+    }
+    let earth = null;
+    orbiters.forEach((index, slot) => {
+      const planet = planets[index];
+      const step = (slot + 1) / orbiters.length;
+      const a = maxA * (0.3 + step * 0.7);
+      const b = maxB * (0.3 + step * 0.7);
       // Outer planets move more slowly, which is both true and easier to read.
-      // Golden-angle spacing, so planets are spread around the system rather
-      // than lining up in an arc.
-      const angle = spin + time * (1.6 / (index + 2)) + index * 2.399963;
+      // Golden-angle spacing spreads them round the system instead of in a line.
+      const angle = spin + time * (1.6 / (slot + 2)) + slot * 2.399963;
       const x = cx + Math.cos(angle) * a;
       const y = cy + Math.sin(angle) * b;
 
-      // Orbit path.
       context.save();
       context.strokeStyle = (planet.palette && planet.palette.primary) || '#ffffff';
-      context.globalAlpha = hovered === index ? 0.4 : 0.08;
+      context.globalAlpha = hovered === index ? 0.45 : planet.custom ? 0.22 : 0.08;
       context.lineWidth = 1 * ratio;
+      if (planet.custom) context.setLineDash([4 * ratio, 5 * ratio]);
       context.beginPath();
       context.ellipse(cx * ratio, cy * ratio, a * ratio, b * ratio, 0, 0, Math.PI * 2);
       context.stroke();
       context.restore();
 
-      const base = Math.max(10, Math.min(17, width / 52));
-      const r = base * (hovered === index ? 1.45 : planet.id === current ? 1.18 : 1);
-      bodies.push({ planet, x, y, r, index });
+      const body = { planet, x, y, r: sizeFor(index, planet), index };
+      bodies.push(body);
+      if (planet.id === 'earth') earth = body;
     });
+    if (moonIndex >= 0) {
+      const moon = planets[moonIndex];
+      const around = earth || { x: cx, y: cy, r: base };
+      const angle = time * 9 + spin;
+      const distance = around.r * 2.1 + 6;
+      bodies.push({ planet: moon, index: moonIndex, r: sizeFor(moonIndex, moon, 0.55),
+        x: around.x + Math.cos(angle) * distance, y: around.y + Math.sin(angle) * distance * 0.7 });
+    }
 
     // Draw far-to-near so nearer planets overlap correctly.
     bodies.slice().sort((one, two) => one.y - two.y).forEach((body) => {
       const lit = hovered === body.index ? 1 : body.planet.id === current ? 0.55 : 0.18;
-      drawPlanet(body.planet, body.x, body.y, body.r, lit);
+      if (body.sun) drawSun(body.planet, body.x, body.y, body.r, lit);
+      else drawPlanet(body.planet, body.x, body.y, body.r, lit);
     });
 
     requestAnimationFrame(frame);
@@ -349,7 +406,7 @@ function build(ctx, options) {
   return {
     node: wrap,
     setCurrent(id) { current = id; showCaption(-1); },
-    dispose() { removeEventListener('resize', resize); },
+    dispose() { disposed = true; removeEventListener('resize', resize); },
   };
 }
 

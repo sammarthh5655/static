@@ -29,6 +29,8 @@ const THEMES = {
   mercury: {
     id: 'mercury', name: 'Mercury', order: 1,
     blurb: 'Bare rock and iron. Quiet greys, close to the metal.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(80% 60% at 18% -6%, rgba(201,185,160,0.16), transparent 70%), linear-gradient(160deg, rgba(255,255,255,0.035), transparent 38%, rgba(0,0,0,0.28))',
     palette: { primary: '#c9b9a0', secondary: '#8a7f73', deep: '#3d3832' },
     tokens: {
       'bg': '#121110',
@@ -59,6 +61,8 @@ const THEMES = {
   venus: {
     id: 'venus', name: 'Venus', order: 2, luminous: true,
     blurb: 'Sulphur cloud and haze. Warm gold over cream.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(90% 70% at 72% -12%, rgba(217,154,63,0.26), transparent 70%), radial-gradient(70% 60% at 0% 105%, rgba(201,104,90,0.14), transparent 70%)',
     palette: { primary: '#d99a3f', secondary: '#c9685a', deep: '#8a5a22' },
     tokens: {
       'bg': '#faf4e8',
@@ -89,6 +93,8 @@ const THEMES = {
   earth: {
     id: 'earth', name: 'Earth', order: 3,
     blurb: 'Ocean and forest from orbit. Deep green over slate.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(70% 55% at 50% -8%, rgba(63,169,224,0.20), transparent 70%), radial-gradient(55% 42% at 88% 92%, rgba(79,192,138,0.16), transparent 72%), radial-gradient(40% 30% at 8% 70%, rgba(63,169,224,0.08), transparent 70%)',
     palette: { primary: '#3fa9e0', secondary: '#4fc08a', deep: '#0f3a4a' },
     tokens: {
       'bg': '#081318',
@@ -119,6 +125,8 @@ const THEMES = {
   mars: {
     id: 'mars', name: 'Mars', order: 4,
     blurb: 'Iron oxide and dust. Warm rust on a dark plain.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(95% 60% at 50% 112%, rgba(232,113,63,0.26), transparent 70%), radial-gradient(60% 40% at 8% -4%, rgba(212,86,107,0.12), transparent 70%)',
     palette: { primary: '#e8713f', secondary: '#d4566b', deep: '#5c2317' },
     tokens: {
       'bg': '#170e0b',
@@ -149,6 +157,8 @@ const THEMES = {
   jupiter: {
     id: 'jupiter', name: 'Jupiter', order: 5,
     blurb: 'Banded cloud and the great storm. Amber and cream.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(34% 26% at 72% 64%, rgba(200,95,74,0.20), transparent 70%), repeating-linear-gradient(174deg, rgba(232,180,92,0.055) 0 44px, rgba(200,95,74,0.045) 44px 78px, transparent 78px 132px)',
     palette: { primary: '#e8b45c', secondary: '#c85f4a', deep: '#5a3a1e' },
     tokens: {
       'bg': '#16110b',
@@ -179,6 +189,8 @@ const THEMES = {
   saturn: {
     id: 'saturn', name: 'Saturn', order: 6,
     blurb: 'Pale ammonia gold and the shadow of the rings.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(ellipse 130% 34% at 50% 46%, transparent 56%, rgba(230,207,143,0.12) 58.5%, transparent 61.5%, rgba(159,184,196,0.09) 64.5%, transparent 68%), radial-gradient(60% 50% at 50% -6%, rgba(230,207,143,0.13), transparent 70%)',
     palette: { primary: '#e6cf8f', secondary: '#9fb8c4', deep: '#544620' },
     tokens: {
       'bg': '#141209',
@@ -207,38 +219,42 @@ const THEMES = {
   },
 
   uranus: {
-    id: 'uranus', name: 'Uranus', order: 7,
-    blurb: 'Methane ice. Pale cyan, cold and even.',
-    palette: { primary: '#67dcdc', secondary: '#7fb6e8', deep: '#123f45' },
+    id: 'uranus', name: 'Uranus', order: 7, luminous: true,
+    blurb: 'An ice giant rolled on its side. Pale mint, frost and still air.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(80% 60% at 28% -12%, rgba(169,220,214,0.75), transparent 70%), radial-gradient(60% 50% at 104% 104%, rgba(111,159,180,0.22), transparent 70%)',
+    palette: { primary: '#a9dcd6', secondary: '#6f9fb4', deep: '#2f5a61' },
     tokens: {
-      'bg': '#07161a',
-      'bg-raised': '#0c2025',
-      'bg-strip': '#041014',
-      'surface': '#102a30',
-      'surface-hover': '#163940',
-      'surface-active': '#1e4f58',
-      'text': '#e2f6f7',
-      'text-dim': '#8bb6bc',
-      'text-faint': '#63888e',
-      'border': '#1b3d44',
-      'border-soft': '#122c32',
-      'accent': '#67dcdc',
-      'accent-dim': '#17474d',
-      'accent-alt': '#7fb6e8',
-      'danger': '#f0738b',
-      'success': '#63d2a4',
-      'warn': '#e4b968',
-      'menu-bg': 'rgba(12, 32, 37, 0.86)',
-      'menu-bg-solid': '#0c2025',
-      'shadow': '0 10px 34px rgba(0, 0, 0, 0.6)',
-      'tab-active': '#102a30',
-      'field': '#0d242a',
+      'bg': '#e8f1ef',
+      'bg-raised': '#f3f8f7',
+      'bg-strip': '#dae8e5',
+      'surface': '#fbfdfd',
+      'surface-hover': '#e1ecea',
+      'surface-active': '#d1e2df',
+      'text': '#12292b',
+      'text-dim': '#4f6b6d',
+      'text-faint': '#7f9597',
+      'border': '#c3d6d3',
+      'border-soft': '#d6e5e2',
+      'accent': '#227f7c',
+      'accent-dim': '#c2e0dc',
+      'accent-alt': '#4f7fa3',
+      'danger': '#c2413f',
+      'success': '#2d7d57',
+      'warn': '#a26c0e',
+      'menu-bg': 'rgba(243, 248, 247, 0.88)',
+      'menu-bg-solid': '#f3f8f7',
+      'shadow': '0 10px 30px rgba(18, 41, 43, 0.14)',
+      'tab-active': '#fbfdfd',
+      'field': '#fbfdfd',
     },
   },
 
   neptune: {
     id: 'neptune', name: 'Neptune', order: 8,
     blurb: 'Deep methane blue. The default, and the calmest.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(70% 55% at 50% -8%, rgba(77,144,240,0.18), transparent 70%), radial-gradient(28% 22% at 28% 62%, rgba(18,34,74,0.55), transparent 70%), radial-gradient(40% 30% at 92% 20%, rgba(139,124,240,0.10), transparent 70%)',
     palette: { primary: '#4d90f0', secondary: '#8b7cf0', deep: '#12224a' },
     tokens: {
       'bg': '#080d1a',
@@ -269,6 +285,8 @@ const THEMES = {
   pluto: {
     id: 'pluto', name: 'Pluto', order: 9,
     blurb: 'Nitrogen ice at the edge. Dim violet and distant light.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(34% 30% at 64% 60%, rgba(220,147,181,0.18), transparent 70%), radial-gradient(70% 55% at 26% -4%, rgba(180,140,232,0.14), transparent 70%)',
     palette: { primary: '#b48ce8', secondary: '#dc93b5', deep: '#3a2b52' },
     tokens: {
       'bg': '#100e16',
@@ -299,6 +317,8 @@ const THEMES = {
   sun: {
     id: 'sun', name: 'Sun', order: 10, luminous: true,
     blurb: 'Full daylight. The bright one.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(60% 50% at 50% -16%, rgba(232,160,32,0.40), transparent 70%), radial-gradient(90% 60% at 50% 122%, rgba(226,98,44,0.14), transparent 70%)',
     palette: { primary: '#e8a020', secondary: '#e2622c', deep: '#9a5a08' },
     tokens: {
       'bg': '#fbfaf7',
@@ -329,6 +349,8 @@ const THEMES = {
   moon: {
     id: 'moon', name: 'Moon', order: 11,
     blurb: 'Regolith and shadow. Monochrome, no colour at all.',
+    // The page's backdrop: what makes this world recognisable at a glance.
+    ambient: 'radial-gradient(7% 7% at 20% 30%, rgba(255,255,255,0.06), transparent 70%), radial-gradient(11% 11% at 78% 70%, rgba(255,255,255,0.045), transparent 70%), radial-gradient(5% 5% at 60% 18%, rgba(255,255,255,0.06), transparent 70%), radial-gradient(9% 9% at 36% 82%, rgba(0,0,0,0.25), transparent 70%), radial-gradient(70% 55% at 50% -8%, rgba(210,212,217,0.12), transparent 70%)',
     palette: { primary: '#d2d4d9', secondary: '#9aa0ab', deep: '#3a3d44' },
     tokens: {
       'bg': '#0d0e10',
@@ -408,6 +430,74 @@ function customPlanet(accentHex, { name = 'Custom', light = false } = {}) {
       'shadow': light ? '0 10px 30px rgba(20, 24, 32, 0.14)' : '0 10px 34px rgba(0, 0, 0, 0.6)',
       'tab-active': mix(light ? 1.0 : 0.86),
       'field': mix(light ? 1.0 : 0.88),
+    },
+  };
+}
+
+/**
+ * A planet the user made: a name, three colours for the body, an accent, how
+ * much it glows, how see-through its surfaces are, and light or dark.
+ *
+ * The body colours are not decoration only: the deep colour tints every
+ * surface of the browser, the secondary is the second accent, and the
+ * backdrop is painted from all three - so two planets forged from different
+ * colours are two different places, not one layout with a new highlight.
+ */
+function forgePlanet(def = {}) {
+  const primary = normalizeHex(def.primary) || THEMES[DEFAULT_THEME].palette.primary;
+  const secondary = normalizeHex(def.secondary) || mixHex(primary, '#ffffff', 0.25);
+  const deep = normalizeHex(def.deep) || mixHex(primary, '#000000', 0.7);
+  const accent = normalizeHex(def.accent) || primary;
+  const light = !!def.light;
+  const glow = Math.min(1, Math.max(0, Number(def.glow ?? 0.5)));
+  const glass = Math.min(1, Math.max(0, Number(def.glass ?? 0.3)));
+  const base = light ? '#ffffff' : '#000000';
+  const ink = light ? '#12141a' : '#ffffff';
+  // Surfaces come from the DEEP colour, pushed nearly to black or white.
+  const tint = (amount) => mixHex(light ? primary : deep, base, amount);
+  const rgba = (hex, alpha) => {
+    const n = parseInt(hex.slice(1), 16);
+    return 'rgba(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + alpha.toFixed(2) + ')';
+  };
+  const raised = tint(light ? 0.95 : 0.72);
+  const readableAccent = light ? mixHex(accent, '#000000', 0.3) : accent;
+  return {
+    id: String(def.id || 'planet-custom'),
+    name: String(def.name || 'Your planet'),
+    order: 50,
+    luminous: light,
+    custom: true,
+    blurb: 'Made by you.',
+    palette: { primary, secondary, deep },
+    glow,
+    glass,
+    ambient: 'radial-gradient(75% 58% at 50% -10%, ' + rgba(primary, (light ? 0.35 : 0.2) * (0.5 + glow)) + ', transparent 70%), ' +
+      'radial-gradient(55% 45% at 90% 100%, ' + rgba(secondary, (light ? 0.2 : 0.13) * (0.5 + glow)) + ', transparent 72%), ' +
+      'radial-gradient(45% 35% at 6% 80%, ' + rgba(deep, light ? 0.12 : 0.35) + ', transparent 70%)',
+    tokens: {
+      'bg': tint(light ? 0.93 : 0.86),
+      'bg-raised': raised,
+      'bg-strip': tint(light ? 0.88 : 0.9),
+      'surface': tint(light ? 0.985 : 0.66),
+      'surface-hover': tint(light ? 0.9 : 0.58),
+      'surface-active': tint(light ? 0.84 : 0.5),
+      'text': light ? ink : mixHex(ink, primary, 0.06),
+      'text-dim': mixHex(ink, base, light ? 0.45 : 0.4),
+      'text-faint': mixHex(ink, base, light ? 0.62 : 0.58),
+      'border': tint(light ? 0.8 : 0.52),
+      'border-soft': tint(light ? 0.88 : 0.62),
+      'accent': readableAccent,
+      'accent-dim': mixHex(readableAccent, light ? '#ffffff' : '#000000', 0.62),
+      'accent-alt': light ? mixHex(secondary, '#000000', 0.25) : secondary,
+      'danger': light ? '#c43d3d' : '#ef7285',
+      'success': light ? '#2f7d4f' : '#68d79b',
+      'warn': light ? '#b07d15' : '#e0b465',
+      // Glass: how much of what is behind a menu shows through it.
+      'menu-bg': rgba(raised, 1 - glass * 0.55),
+      'menu-bg-solid': raised,
+      'shadow': light ? '0 10px 30px rgba(20, 24, 32, 0.14)' : '0 10px 34px rgba(0, 0, 0, 0.6)',
+      'tab-active': tint(light ? 0.985 : 0.66),
+      'field': tint(light ? 0.985 : 0.76),
     },
   };
 }
@@ -587,9 +677,15 @@ function cssVariables(appearance = {}) {
   // A forged world is stored as the colour the user picked, not as expanded
   // tokens, so it is rebuilt here every time - which means a later improvement
   // to how worlds are built reaches worlds that already exist.
-  const forged = appearance.theme === 'custom' && appearance.customColour
-    ? customPlanet(appearance.customColour, { light: !!appearance.customLight })
+  const made = typeof appearance.theme === 'string' && appearance.theme.startsWith('planet-') &&
+    Array.isArray(appearance.customPlanets)
+    ? appearance.customPlanets.find((planet) => planet && planet.id === appearance.theme)
     : null;
+  const forged = made
+    ? forgePlanet(made)
+    : appearance.theme === 'custom' && appearance.customColour
+      ? customPlanet(appearance.customColour, { light: !!appearance.customLight })
+      : null;
 
   const theme = forged
     || (appearance.customTheme && appearance.customTheme.tokens ? appearance.customTheme : null)
@@ -612,6 +708,16 @@ function cssVariables(appearance = {}) {
     : 'rgba(0, 0, 0, 0.5)';
   // Whether this planet is a light one, for anything that must branch in CSS.
   vars['--luminous'] = theme.luminous ? '1' : '0';
+  // The planet's own backdrop, and how strongly its surfaces glow and let the
+  // page show through. Built-in planets glow a little and are fairly solid.
+  vars['--ambient'] = theme.ambient ||
+    'radial-gradient(70% 55% at 50% -8%, color-mix(in srgb, ' + theme.tokens.accent + ' 13%, transparent), transparent 70%)';
+  const glow = typeof theme.glow === 'number' ? theme.glow : 0.35;
+  const glass = typeof theme.glass === 'number' ? theme.glass : 0.25;
+  vars['--planet-glow'] = glow > 0.05
+    ? '0 0 ' + Math.round(8 + glow * 28) + 'px color-mix(in srgb, ' + theme.tokens.accent + ' ' + Math.round(glow * 45) + '%, transparent)'
+    : 'none';
+  vars['--glass-pct'] = Math.round(92 - glass * 55) + '%';
 
   vars['--radius'] = radius.value + 'px';
   vars['--radius-sm'] = Math.max(2, Math.round(radius.value * 0.6)) + 'px';
@@ -741,7 +847,7 @@ function cssText(appearance) {
 }
 
 const shared = {
-  THEMES, DEFAULT_THEME, customPlanet,
+  THEMES, DEFAULT_THEME, customPlanet, forgePlanet,
   SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY, ALIGNMENTS, WIDGET_SPANS,
   ICONS, MOTION, cssVariables, cssText, widgetVariables, normalizeHex, mixHex,
 };

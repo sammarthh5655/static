@@ -25,11 +25,17 @@ $('#bookmarksBar').addEventListener('change', (e) => update({ bookmarksBar: e.ta
    Replaces the theme dropdown. Choosing applies immediately, because the only
    way to judge a theme is to see the browser wearing it. */
 let planetarium = null;
-let forgeLight = 'dark';
+let planetSignature = '';
+let latestSettings = {};
 
 function mountPlanetarium(catalog, currentTheme) {
   const host = $('#planetarium-host');
-  if (!host || planetarium) return;
+  if (!host) return;
+  // A planet added or removed means a different solar system: rebuild it.
+  const signature = (catalog?.planets || []).map((planet) => planet.id + ':' + planet.palette?.primary).join('|');
+  if (planetarium && signature === planetSignature) return;
+  if (planetarium) { planetarium.dispose?.(); planetarium = null; }
+  planetSignature = signature;
 
   // The catalog arrives with the state push, and the first push can land
   // before it is populated. Building with an empty list produced a canvas
@@ -46,25 +52,18 @@ function mountPlanetarium(catalog, currentTheme) {
     {
       planets,
       current: currentTheme,
-      onPick: (id) => update({ theme: id }),
+      // A planet the user made may carry a wallpaper; wearing it brings it.
+      onPick: (id) => {
+        const made = (latestSettings.customPlanets || []).find((planet) => planet.id === id);
+        const patch = { theme: id };
+        if (made?.wallpaper) patch.newTab = { background: 'wallpaper', backgroundValue: made.wallpaper, wallpaperMode: 'fixed' };
+        update(patch);
+      },
     },
   );
   host.replaceChildren(planetarium.node);
 }
 
-// The forge: any colour becomes a complete, consistent world.
-$('#forge-light')?.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-light]');
-  if (!button) return;
-  forgeLight = button.dataset.light;
-  for (const option of $('#forge-light').querySelectorAll('[data-light]')) {
-    option.classList.toggle('is-on', option === button);
-  }
-});
-
-$('#forge-apply')?.addEventListener('click', () => {
-  update({ theme: 'custom', customColour: $('#forge-colour').value, customLight: forgeLight === 'light' });
-});
 $('#surfaceStyle').addEventListener('change', (e) => update({ surfaceStyle: e.target.value }));
 $('#radius').addEventListener('change', (e) => update({ radius: e.target.value }));
 $('#animations').addEventListener('change', (e) => update({ animations: e.target.checked }));
@@ -209,6 +208,7 @@ function fillSelect(select, options, value) {
 onState((state) => {
   const s = state.settings || {};
   const catalog = state.catalog || {};
+  latestSettings = s;
   applying = true;
 
   $('#engine').value = s.searchEngine || 'google';

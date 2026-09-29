@@ -41,6 +41,8 @@ const DEFAULTS = {
   // The forged world, when `theme` is 'custom'.
   customColour: '',
   customLight: false,
+  // Planets the user made. `theme` may be any of their ids ('planet-...').
+  customPlanets: [],
 
   // New tab page. `widgets` is an ordered list of widget ids - order here is
   // render order, so rearranging is just a reorder of this array.
@@ -77,6 +79,52 @@ const DEFAULTS = {
  * still web content, so `settings:update` must never be able to write an
  * arbitrary key or an out-of-range value into the store.
  */
+/**
+ * A user's planet, cleaned: every field checked, the id derived from the name
+ * when missing, colours as hex, the dials clamped. A wallpaper must be one of
+ * the built-in set.
+ */
+function normalisePlanet(def, taken = new Set()) {
+  if (!def || typeof def !== 'object') return null;
+  const name = String(def.name || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 24);
+  if (!name) return null;
+  const primary = normalizeHex(def.primary);
+  if (!primary) return null;
+  let id = typeof def.id === 'string' && /^planet-[a-z0-9-]{1,40}$/.test(def.id) ? def.id : '';
+  if (!id) {
+    const base = 'planet-' + (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'world');
+    id = base;
+    for (let n = 2; taken.has(id); n++) id = base + '-' + n;
+  }
+  const clamp = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+  };
+  return {
+    id,
+    name,
+    primary,
+    secondary: normalizeHex(def.secondary) || '',
+    deep: normalizeHex(def.deep) || '',
+    accent: normalizeHex(def.accent) || '',
+    glow: clamp(def.glow, 0.5),
+    glass: clamp(def.glass, 0.3),
+    light: !!def.light,
+    wallpaper: typeof def.wallpaper === 'string' && wallpapers.find(def.wallpaper) ? def.wallpaper : '',
+  };
+}
+
+function normalisePlanets(list) {
+  if (!Array.isArray(list)) return [];
+  const taken = new Set();
+  const out = [];
+  for (const def of list.slice(0, 12)) {
+    const planet = normalisePlanet(def, taken);
+    if (planet && !taken.has(planet.id)) { taken.add(planet.id); out.push(planet); }
+  }
+  return out;
+}
+
 /** Widget positions: known widget ids only, each a pair of fractions. */
 function normalisePositions(value) {
   const out = {};
@@ -100,7 +148,9 @@ class Settings {
   /** Repair anything stale or malformed loaded from disk. */
   #normalise(value) {
     const next = { ...DEFAULTS, ...value };
-    if (!THEMES[next.theme] && next.theme !== 'custom') next.theme = DEFAULTS.theme;
+    next.customPlanets = normalisePlanets(next.customPlanets);
+    if (!THEMES[next.theme] && next.theme !== 'custom' &&
+        !next.customPlanets.some((planet) => planet.id === next.theme)) next.theme = DEFAULTS.theme;
     if (!SURFACE_STYLES[next.surfaceStyle]) next.surfaceStyle = DEFAULTS.surfaceStyle;
     if (!RADIUS[next.radius]) next.radius = DEFAULTS.radius;
     if (typeof next.animations !== 'boolean') next.animations = DEFAULTS.animations;
@@ -171,7 +221,9 @@ class Settings {
       else if (key === 'tabLayout' && ['horizontal', 'vertical'].includes(value)) next[key] = value;
       else if (key === 'verticalTabsCollapsed' && typeof value === 'boolean') next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
-      else if (key === 'theme' && (THEMES[value] || value === 'custom')) next[key] = value;
+      else if (key === 'customPlanets') next[key] = normalisePlanets(value);
+      else if (key === 'theme' && (THEMES[value] || value === 'custom' ||
+        (typeof value === 'string' && value.startsWith('planet-')))) next[key] = value;
       // A forged world: one colour and a direction, expanded into a full
       // palette by shared/theme.js. Stored as the INPUT rather than the
       // expanded tokens, so a later change to how worlds are built reaches
@@ -189,6 +241,10 @@ class Settings {
       else if (key === 'newTab') next[key] = this.#normaliseNewTab({ ...next.newTab, ...value });
       else throw new Error('Invalid setting: ' + key);
     }
+    // A theme naming a planet that does not exist (or was just removed) falls
+    // back rather than painting nothing.
+    if (typeof next.theme === 'string' && next.theme.startsWith('planet-') &&
+        !next.customPlanets.some((planet) => planet.id === next.theme)) next.theme = DEFAULTS.theme;
     this.store.save(next);
     this.value = next;
     return next;

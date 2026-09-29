@@ -88,14 +88,49 @@
           <div class="hint">Pick a planet. The browser changes the moment you choose, and changing back is one click.</div>
         </div>
         <div id="planetarium-host"></div>
-        <div class="theme-forge" id="theme-forge">
-          <span class="theme-forge-label">Or forge your own world</span>
-          <input type="color" id="forge-colour" value="#4d90f0" aria-label="Your world's colour">
-          <div class="theme-forge-light" id="forge-light" role="group" aria-label="Light or dark">
-            <button type="button" data-light="dark" class="is-on">Dark</button>
-            <button type="button" data-light="light">Light</button>
+        <!-- The forge: make a planet of your own. It joins the solar system
+             above under the name you give it. -->
+        <div class="forge" id="forge">
+          <div class="forge-head">
+            <strong>Forge a planet</strong>
+            <span>Give it a name, colours and a feel. It joins the solar system above and the whole browser wears it.</span>
           </div>
-          <button type="button" id="forge-apply" class="theme-forge-apply">Forge it</button>
+          <div class="forge-body">
+            <div class="forge-preview" id="forge-preview" aria-hidden="true">
+              <div class="forge-orb" id="forge-orb"></div>
+              <div class="forge-mock">
+                <div class="forge-mock-strip"><i></i><i class="on"></i><i></i></div>
+                <div class="forge-mock-bar"><b></b><span></span></div>
+                <div class="forge-mock-page"><div class="forge-mock-card"><u></u><u></u></div><div class="forge-mock-card is-accent"><u></u></div></div>
+              </div>
+              <div class="forge-title" id="forge-title">Your planet</div>
+            </div>
+            <div class="forge-controls">
+              <label class="forge-field"><span>Name</span><input id="forge-name" maxlength="24" placeholder="Name your planet" autocomplete="off"></label>
+              <div class="forge-colours">
+                <label><input type="color" id="forge-primary" value="#4d90f0"><span>Surface</span></label>
+                <label><input type="color" id="forge-secondary" value="#8b7cf0"><span>Bands</span></label>
+                <label><input type="color" id="forge-deep" value="#12224a"><span>Shadow</span></label>
+                <label><input type="color" id="forge-accent" value="#4d90f0"><span>Accent</span></label>
+              </div>
+              <label class="forge-field"><span>Glow <em id="forge-glow-value">50%</em></span><input type="range" id="forge-glow" min="0" max="100" value="50" class="forge-range"></label>
+              <label class="forge-field"><span>Glass <em id="forge-glass-value">30%</em></span><input type="range" id="forge-glass" min="0" max="100" value="30" class="forge-range"></label>
+              <div class="forge-row">
+                <div class="theme-forge-light" id="forge-light" role="group" aria-label="Light or dark">
+                  <button type="button" data-light="dark" class="is-on">Dark</button>
+                  <button type="button" data-light="light">Light</button>
+                </div>
+                <button type="button" id="forge-shuffle" class="forge-shuffle">Surprise me</button>
+              </div>
+              <label class="forge-field"><span>Wallpaper it brings</span><select id="forge-wallpaper"><option value="">None</option></select></label>
+              <div class="forge-actions">
+                <button type="button" id="forge-cancel" class="forge-cancel" hidden>Cancel editing</button>
+                <button type="button" id="forge-apply" class="primary">Add to the solar system</button>
+              </div>
+              <p class="forge-status" id="forge-status" role="status"></p>
+            </div>
+          </div>
+          <div class="forge-made" id="forge-made"></div>
         </div>
       </div>
       <div class="field">
@@ -333,5 +368,6 @@
 <script src="settings-navigation.js"></script>
 <script src="settings.js"></script>
 <script src="settings-profiles.js"></script>
+<script src="settings-forge.js"></script>
 </body>
 </html>

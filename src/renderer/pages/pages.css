@@ -51,7 +51,9 @@
 body {
   margin: 0;
   padding: 32px 24px 64px;
-  background: var(--bg);
+  /* Every internal page carries its planet's backdrop, so a world is a place
+     you are in rather than a highlight colour. */
+  background: var(--ambient, none) fixed, var(--bg);
   color: var(--text);
   font: var(--font-size, 14px)/1.5 var(--font, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
 }

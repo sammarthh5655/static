@@ -32,13 +32,9 @@ body.newtab {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(70% 55% at 50% -8%,
-      color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%),
-    radial-gradient(55% 45% at 88% 12%,
-      color-mix(in srgb, var(--accent-alt) 9%, transparent), transparent 72%),
-    radial-gradient(60% 50% at 8% 88%,
-      color-mix(in srgb, var(--accent-alt) 6%, transparent), transparent 75%);
+  /* The planet's own backdrop: Jupiter's bands, Saturn's rings, Mars dust. */
+  background: var(--ambient,
+    radial-gradient(70% 55% at 50% -8%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 70%));
 }
 
 /* ---- layout --------------------------------------------------------------- */

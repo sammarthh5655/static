@@ -3,7 +3,7 @@ const path = require('node:path');
 const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog } = require('electron');
 const { requests, events } = require('../shared/channels');
 const { ENGINES, internalPage, resolveInput, allowedURL } = require('../shared/urls');
-const { THEMES, SURFACE_STYLES, RADIUS } = require('../shared/theme');
+const { THEMES, SURFACE_STYLES, RADIUS, forgePlanet } = require('../shared/theme');
 const { WIDGETS, BACKGROUNDS } = require('../shared/widgets');
 const { ACCELERATORS, matchAccelerator } = require('./shortcuts');
 const { JsonStore } = require('./storage');
@@ -705,14 +705,23 @@ class BrowserApplication {
    * would be a privacy claim the browser does not keep.
    */
   /** Onboarding state plus everything the welcome page renders from. */
+  /** Every planet, built-in and user-made, as the planetarium draws them. */
+  #planetCatalog() {
+    const builtIn = Object.values(THEMES)
+      .map(({ id, name, blurb, order, palette, luminous }) => ({ id, name, blurb, order, palette, luminous }));
+    const made = (this.settings?.value.customPlanets || []).map((def, index) => {
+      const planet = forgePlanet(def);
+      return { id: planet.id, name: planet.name, blurb: 'Made by you.', order: 100 + index,
+        palette: planet.palette, luminous: planet.luminous, custom: true };
+    });
+    return [...builtIn, ...made].sort((a, b) => a.order - b.order);
+  }
+
   #onboardingState(base) {
     const state = base || this.onboarding.state();
     return {
       ...state,
-      planets: Object.values(THEMES)
-        .map(({ id, name, blurb, order, palette, luminous }) =>
-          ({ id, name, blurb, order, palette, luminous }))
-        .sort((a, b) => a.order - b.order),
+      planets: this.#planetCatalog(),
       currentTheme: this.settings.value.theme,
     };
   }
@@ -1265,10 +1274,7 @@ class BrowserApplication {
         backgrounds: Object.values(BACKGROUNDS),
         // The planetarium draws each planet from its own three colours, so
         // the catalog carries them rather than just a name.
-        planets: Object.values(THEMES)
-          .map(({ id, name, blurb, order, palette, luminous }) =>
-            ({ id, name, blurb, order, palette, luminous }))
-          .sort((a, b) => a.order - b.order),
+        planets: this.#planetCatalog(),
         themes: Object.values(THEMES).map(({ id, name }) => ({ id, name })),
         surfaceStyles: Object.values(SURFACE_STYLES),
         radii: Object.values(RADIUS).map(({ id, name }) => ({ id, name })),
