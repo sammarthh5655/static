@@ -33,6 +33,8 @@ const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
 const wallpapers = require('../features/wallpapers');
+const feedback = require('../features/feedback');
+const os = require('node:os');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
 
@@ -416,6 +418,7 @@ class BrowserApplication {
     if (direction > 0) next = STEPS.find((step) => step > now + 0.001) || 5;
     else if (direction < 0) next = [...STEPS].reverse().find((step) => step < now - 0.001) || 0.25;
     wc.setZoomFactor(next);
+    this.push();
     this.notify(next === 1 ? 'Zoom reset to 100%' : 'Zoom ' + Math.round(next * 100) + '%');
   }
 
@@ -635,6 +638,8 @@ class BrowserApplication {
       extensions: this.extensions,
       getEngine: () => this.settings.value.searchEngine,
       onSelected: (id) => {
+        const chosen = this.tabs?.tabs.get(id);
+        if (chosen && !chosen.state.internalUrl) this.lastWebTabId = id;
         if (this.findBar && this.findTabId && this.findTabId !== id) this.closeFind();
         if (this.htmlFullscreen && this.htmlFullscreen !== id) this.leaveHtmlFullscreen();
         return this.productivity?.organizer.wake(id).catch(() => this.notify('This tab could not wake. Try reloading it.'));
@@ -645,6 +650,17 @@ class BrowserApplication {
         this.attachShortcuts(contents);
         this.attachScriptlets(contents);
         contents.on('context-menu', (_event, params) => this.openPageMenu(contents, params));
+        // The last few page warnings and errors, in memory only, so a bug
+        // report can include them if - and only if - the user ticks the box.
+        contents.on('console-message', (event) => {
+          const level = typeof event.level === 'string' ? event.level : ['verbose', 'info', 'warning', 'error'][event.level] || 'info';
+          if (level !== 'warning' && level !== 'error') return;
+          this.consoleLog = [...(this.consoleLog || []).slice(-39), {
+            level, message: String(event.message || '').slice(0, 400),
+            page: (() => { try { return new URL(contents.getURL()).host; } catch { return ''; } })(),
+            at: new Date().toISOString(),
+          }];
+        });
         contents.on('found-in-page', (_event, result) => {
           if (this.findBar && !this.findBar.webContents.isDestroyed() && this.tabs?.active?.view.webContents === contents) {
             this.findBar.webContents.send('find:result', { active: result.activeMatchOrdinal, matches: result.matches });
@@ -705,6 +721,98 @@ class BrowserApplication {
    * would be a privacy claim the browser does not keep.
    */
   /** Onboarding state plus everything the welcome page renders from. */
+  /** What About and Diagnostics show. Read fresh each time. */
+  async #systemInfo() {
+    let gpu = '';
+    try {
+      const info = await app.getGPUInfo('basic');
+      gpu = (info.gpuDevice || []).filter((d) => d.active !== false).map((d) => d.description || d.deviceString || '').filter(Boolean).join(', ');
+    } catch { /* not available */ }
+    const { screen } = require('electron');
+    const display = screen.getPrimaryDisplay();
+    let commit = '';
+    try { commit = require('../shared/build-info.json').commit || ''; } catch { /* dev without a build */ }
+    return {
+      name: 'Static',
+      version: app.getVersion(),
+      build: commit ? commit.slice(0, 10) : 'development',
+      channel: app.isPackaged ? 'Stable' : 'Developer build',
+      chromium: process.versions.chrome,
+      electron: process.versions.electron,
+      node: process.versions.node,
+      v8: process.versions.v8,
+      os: os.type() + ' ' + os.release() + (process.platform === 'darwin' ? ' (macOS)' : ''),
+      platform: process.platform,
+      arch: process.arch,
+      cpu: (os.cpus()[0]?.model || 'Unknown').trim() + ' × ' + os.cpus().length,
+      gpu: gpu || 'Unknown',
+      memory: Math.round(os.totalmem() / 1073741824) + ' GB total, ' + Math.round(os.freemem() / 1073741824) + ' GB free',
+      screen: display.size.width + ' × ' + display.size.height + ' at ' + display.scaleFactor + '×',
+      installPath: path.dirname(app.getPath('exe')),
+      dataPath: this.dir,
+      locale: app.getLocale(),
+      engine: 'Blink (Chromium ' + process.versions.chrome + ')',
+      online: require('electron').net.isOnline(),
+      sandboxed: true,
+      incognito: !!this.incognito,
+      profile: this.profiles?.active?.name || '',
+      extensions: (this.extensions?.list?.() || []).map((e) => e.name + ' ' + (e.version || '')),
+      features: {
+        shields: this.shields?.config.enabled !== false,
+        filterRules: this.shields?.engine?.size?.() ?? undefined,
+        tabLayout: this.settings.value.tabLayout,
+        theme: this.settings.value.theme,
+        assistant: gemini.hasKey(),
+      },
+      updates: app.isPackaged ? 'Automatic updates are not set up in this build yet.' : 'Developer build: updates come from the source code.',
+    };
+  }
+
+  /** Every optional item a report could carry, exactly as it would be sent. */
+  #feedbackAvailable() {
+    const info = this.lastSystemInfo || {};
+    const settings = { ...this.settings.value };
+    delete settings.homepage;
+    return {
+      version: app.getVersion() + ' (' + (app.isPackaged ? 'stable' : 'developer build') + ')',
+      os: os.type() + ' ' + os.release() + ' ' + process.arch,
+      hardware: { cpu: (os.cpus()[0]?.model || '').trim() + ' × ' + os.cpus().length, memoryGB: Math.round(os.totalmem() / 1073741824), gpu: info.gpu },
+      screen: info.screen,
+      extensions: (this.extensions?.list?.() || []).map((e) => e.name + ' ' + (e.version || '')),
+      settings,
+      profile: this.profiles?.active?.name || '',
+      openTabs: (this.tabs?.list() || []).map((t) => t.url).filter((u) => /^https?:/.test(u || '')),
+      console: this.consoleLog || [],
+      diagnostics: { shieldsEnabled: this.shields?.config.enabled !== false, tabs: this.tabs?.order.length || 0, uptimeMinutes: Math.round(process.uptime() / 60) },
+    };
+  }
+
+  /** Capture a page, retrying briefly: a page that has not produced its first
+   *  frame yet fails with a compositor error rather than waiting. */
+  async #capture(contents) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      try {
+        const image = await contents.capturePage();
+        if (!image.isEmpty()) return image;
+      } catch { /* not ready yet */ }
+      contents.invalidate?.();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return null;
+  }
+
+  #feedbackFiles() {
+    return (this.feedbackFiles || []).map((file) => {
+      let size = 0;
+      try { size = fs.statSync(file).size; } catch { /* gone */ }
+      return { name: path.basename(file), size };
+    });
+  }
+
+  #feedbackThumbs() {
+    return (this.feedbackShots || []).map((image) => image.resize({ width: 320 }).toDataURL());
+  }
+
   /** Every planet, built-in and user-made, as the planetarium draws them. */
   #planetCatalog() {
     const builtIn = Object.values(THEMES)
@@ -1417,6 +1525,57 @@ class BrowserApplication {
       },
       'find:close': () => { this.closeFind(); return true; },
       'wallpapers:catalog': () => wallpapers.catalog(),
+      'help:system': async () => (this.lastSystemInfo = await this.#systemInfo()),
+      'help:reveal': (_sender, payload) => {
+        const target = payload?.which === 'install' ? app.getPath('exe') : this.dir;
+        shell.showItemInFolder(target);
+        return true;
+      },
+      'feedback:categories': () => feedback.CATEGORIES,
+      'feedback:available': () => this.#feedbackAvailable(),
+      'feedback:attach': async () => {
+        const result = await dialog.showOpenDialog(this.window, { properties: ['openFile', 'multiSelections'], title: 'Attach files' });
+        if (result.canceled) return this.#feedbackFiles();
+        this.feedbackFiles = feedback.checkAttachments([...(this.feedbackFiles || []), ...result.filePaths]);
+        return this.#feedbackFiles();
+      },
+      'feedback:screenshot': async (sender) => {
+        const back = this.#tabByContents(sender)?.id;
+        const target = this.tabs.tabs.get(this.lastWebTabId);
+        if (!target) throw new Error('Open the page you want to show, then come back and capture it.');
+        this.tabs.select(target.id);
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        const image = await this.#capture(target.view.webContents);
+        if (back) this.tabs.select(back);
+        if (!image) throw new Error('That page could not be captured.');
+        this.feedbackShots = [...(this.feedbackShots || []), image].slice(-4);
+        return this.#feedbackThumbs();
+      },
+      'feedback:shots': () => ({ shots: this.#feedbackThumbs(), files: this.#feedbackFiles() }),
+      'feedback:remove': (_sender, payload) => {
+        const index = Number(payload?.index);
+        if (payload?.kind === 'shot') this.feedbackShots = (this.feedbackShots || []).filter((_, i) => i !== index);
+        else this.feedbackFiles = (this.feedbackFiles || []).filter((_, i) => i !== index);
+        return { shots: this.#feedbackThumbs(), files: this.#feedbackFiles() };
+      },
+      'feedback:preview': (_sender, payload) => {
+        const report = feedback.buildReport(payload, this.#feedbackAvailable());
+        report.attachments = [...this.#feedbackFiles().map((f) => f.name), ...(this.feedbackShots || []).map((_, i) => 'screenshot-' + (i + 1) + '.png')];
+        return report;
+      },
+      'feedback:submit': async (_sender, payload) => {
+        const report = feedback.buildReport(payload, this.#feedbackAvailable());
+        const send = this.feedbackTransport || feedback.localTransport(this.root);
+        const result = await send(report, {
+          attachments: this.feedbackFiles || [],
+          screenshots: (this.feedbackShots || []).map((image) => image.toPNG()),
+        });
+        this.feedbackFiles = [];
+        this.feedbackShots = [];
+        this.lastFeedbackFolder = result.where;
+        return { ...result, id: report.id };
+      },
+      'feedback:reveal': () => { if (this.lastFeedbackFolder) shell.openPath(this.lastFeedbackFolder); return !!this.lastFeedbackFolder; },
       'wallpapers:random': (_sender, payload) => {
         const tab = this.settings.value.newTab;
         return wallpapers.pick(tab.wallpaperPool, tab.wallpaperFavourites, String(payload?.previous || ''));
@@ -3353,6 +3512,16 @@ class BrowserApplication {
         break;
       }
       case 'data:clear': open('browser://settings#privacy'); break;
+      case 'feedback:open': {
+        const tab = this.tabs.active;
+        const done = () => open('browser://help#feedback');
+        if (tab && !tab.state.internalUrl) {
+          this.#capture(tab.view.webContents).then((image) => {
+            if (image) this.feedbackShots = [...(this.feedbackShots || []), image].slice(-4);
+          }).catch(() => {}).finally(done);
+        } else done();
+        break;
+      }
       default:
         // Ctrl+1..8 pick that tab; Ctrl+9 is always the last one.
         if (/^tab:[1-9]$/.test(action)) {

@@ -137,6 +137,81 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
       continue;
     }
 
+    // A grid of big glowing tiles for the things people do most.
+    if (item.tiles) {
+      const grid = document.createElement('div');
+      grid.className = 'menu-tiles';
+      item.tiles.forEach((tile, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'menu-tile';
+        button.setAttribute('role', 'menuitem');
+        button.style.setProperty('--i', String(index));
+        button.style.setProperty('--hue', String((index * 37) % 360));
+        button.title = tile.shortcut ? tile.label + ' (' + tile.shortcut + ')' : tile.label;
+        const plate = document.createElement('span');
+        plate.className = 'menu-tile-plate';
+        plate.append(icon(tile.icon, { size: 20 }));
+        const name = document.createElement('span');
+        name.className = 'menu-tile-label';
+        name.textContent = tile.label;
+        button.append(plate, name);
+        button.addEventListener('click', () => { closeMenu(); tile.onSelect?.(); });
+        grid.append(button);
+      });
+      root.append(grid);
+      continue;
+    }
+
+    // Zoom, the way every browser menu shows it: minus, the level, plus,
+    // and full screen, on one line that does not close the menu.
+    if (item.zoom) {
+      const row = document.createElement('div');
+      row.className = 'menu-zoom';
+      const label = document.createElement('span');
+      label.textContent = 'Zoom';
+      const level = document.createElement('output');
+      level.textContent = Math.round((item.zoom.level || 1) * 100) + '%';
+      const step = (target, delta) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = delta;
+        b.title = target.label;
+        b.addEventListener('click', () => {
+          target.onSelect?.();
+          const next = delta === '+' ? item.zoom.level * 1.1 : item.zoom.level / 1.1;
+          item.zoom.level = Math.min(5, Math.max(0.25, next));
+          level.textContent = Math.round(item.zoom.level * 100) + '%';
+        });
+        return b;
+      };
+      const full = document.createElement('button');
+      full.type = 'button';
+      full.className = 'menu-zoom-full';
+      full.title = 'Full screen';
+      full.append(icon('window_maximize', { size: 15 }));
+      full.addEventListener('click', () => { closeMenu(); item.zoom.full?.onSelect?.(); });
+      row.append(label, step(item.zoom.out, '−'), level, step(item.zoom.in, '+'), full);
+      root.append(row);
+      continue;
+    }
+
+    // Small links along the bottom: help, about, exit.
+    if (item.footer) {
+      const row = document.createElement('div');
+      row.className = 'menu-footer';
+      for (const link of item.footer) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = link.danger ? 'danger' : '';
+        b.textContent = link.label;
+        b.addEventListener('click', () => { closeMenu(); link.onSelect?.(); });
+        row.append(b);
+      }
+      root.append(row);
+      continue;
+    }
+
     if (item.choices) {
       const row = document.createElement('div');
       row.className = 'menu-segment-row';
@@ -164,7 +239,7 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
     if (item.heading) {
       const heading = document.createElement('div');
       heading.className = 'menu-heading';
-      heading.textContent = item.heading;
+      heading.textContent = typeof item.heading === 'string' ? item.heading : item.label;
       root.append(heading);
       continue;
     }
@@ -189,6 +264,14 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
     const label = document.createElement('span');
     label.className = 'menu-label';
     label.textContent = item.label;
+    // A hint says what the item is for, under its name.
+    if (item.hint) {
+      const hint = document.createElement('small');
+      hint.className = 'menu-hint';
+      hint.textContent = item.hint;
+      label.append(hint);
+      node.classList.add('has-hint');
+    }
     node.append(label);
 
     if (item.shortcut) {

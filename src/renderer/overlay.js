@@ -52,9 +52,14 @@ function hydrate(item) {
     };
   }
   if (!item || item.separator || item.heading || item.brand) return item;
+  if (item.zoom) {
+    return { ...item, zoom: { ...item.zoom, in: hydrate(item.zoom.in), out: hydrate(item.zoom.out), full: hydrate(item.zoom.full) } };
+  }
   return {
     ...item,
     choices: item.choices?.map(hydrate),
+    tiles: item.tiles?.map(hydrate),
+    footer: item.footer?.map(hydrate),
     onSelect: () => {
       setInteractive(false);
       if (item.action) invoke(item.action.channel, item.action.payload);

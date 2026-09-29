@@ -16,3 +16,4 @@ tmp/
 .test-profile/
 shots/
 src/features/shields/brave/youtube-bundle.js
+src/shared/build-info.json

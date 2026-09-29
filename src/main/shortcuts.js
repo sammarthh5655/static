@@ -94,7 +94,10 @@ const ACCELERATORS = [
 ];
 
 /** Quick lookup for menus: ACCEL.get('tab:new').display === 'Ctrl+T' */
-const ACCEL = new Map(ACCELERATORS.map((a) => [a.id, a]));
+// The FIRST binding for an action is the one menus show (Ctrl+F, not its
+// Ctrl+G alias), so later aliases must not overwrite it.
+const ACCEL = new Map();
+for (const a of ACCELERATORS) if (!ACCEL.has(a.id)) ACCEL.set(a.id, a);
 
 /**
  * Match an Electron `before-input-event` input object against the table.

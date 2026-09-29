@@ -130,38 +130,43 @@ function mainMenuItems() {
       name: state.profiles?.active?.name || 'Profile',
       action: action('tabs:navigate', { input: 'browser://profiles' }),
     } },
-    { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
-    { label: 'New incognito window', icon: 'incognito', shortcut: accel('window:incognito'), action: doAction('window:incognito') },
-    { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },
-    { label: 'Organise Tabs', icon: 'grid', shortcut: accel('open:organizer'), action: doAction('open:organizer') },
-    { label: 'Screen Time', icon: 'clock', shortcut: accel('open:screentime'), action: doAction('open:screentime') },
+    { tiles: [
+      { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
+      { label: 'Incognito', icon: 'incognito', shortcut: accel('window:incognito'), action: doAction('window:incognito') },
+      { label: 'History', icon: 'clock', shortcut: accel('open:history'), action: doAction('open:history') },
+      { label: 'Downloads', icon: 'download', shortcut: accel('open:downloads'), action: doAction('open:downloads') },
+      { label: 'Bookmarks', icon: 'bookmark', shortcut: accel('open:bookmarks'), action: doAction('open:bookmarks') },
+      { label: 'AI chat', icon: 'sparkle', shortcut: accel('open:ai'), action: doAction('open:ai') },
+      { label: 'Workspaces', icon: 'grid', shortcut: accel('open:dashboard'), action: doAction('open:dashboard') },
+      { label: 'Settings', icon: 'gear', shortcut: accel('open:settings'), action: doAction('open:settings') },
+    ] },
+    { zoom: {
+      level: state.active?.zoom || 1,
+      in: { label: 'Zoom in', action: doAction('page:zoom-in') },
+      out: { label: 'Zoom out', action: doAction('page:zoom-out') },
+      full: { label: 'Full screen', action: doAction('window:fullscreen') },
+    } },
     { separator: true },
-    { label: 'AI chat', icon: 'sparkle', shortcut: accel('open:ai'), action: doAction('open:ai') },
-    { separator: true },
-    { label: 'Bookmarks', icon: 'bookmark', shortcut: accel('open:bookmarks'), action: doAction('open:bookmarks') },
-    { label: 'History', icon: 'clock', shortcut: accel('open:history'), action: doAction('open:history') },
-    { label: 'Downloads', icon: 'download', shortcut: accel('open:downloads'), action: doAction('open:downloads') },
-    { separator: true },
+    { label: 'Find in page', icon: 'search', shortcut: accel('find:open'), action: doAction('find:open') },
+    { label: 'Print…', icon: 'doc', shortcut: accel('page:print'), action: doAction('page:print') },
+    { label: 'Organise tabs', icon: 'tabs', shortcut: accel('open:organizer'), action: doAction('open:organizer') },
+    { label: 'Extensions', icon: 'puzzle', shortcut: accel('open:extensions'), action: doAction('open:extensions') },
     { label: 'Sidebar', icon: 'sidebar', hint: 'Workspace sidebar', value: s.sidebarMode || 'on', choices: [
       { label: 'On', value: 'on', action: action('settings:update', { sidebarMode: 'on' }) },
-      { label: 'Autohide', value: 'autohide', action: action('settings:update', { sidebarMode: 'autohide' }) },
+      { label: 'Auto', value: 'autohide', action: action('settings:update', { sidebarMode: 'autohide' }) },
       { label: 'Off', value: 'off', action: action('settings:update', { sidebarMode: 'off' }) },
     ] },
+    { label: 'Tabs', icon: 'tabs', hint: 'Where your tabs live', value: s.tabLayout || 'horizontal', choices: [
+      { label: 'Top', value: 'horizontal', action: action('settings:update', { tabLayout: 'horizontal' }) },
+      { label: 'Side', value: 'vertical', action: action('settings:update', { tabLayout: 'vertical' }) },
+    ] },
     { separator: true },
-    { label: 'Extensions', icon: 'puzzle', shortcut: accel('open:extensions'), action: doAction('open:extensions') },
-    { label: 'Settings', icon: 'gear', shortcut: accel('open:settings'), action: doAction('open:settings') },
-    { separator: true },
-    {
-      label: 'Show bookmarks bar',
-      icon: 'bookmark',
-      checked: !!s.bookmarksBar,
-      action: action('settings:update', { bookmarksBar: !s.bookmarksBar }),
-    },
-    { separator: true },
-    { label: 'Developer tools', icon: 'code', shortcut: accel('window:devtools'), action: doAction('window:devtools') },
-    { separator: true },
-    { label: 'Help & about Static', icon: 'help', action: action('tabs:new', { url: 'browser://settings#about' }) },
-    { label: 'Exit', icon: 'close', action: action('window:control', { action: 'close' }) },
+    { footer: [
+      { label: 'Help', action: action('tabs:new', { url: 'browser://help' }) },
+      { label: 'Send feedback', action: doAction('feedback:open') },
+      { label: 'About Static', action: action('tabs:new', { url: 'browser://help#about' }) },
+      { label: 'Exit', danger: true, action: action('window:control', { action: 'close' }) },
+    ] },
   ];
 }
 
@@ -742,7 +747,8 @@ buildChrome();
 
 // Shortcut table first, so menus render their accelerators on the first paint.
 invoke('ui:shortcuts').then((list) => {
-  shortcuts = new Map((list || []).map((entry) => [entry.id, entry]));
+  shortcuts = new Map();
+  for (const entry of list || []) if (!shortcuts.has(entry.id)) shortcuts.set(entry.id, entry);
   return invoke('app:state');
 }).then((payload) => {
   if (payload) { state = payload; render(); }

@@ -40,6 +40,9 @@ async function run(browser) {
     const overlay = browser.overlay
       ? await browser.overlay.webContents.executeJavaScript(`({
           items: document.querySelectorAll('.menu-item').length,
+          tiles: document.querySelectorAll('.menu-tile').length,
+          zoom: !!document.querySelector('.menu-zoom output'),
+          footer: document.querySelectorAll('.menu-footer button').length,
           brand: !!document.querySelector('.menu-brand'),
           brandText: (document.querySelector('.menu-brand span')||{}).textContent || '',
           root: !!document.getElementById('menu-root'),
@@ -49,7 +52,16 @@ async function run(browser) {
       : { error: 'no overlay' };
 
     console.log('  [diag] overlay', JSON.stringify(overlay));
-    check('the menu rendered items', overlay.items > 5, JSON.stringify(overlay));
+    check('the menu rendered items', overlay.items >= 4 && overlay.tiles === 8 && overlay.zoom && overlay.footer === 4, JSON.stringify(overlay));
+    {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const dir = path.join(require('electron').app.getAppPath(), 'shots');
+      fs.mkdirSync(dir, { recursive: true });
+      await new Promise((r) => setTimeout(r, 700));
+      const img = await browser.overlay.webContents.capturePage().catch(() => null);
+      if (img) fs.writeFileSync(path.join(dir, 'main-menu.png'), img.toPNG());
+    }
     check('the brand row is there', overlay.brand === true);
     check('it names the profile', /profile|switch/i.test(overlay.brandText), overlay.brandText);
     check('the overlay is interactive', browser.overlayInteractive === true,

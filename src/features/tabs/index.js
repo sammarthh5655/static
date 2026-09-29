@@ -180,6 +180,7 @@ class Tabs {
       canGoForward: tab.state.canGoForward,
       loading: tab.state.loading,
       title: tab.state.title,
+      zoom: tab.view.webContents.isDestroyed() ? 1 : tab.view.webContents.getZoomFactor(),
     };
   }
 

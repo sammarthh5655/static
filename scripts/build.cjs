@@ -48,3 +48,10 @@ Promise.all(targets.map(target => build({
   bundle: true, platform: 'node', format: 'cjs', external: ['electron'],
   target: 'node22', sourcemap: false,
 }))).catch(error => { console.error(error); process.exit(1); });
+
+// The commit this build came from, for Help -> About. Absent outside git.
+try {
+  const commit = require('node:child_process').execSync('git rev-parse HEAD', { cwd: require('node:path').join(__dirname, '..'), stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  require('node:fs').writeFileSync(require('node:path').join(__dirname, '..', 'src', 'shared', 'build-info.json'),
+    JSON.stringify({ commit, builtAt: new Date().toISOString() }) + '\n');
+} catch { /* not a git checkout */ }

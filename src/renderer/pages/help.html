@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Help · Static</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="help.css">
+</head>
+<body class="help">
+  <aside class="help-side">
+    <div class="help-brand"><img src="../assets/static-mark.svg" alt=""><div><strong>Help</strong><span>Static</span></div></div>
+    <input id="help-search" class="help-search" type="search" placeholder="Search help and policies…" aria-label="Search help">
+    <nav id="help-nav" aria-label="Help sections"></nav>
+  </aside>
+  <main class="help-main" id="help-main" tabindex="-1"></main>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="../../shared/legal.js"></script>
+  <script src="common.js"></script>
+  <script src="help.js"></script>
+</body>
+</html>
