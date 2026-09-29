@@ -13,4 +13,8 @@
 // leak is bounded rather than open-ended.
 module.exports = {
   gemini: '',
+  // Static's wallpaper catalogue. The PUBLISHABLE key only (sb_publishable_
+  // or the legacy anon JWT): it can read published wallpapers and nothing
+  // else. Never the secret or service-role key.
+  supabase: { url: '', key: '' },
 };

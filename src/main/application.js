@@ -87,6 +87,17 @@ class BrowserApplication {
     // they are constructed before anything that stores data.
     this.profiles = new Profiles(this.root, { onChange: () => this.push() });
 
+    // The wallpaper service, before Settings reads any wallpaper choice: the
+    // cached remote catalogue has to be known for those to validate.
+    let remoteKeys = {};
+    try { remoteKeys = require('./secure/keys').supabase || {}; } catch { /* not configured: built-in only */ }
+    wallpapers.configure({
+      cacheFile: path.join(this.root, 'wallpapers-remote.json'),
+      url: remoteKeys.url, key: remoteKeys.key,
+      fetcher: (url, options) => require('electron').net.fetch(url, options),
+      onChange: () => broadcastToPages(this, 'wallpapers:changed'),
+    });
+
     // Everything below is built from THIS, so pointing it at a profile
     // directory is what makes history, notes, passwords, shields and settings
     // genuinely separate - each feature already takes its directory as an
@@ -191,6 +202,8 @@ class BrowserApplication {
     this.#hardenSession();
     this.#installRequestFilter();
     this.#installCookiePolicy();
+    // Fetch newer wallpapers in the background; never holds startup up.
+    setTimeout(() => { wallpapers.refresh(); }, 6000);
     // The stand-ins $redirect rules point at (see shields/brave redirectUrl).
     this.session.protocol.handle('static-stub', (request) => {
       let name = '';

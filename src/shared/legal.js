@@ -34,6 +34,7 @@ const DATA_FLOWS = [
   ['Your search engine (Google or Brave Search)', 'What you type in the address bar when you press Enter to search. Nothing is sent while you type: suggestions come from your own history and bookmarks on this device.'],
   ['Google favicon service', 'The domain names of sites shown with an icon on the new tab page, in bookmarks and in tabs (for example "wikipedia.org"), so the icon can be drawn. Not the full address, not the page.'],
   ['Google Gemini', 'Only when you use the assistant: your question, earlier messages in that conversation, and - only if you ask about a page - that page\'s text. A page that looks sensitive (banking, health, sign-in) asks for your permission first, every time.'],
+  ["Static's wallpaper service (Supabase)", 'The list of available wallpapers, about every six hours, and the images of wallpapers you choose that are not built in. Nothing about you is sent beyond what any download sends (your IP address).'],
   ['Filter list hosts (GitHub, EasyList)', 'Requests to download ad and tracker blocking lists, about once a day. These are downloads: nothing about you is sent beyond what any download sends (your IP address).'],
   ['Google Translate and Google Lens', 'Only when you choose Translate, Translate selection or Search image: the page address, the selected text, or the image address.'],
   ['Chrome Web Store', 'Only when you browse or install extensions from it.'],

@@ -46,3 +46,43 @@ test('settings keep only real wallpapers, known widgets and positions on the pag
   assert.equal(settings.update({ newTab: { wallpaperMode: 'sometimes', wallpaperPool: 'mars' } }).newTab.wallpaperMode, 'fixed');
   assert.equal(settings.value.newTab.wallpaperPool, 'all');
 });
+
+test('the wallpaper service adds wallpapers, validates them, and survives going offline', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-wp-remote-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const cacheFile = path.join(dir, 'remote.json');
+  const rows = {
+    wallpaper_categories: [{ id: 'mountains', name: 'Mountains', sort: 9 }],
+    wallpapers: [
+      { id: 'mountains-k2', category: 'mountains', photographer: 'A. Climber', source: 'Unsplash', licence: 'Unsplash License',
+        width: 2560, height: 1600, tone: '#334455', file_path: 'v1/mountains/k2.jpg', thumb_path: 'v1/mountains/thumbs/k2.jpg' },
+      { id: 'bad', category: 'mountains', photographer: 'x', source: 'x', licence: 'x', width: 1, height: 1, tone: 'red',
+        file_path: '../../etc', thumb_path: 'x' },
+      // Same id as a built-in: the local copy wins.
+      { ...wallpapers.catalog().wallpapers[0], file_path: 'v1/x.jpg', thumb_path: 'v1/y.jpg', photographer: 'Someone else', source: 'x', licence: 'x' },
+    ],
+  };
+  let online = true;
+  const fetcher = async (url) => {
+    if (!online) throw new Error('offline');
+    const table = url.split('/rest/v1/')[1].split('?')[0];
+    return { ok: true, json: async () => rows[table] };
+  };
+  wallpapers.configure({ cacheFile, url: 'https://abcdefgh.supabase.co', key: 'sb_publishable_test', fetcher });
+  assert.equal(await wallpapers.refresh({ force: true }), true);
+  const k2 = wallpapers.find('mountains-k2');
+  assert.equal(k2.file, 'https://abcdefgh.supabase.co/storage/v1/object/public/wallpapers/v1/mountains/k2.jpg');
+  assert.equal(wallpapers.find('bad'), null, 'a malformed row is dropped');
+  assert.ok(wallpapers.catalog().categories.some((c) => c.id === 'mountains' && c.count === 1));
+  const first = wallpapers.catalog().wallpapers[0];
+  assert.ok(!first.remote, 'a built-in wallpaper keeps its local copy');
+
+  // A fresh start with the service unreachable still has the cached list.
+  online = false;
+  wallpapers.configure({ cacheFile, url: 'https://abcdefgh.supabase.co', key: 'sb_publishable_test', fetcher });
+  assert.equal(await wallpapers.refresh({ force: true }), false);
+  assert.ok(wallpapers.find('mountains-k2'), 'still there from the cache');
+
+  // Only a real Supabase address is accepted.
+  assert.equal(wallpapers.configure({ url: 'https://evil.example', key: 'k', fetcher }), false);
+});

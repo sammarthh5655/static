@@ -390,8 +390,9 @@ $('#search-engine')?.addEventListener('change', async (event) => {
    The chosen wallpaper. This setting existed and was validated and stored,
    and nothing ever painted it - so choosing a background did nothing at all. */
 
-/** The wallpaper catalogue, fetched once per page. */
+/** The wallpaper catalogue, fetched once per page (and again if it changes). */
 let wallpaperCatalog = null;
+window.browser.on('wallpapers:changed', () => { wallpaperCatalog = null; renderBackground(); });
 function wallpaperList() {
   if (!wallpaperCatalog) wallpaperCatalog = invoke('wallpapers:catalog').catch(() => ({ wallpapers: [] }));
   return wallpaperCatalog;
@@ -431,12 +432,15 @@ function paintWallpaper(layer, entry) {
     layer.style.setProperty('background-color', entry.tone);
     const img = new Image();
     img.decoding = 'async';
-    img.src = '../assets/' + entry.file;
+    // Built-in wallpapers ship with the app; ones from the wallpaper service
+    // arrive as full https addresses.
+    const source = /^https:\/\//.test(entry.file) ? entry.file : '../assets/' + entry.file;
+    img.src = source;
     layer.classList.remove('is-ready');
     img.onload = () => {
       if (wallpaperDrawn !== entry.id) return;
       layer.style.setProperty('background-image',
-        'linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.55)), url("../assets/' + entry.file.replace(/["'()\\]/g, '') + '")');
+        'linear-gradient(180deg, rgba(0,0,0,0.45), rgba(0,0,0,0.18) 40%, rgba(0,0,0,0.55)), url("' + source.replace(/["'()\\]/g, '') + '")');
       layer.style.setProperty('background-size', 'cover');
       layer.style.setProperty('background-position', 'center');
       layer.classList.add('is-ready');

@@ -41,5 +41,5 @@ module.exports = {
     'passwords:reveal', 'passwords:remove', 'passwords:clear', 'passwords:generate',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
-  events: ['find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'organizer:changed', 'screentime:changed'],
+  events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'organizer:changed', 'screentime:changed'],
 };

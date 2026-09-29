@@ -37,6 +37,7 @@ const SIZES = [
 ];
 
 let catalogPromise = null;
+window.browser?.on?.('wallpapers:changed', () => { catalogPromise = null; });
 function catalog(ctx) {
   if (!catalogPromise) catalogPromise = ctx.invoke('wallpapers:catalog').catch(() => ({ categories: [], wallpapers: [] }));
   return catalogPromise;
@@ -127,7 +128,8 @@ function build(ctx, { getLayout, setLayout, onExit }) {
       'aria-label': 'Wallpaper by ' + entry.credit.by,
     });
     button.style.backgroundColor = entry.tone;
-    const img = ctx.element('img', { src: '../assets/' + entry.thumb, alt: '', loading: 'lazy', decoding: 'async' });
+    const thumb = /^https:\/\//.test(entry.thumb) ? entry.thumb : '../assets/' + entry.thumb;
+    const img = ctx.element('img', { src: thumb, alt: '', loading: 'lazy', decoding: 'async' });
     img.addEventListener('load', () => button.classList.add('is-loaded'));
     const heart = ctx.element('span', { class: 'studio-heart', role: 'button', tabindex: '0', title: 'Favourite', 'aria-label': 'Favourite' },
       [ctx.icon('heart', { size: 14 })]);
