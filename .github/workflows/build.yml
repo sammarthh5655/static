@@ -57,8 +57,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # src/main/secure/keys.js is gitignored, so these builds have no Gemini
-      # key: everything works except the assistant, which says it has no key.
+      # src/main/secure/keys.js is gitignored. Write it from repo secrets so the
+      # build has AI; without the GEMINI_API_KEY secret the assistant says it
+      # has no key and everything else still works.
+      - name: Write keys.js from secrets
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          node -e "const e=process.env;require('fs').writeFileSync('src/main/secure/keys.js','module.exports = '+JSON.stringify({gemini:e.GEMINI_API_KEY||'',supabase:{url:e.SUPABASE_URL||'',key:e.SUPABASE_KEY||''}})+';\n')"
       - run: npm run ${{ matrix.command }} -- --publish never
       - uses: actions/upload-artifact@v4
         with:
