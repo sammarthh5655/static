@@ -99,7 +99,7 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
       const header = document.createElement('div');
       header.className = 'menu-brand';
       const mark = document.createElement('img');
-      mark.src = 'assets/static-mark.svg';
+      mark.src = 'assets/static-logo.png';
       mark.alt = '';
       const text = document.createElement('div');
       const title = document.createElement('strong');

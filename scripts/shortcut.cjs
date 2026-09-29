@@ -20,24 +20,29 @@ if (!fs.existsSync(desktop)) {
 
 if (process.platform === 'win32') {
   // Built through WScript.Shell because .lnk is a binary format; writing one
-  // by hand is not practical.
-  const lnk = path.join(desktop, 'static.lnk');
-  const icon = path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
-  const ps = `
-    $s = (New-Object -ComObject WScript.Shell).CreateShortcut(${quote(lnk)})
-    $s.TargetPath = 'wscript.exe'
-    $s.Arguments = '"${path.join(root, 'scripts', 'launch.vbs')}"'
-    $s.WorkingDirectory = ${quote(root)}
-    $s.IconLocation = ${quote(icon + ',0')}
-    $s.Description = 'static - desktop web browser'
-    $s.Save()
-  `;
-  const result = spawnSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' });
-  if (result.status !== 0) {
-    console.error(result.stderr || 'Failed to create shortcut');
-    process.exit(1);
+  // by hand is not practical. One on the desktop, and one in the Start menu,
+  // which is also what makes Static show up in Windows search.
+  const startMenu = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
+    'Microsoft', 'Windows', 'Start Menu', 'Programs');
+  const ico = path.join(root, 'build', 'icon.ico');
+  const icon = fs.existsSync(ico) ? ico : path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
+  for (const lnk of [path.join(desktop, 'Static.lnk'), path.join(startMenu, 'Static.lnk')]) {
+    const ps = `
+      $s = (New-Object -ComObject WScript.Shell).CreateShortcut(${quote(lnk)})
+      $s.TargetPath = 'wscript.exe'
+      $s.Arguments = '"${path.join(root, 'scripts', 'launch.vbs')}"'
+      $s.WorkingDirectory = ${quote(root)}
+      $s.IconLocation = ${quote(icon + ',0')}
+      $s.Description = 'Static - web browser'
+      $s.Save()
+    `;
+    const result = spawnSync('powershell', ['-NoProfile', '-Command', ps], { encoding: 'utf8' });
+    if (result.status !== 0) {
+      console.error(result.stderr || 'Failed to create ' + lnk);
+      process.exit(1);
+    }
+    console.log('Created ' + lnk);
   }
-  console.log('Created ' + lnk);
 } else if (process.platform === 'linux') {
   const file = path.join(desktop, 'static.desktop');
   fs.writeFileSync(file, [

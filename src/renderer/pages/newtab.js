@@ -353,7 +353,7 @@ function hostOf(url) {
 
 /* ---- init ------------------------------------------------------------------ */
 
-$('#mark-glyph').append(icon('sparkle', { size: 30 }));
+$('#mark-glyph').append(element('img', { src: '../assets/static-logo.png', alt: '', class: 'mark-logo' }));
 setMode(false);
 
 /* ---- search engine ------------------------------------------------------- */

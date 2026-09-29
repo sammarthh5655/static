@@ -1216,3 +1216,12 @@ body.moving-widget { cursor: grabbing; user-select: none; }
   .studio-pane, .ambient.is-ready { animation: none; }
   .newtab .widgets > .widget { transition: none; }
 }
+
+/* The Static logo above the wordmark, floating gently. */
+.mark-logo {
+  width: 58px; height: 58px; border-radius: 14px; display: block;
+  box-shadow: 0 10px 34px color-mix(in srgb, var(--accent) 35%, transparent);
+  animation: mark-float 6s ease-in-out infinite;
+}
+@keyframes mark-float { 50% { transform: translateY(-4px) rotate(-3deg); } }
+@media (prefers-reduced-motion: reduce) { .mark-logo { animation: none; } }

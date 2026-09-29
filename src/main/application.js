@@ -548,6 +548,9 @@ class BrowserApplication {
         ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 13, y: 13 } }
         : { frame: false }),
       backgroundColor: THEMES[this.settings.value.theme]?.tokens.bg || '#161718',
+      // Packaged builds take the icon from the executable; this is for running
+      // from source, which would otherwise show Electron's.
+      icon: path.join(app.getAppPath(), 'build', 'icon.png'),
       show: false,
       ...(process.env.STATIC_OFFSCREEN === '1'
         ? { x: -32000, y: -32000, skipTaskbar: true, focusable: false }

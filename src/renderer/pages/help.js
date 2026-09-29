@@ -271,7 +271,7 @@ async function about() {
   system = await invoke('help:system');
   return [
     element('div', { class: 'help-about' }, [
-      element('img', { src: '../assets/static-mark.svg', alt: '' }),
+      element('img', { src: '../assets/static-logo.png', alt: '' }),
       element('h1', { text: 'Static' }),
       element('p', { class: 'lede', text: 'Version ' + system.version + ' · ' + system.channel + ' · build ' + system.build }),
       element('p', { class: 'help-update', text: system.updates }),

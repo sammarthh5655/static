@@ -1,6 +1,9 @@
 const { app, protocol, Menu } = require('electron');
 const path = require('node:path');
 app.setName('static');
+// Groups windows under one taskbar button and lets the Start-menu shortcut
+// and a pinned icon find the running app. Matches build.appId.
+if (process.platform === 'win32') app.setAppUserModelId('dev.staticbrowser.desktop');
 
 // Test modes run against a throwaway profile so they never touch real user data.
 // `--name` runs tests/name.cjs; a probe file existing is what makes it a flag,
