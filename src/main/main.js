@@ -118,6 +118,9 @@ if (process.platform === 'darwin') {
 protocol.registerSchemesAsPrivileged([
   { scheme: 'browser', privileges: { standard: true, secure: true } },
   { scheme: 'crx', privileges: { bypassCSP: true } },
+  // Stand-ins for $redirect filter rules. Chromium refuses to redirect a web
+  // request to a data: URL, so they are served from a scheme of our own.
+  { scheme: 'static-stub', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
 if (!app.requestSingleInstanceLock()) app.quit();

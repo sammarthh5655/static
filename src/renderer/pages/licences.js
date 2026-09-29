@@ -69,6 +69,13 @@ const CREDITS = [
     obligation: 'Used as data, unmodified, and downloaded from the original source.',
   },
   {
+    name: 'uBlock Origin redirect resources',
+    licence: 'GPL-3.0',
+    what: 'The harmless stand-ins (an empty script, a 1x1 image, a silent audio clip) served instead of an ad library when a filter rule asks for a redirect. Taken from the copy kept by adblock-rust.',
+    url: 'https://github.com/gorhill/uBlock',
+    obligation: 'Used unmodified and named here; the source is available at the link.',
+  },
+  {
     name: 'EasyList and EasyPrivacy',
     licence: 'GPL-3.0 / CC BY-SA 3.0',
     what: 'Long-standing ad and tracker lists, maintained independently.',

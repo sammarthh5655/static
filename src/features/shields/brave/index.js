@@ -46,6 +46,9 @@ function library() {
   try {
     const file = path.join(__dirname, 'resources.json');
     const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // Brave's own additions (brave-fix.js, brave-yt-sabr-fix.js ...), which
+    // Brave's list rules inject by name. Made by scripts/make-redirects.cjs.
+    try { list.push(...JSON.parse(fs.readFileSync(path.join(__dirname, 'brave-extra.json'), 'utf8'))); } catch { /* optional */ }
     for (const entry of list) {
       if (!entry || !entry.name || !entry.body) continue;
       const source = Buffer.from(entry.body, 'base64').toString('utf8');
@@ -144,7 +147,14 @@ function scriptFor(spec) {
   // The function is declared by the scriptlet body; the call is appended. Each
   // scriptlet runs in its own scope so two of them cannot collide on a name.
   const fn = entry.source.match(/^\s*function\s+([A-Za-z0-9_$]+)/);
-  if (!fn) return '';
+  if (!fn) {
+    // The older template form Brave's own resources use: a plain script with
+    // {{1}}, {{2}} placeholders inside string literals. Arguments are
+    // escaped for a JavaScript string, so one cannot end the string early.
+    const values = args.map((arg) => JSON.stringify(unquote(arg)).slice(1, -1));
+    const filled = entry.source.replace(/\{\{(\d+)\}\}/g, (_, n) => values[Number(n) - 1] ?? '');
+    return '(function(){\ntry{\n' + filled + '\n}catch(e){}\n})();';
+  }
 
   // Helpers are placed INSIDE the wrapper with the scriptlet that needs them.
   // Hoisting them to the top of the bundle would leave them out of scope,
@@ -316,7 +326,42 @@ function youtubeCosmeticCount() {
   } catch { return 0; }
 }
 
+/**
+ * A redirect resource as a data: URL, by name or alias ("noop.js",
+ * "1x1-transparent.gif", "noopmp3-0.1s"), or '' when there is none.
+ * Made by scripts/make-redirects.cjs from uBlock Origin's resources.
+ */
+let redirects = null;
+function redirectData(name) {
+  if (!redirects) {
+    redirects = new Map();
+    try {
+      const all = JSON.parse(fs.readFileSync(path.join(__dirname, 'redirects.json'), 'utf8'));
+      for (const [key, entry] of Object.entries(all)) {
+        const url = 'data:' + entry.mime + ';base64,' + entry.data;
+        for (const alias of [key, ...(entry.aliases || [])]) redirects.set(alias, url);
+      }
+    } catch { /* none available: redirect rules fall back to blocking */ }
+  }
+  return redirects.get(String(name || '')) || '';
+}
+
+/** Where a redirect resource is served from: the static-stub scheme. */
+function redirectUrl(name) {
+  return redirectData(name) ? 'static-stub://r/' + encodeURIComponent(String(name)) : '';
+}
+
+/** The bytes and type of a redirect resource, for the scheme handler. */
+function redirectBody(name) {
+  const data = redirectData(name);
+  const m = data.match(/^data:([^;]+);base64,(.*)$/);
+  return m ? { mime: m[1], bytes: Buffer.from(m[2], 'base64') } : null;
+}
+
 module.exports = {
+  redirectData,
+  redirectUrl,
+  redirectBody,
   youtubeCosmetic, youtubeCosmeticCount,
   library, has, count, scriptFor, bundle, splitArgs, unquote,
   youtubeBundle, youtubeRuleCount, youtubeRules,

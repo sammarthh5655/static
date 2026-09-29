@@ -4,6 +4,7 @@ const { net } = require('electron');
 const { JsonStore } = require('../../main/storage');
 const { FilterEngine } = require('./filters');
 const { Stats } = require('./stats');
+const { redirectUrl } = require('./brave');
 
 /**
  * Shields: content blocking, HTTPS upgrades and URL cleaning.
@@ -313,7 +314,7 @@ class Shields {
    *
    * @returns {{block?: boolean, redirect?: string}|null} null means allow
    */
-  inspect({ url, docHost, resourceType, tabId }) {
+  inspect({ url, docHost, resourceType, tabId, method }) {
     if (!this.ready) return null;
 
     // Never interfere with our own pages or extension resources.
@@ -321,11 +322,23 @@ class Shields {
     if (!this.activeFor(docHost)) return null;
 
     if (this.config.blockTrackers) {
-      const verdict = this.engine.match({ url, docHost, resourceType });
+      const verdict = this.engine.match({ url, docHost, resourceType, method });
       if (verdict.blocked) {
         this.#count(tabId, docHost, url);
         this.stats.record(classify(verdict.rule, url));
-        return { block: true };
+        // A redirect rule answers with a harmless stand-in (an empty script,
+        // a 1x1 image) instead of an error, so a page that insists the ad
+        // library exists keeps working. Documents are never redirected.
+        const stand = verdict.redirect && resourceType !== 'mainFrame' ? redirectUrl(verdict.redirect) : '';
+        if (stand) {
+          this.stats.record('redirect');
+          return { redirect: stand, rule: verdict.rule, list: verdict.list, action: 'redirected' };
+        }
+        return { block: true, rule: verdict.rule, list: verdict.list, action: 'blocked' };
+      }
+      if (verdict.removeparam && verdict.removeparam !== url) {
+        this.stats.record('params');
+        return { redirect: verdict.removeparam, action: 'modified', rule: 'removeparam' };
       }
     }
 

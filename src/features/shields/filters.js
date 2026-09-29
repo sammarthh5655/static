@@ -81,17 +81,16 @@ const PAGE_FLAGS = {
  * unblocks anything.
  */
 const UNSUPPORTED_SCOPE_OPTIONS = new Set([
-  // Redirect rules: the point of them is WHAT to serve instead, which this
-  // engine cannot do.
-  'redirect', 'redirect-rule', 'rewrite',
-  // Request source and destination scoping.
-  'from', 'to', 'denyallow', 'method', 'ipaddress',
-  // Header-level matching and rewriting.
-  'header', 'replace', 'csp', 'permissions', 'removeparam', 'uritransform',
+  // Rewriting a response body or a URL path: Electron's request hooks cannot.
+  'rewrite', 'replace', 'uritransform', 'urlskip',
+  // Scoping by things a request hook is not told.
+  'ipaddress', 'header', 'permissions', 'cname', 'strict1p', 'strict3p',
   // Behavioural, not network.
-  'empty', 'mp4', 'cname', 'strict1p', 'strict3p', 'all', 'popup', 'popunder',
-  'webrtc', 'badfilter', 'match-case',
+  'popup', 'popunder', 'webrtc', 'badfilter', 'match-case',
 ]);
+
+/** uBlock's shorthands for common redirects. */
+const REDIRECT_SHORTHAND = { empty: 'empty', mp4: 'noopmp4-1s' };
 
 const TYPE_OPTIONS = new Set([
   'document', 'subdocument', 'stylesheet', 'script', 'image', 'font',
@@ -115,10 +114,22 @@ class Rule {
     // For @@ rules that switch features off on a page (see PAGE_FLAGS).
     this.pageFlags = null;
     this.list = '';
+    // Request-domain scoping: `to=` (and its opposite, `denyallow=`).
+    this.requestDomains = null;
+    this.excludedRequestDomains = null;
+    this.methods = null;
+    // What the rule does besides block or allow.
+    this.redirect = '';        // $redirect=name: block, and serve this instead
+    this.redirectRule = '';    // $redirect-rule=name: serve this IF blocked
+    this.removeparam = null;   // $removeparam: '' for all, or a name or /regex/
+    this.csp = null;           // $csp=directives
+    this.important = false;
+    this.regex = null;
 
     this.#applyOptions(options);
     this.pattern = this.#normalise(pattern);
-    this.token = tokenOf(this.pattern);
+    this.token = this.regex ? regexToken(pattern.slice(1, -1))
+      : tokenOf(this.pattern, { startBounded: this.domainAnchor || this.startAnchor, endBounded: this.endAnchor });
   }
 
   #applyOptions(options) {
@@ -130,7 +141,29 @@ class Rule {
 
       if (name === 'third-party') { this.thirdParty = !negated; continue; }
       if (name === 'first-party') { this.thirdParty = negated; continue; }
-      if (name === 'domain' && value) {
+      if (name === 'important') { this.important = true; continue; }
+      if (name === 'all') continue;
+      if (name === 'redirect' || name === 'redirect-rule') {
+        // With no value (only meaningful in an exception) it means "any".
+        const resource = value === undefined ? '*' : value.split(':')[0];
+        if (name === 'redirect') this.redirect = resource; else this.redirectRule = resource;
+        continue;
+      }
+      if (REDIRECT_SHORTHAND[name]) { this.redirect = REDIRECT_SHORTHAND[name]; continue; }
+      if (name === 'removeparam' || name === 'queryprune') { this.removeparam = body.slice(name.length + 1); continue; }
+      if (name === 'csp') { this.csp = body.slice(4); continue; }
+      if (name === 'method' && value) { this.methods = new Set(value.toLowerCase().split('|').filter((m) => !m.startsWith('~'))); continue; }
+      if ((name === 'to' || name === 'denyallow') && value) {
+        for (const entry of value.split('|')) {
+          const exclude = name === 'denyallow' || entry.startsWith('~');
+          const domain = entry.replace(/^~/, '').toLowerCase();
+          if (!domain) continue;
+          if (exclude) (this.excludedRequestDomains ||= new Set()).add(domain);
+          else (this.requestDomains ||= new Set()).add(domain);
+        }
+        continue;
+      }
+      if ((name === 'domain' || name === 'from') && value) {
         for (const entry of value.split('|')) {
           const exclude = entry.startsWith('~');
           const domain = (exclude ? entry.slice(1) : entry).toLowerCase();
@@ -168,6 +201,11 @@ class Rule {
 
   #normalise(pattern) {
     let text = pattern;
+    // /regex/ rules. Case-insensitive, as uBlock treats them.
+    if (text.length > 2 && text.startsWith('/') && text.endsWith('/')) {
+      try { this.regex = new RegExp(text.slice(1, -1), 'i'); } catch { this.inert = true; }
+      return '';
+    }
     if (text.startsWith('||')) { this.domainAnchor = true; text = text.slice(2); }
     else if (text.startsWith('|')) { this.startAnchor = true; text = text.slice(1); }
     if (text.endsWith('|')) { this.endAnchor = true; text = text.slice(0, -1); }
@@ -191,24 +229,24 @@ class Rule {
    * @param {string} type       normalised resource type
    * @param {boolean} isThird   third-party request
    */
-  matches(url, host, docHost, type, isThird) {
+  matches(url, host, docHost, type, isThird, method) {
     // Scoped to something this engine does not implement - see `inert` above.
     if (this.inert) return false;
+    if (this.methods && method && !this.methods.has(method)) return false;
+    if (this.excludedRequestDomains && onDomain(host, this.excludedRequestDomains)) return false;
+    if (this.requestDomains && !onDomain(host, this.requestDomains)) return false;
     if (this.thirdParty !== null && this.thirdParty !== isThird) return false;
     if (this.types && !this.types.has(type)) return false;
     if (this.excludedTypes && this.excludedTypes.has(type)) return false;
 
-    if (this.domains || this.excludedDomains) {
-      const onDomain = (set) => set && [...set].some((domain) =>
-        docHost === domain || docHost.endsWith('.' + domain));
-      if (this.excludedDomains && onDomain(this.excludedDomains)) return false;
-      if (this.domains && !onDomain(this.domains)) return false;
-    }
+    if (this.excludedDomains && onDomain(docHost, this.excludedDomains)) return false;
+    if (this.domains && !onDomain(docHost, this.domains)) return false;
 
     return this.#patternMatches(url, host);
   }
 
   #patternMatches(url, host) {
+    if (this.regex) return this.regex.test(url);
     const pattern = this.pattern;
     if (!pattern) return true;
 
@@ -244,6 +282,24 @@ class Rule {
     if (this.endAnchor && !pattern.includes('*')) return url.endsWith(pattern);
     return wildcardIndex(url, pattern) !== -1;
   }
+}
+
+/**
+ * Is `host` one of `set`, or under one? Walks the host's own labels and asks
+ * the set, rather than testing every entry in it - some rules list hundreds
+ * of domains. Also matches `name.*` entries (any TLD).
+ */
+function onDomain(host, set) {
+  let at = 0;
+  while (at !== -1) {
+    const suffix = host.slice(at);
+    if (set.has(suffix)) return true;
+    const dot = suffix.indexOf('.');
+    if (dot > 0 && set.has(suffix.slice(0, dot) + '.*')) return true;
+    at = host.indexOf('.', at);
+    if (at !== -1) at += 1;
+  }
+  return false;
 }
 
 /**
@@ -301,15 +357,93 @@ function startsWithPattern(url, pattern) {
  * Any request whose URL does not contain the token cannot match the rule, so
  * bucketing by it turns a 50,000-rule scan into a few dozen comparisons.
  */
-function tokenOf(pattern) {
+function tokenOf(pattern, { startBounded = false, endBounded = false } = {}) {
   // Three characters, not four. At four, ~1500 rules failed to produce a
   // token and fell into the generic bucket, which is scanned on EVERY request
   // - that alone was most of the matching cost.
-  const candidates = pattern.match(/[a-z0-9%]{3,}/g);
-  if (!candidates) return '';
-  // The longest token is the most selective.
-  return candidates.reduce((best, current) =>
-    (current.length > best.length ? current : best), '');
+  //
+  // A request is only tested against a rule when the rule's token is one of
+  // the request URL's own tokens - WHOLE runs of letters and digits. So a
+  // candidate must be bounded on both sides: "banner" taken from a pattern
+  // ending "/banner" would miss ".../banner42.gif", whose token is
+  // "banner42". Candidates touching a `*`, or the open end of an unanchored
+  // pattern, are therefore not used.
+  let best = '';
+  const re = /[a-z0-9%]{3,}/g;
+  let m;
+  while ((m = re.exec(pattern))) {
+    const at = m.index;
+    const end = at + m[0].length;
+    const leftOk = at === 0 ? startBounded : pattern[at - 1] !== '*';
+    const rightOk = end === pattern.length ? endBounded : pattern[end] !== '*';
+    if (leftOk && rightOk && m[0].length > best.length) best = m[0];
+  }
+  // The longest bounded token is the most selective.
+  return best;
+}
+
+/**
+ * A token every URL matching this regex must contain, or '' when none can be
+ * proved. Only literal runs outside groups, classes and alternations count,
+ * and a character made optional by ?, * or {0 is dropped - a token that is
+ * not truly required would make the rule miss requests.
+ */
+function regexToken(source) {
+  let depth = 0;
+  for (let i = 0; i < source.length; i++) {
+    if (source[i] === '\\') { i++; continue; }
+    if (source[i] === '(') depth++;
+    else if (source[i] === ')') depth--;
+    else if (source[i] === '|' && depth === 0) return '';
+  }
+  // Walk the pattern as a sequence of pieces. A run of literal letters and
+  // digits is usable only when a literal non-alphanumeric character (or an
+  // anchor) sits on BOTH sides of it, for the same reason as in tokenOf.
+  const runs = [];
+  let run = '';
+  let leftBounded = true;          // the start of the URL, if ^-anchored
+  if (source[0] !== '^') leftBounded = false;
+  const flush = (rightBounded) => {
+    if (run.length >= 3 && leftBounded && rightBounded) runs.push(run);
+    run = '';
+  };
+  for (let i = source[0] === '^' ? 1 : 0; i < source.length; i++) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === '\\') {
+      const escaped = source[i + 1] || '';
+      i++;
+      // \. \/ \- are literal punctuation: a boundary. \d \w \s are classes.
+      const literal = !/[a-z0-9]/i.test(escaped);
+      flush(literal);
+      leftBounded = literal;
+      continue;
+    }
+    if (/[a-z0-9%]/i.test(c)) {
+      if (next === '?' || next === '*' || (next === '{' && source[i + 2] === '0')) { flush(false); leftBounded = false; i++; continue; }
+      run += c.toLowerCase();
+      continue;
+    }
+    if (c === '$') { flush(true); leftBounded = false; continue; }
+    if (c === '[' || c === '(' || c === '.' || c === '+' || c === '*' || c === '?' || c === '{' || c === '^') {
+      flush(false);
+      leftBounded = false;
+      if (c === '[') { while (i < source.length && source[i] !== ']') { if (source[i] === '\\') i++; i++; } }
+      else if (c === '(') {
+        let d = 1;
+        i++;
+        while (i < source.length && d > 0) { if (source[i] === '\\') i++; else if (source[i] === '(') d++; else if (source[i] === ')') d--; i++; }
+        i--;
+      } else if (c === '{') { while (i < source.length && source[i] !== '}') i++; }
+      continue;
+    }
+    // Any other literal character (/ - _ = & , :) is a boundary.
+    flush(true);
+    leftBounded = true;
+  }
+  flush(false);
+  const useful = runs.filter((r) => !['http', 'https', 'www'].includes(r));
+  return useful.reduce((best, r) => (r.length > best.length ? r : best), '');
 }
 
 /** Parse one filter-list line. Returns null for comments and cosmetic rules. */
@@ -324,24 +458,30 @@ function parseRule(line) {
   const isException = body.startsWith('@@');
   if (isException) body = body.slice(2);
 
-  // Regex rules are not supported. A regex rule is delimited by slashes at
-  // BOTH ends (/pattern/); a plain path filter like /ads/banner.js starts with
-  // a slash but does not end with one, and must not be mistaken for a regex.
-  if (body.length > 2 && body.startsWith('/') && body.endsWith('/')) return null;
-
   let options = '';
+  // Options follow the LAST `$` that is not inside a regex's own slashes.
+  const regexEnd = body.startsWith('/') ? body.lastIndexOf('/') : -1;
   const dollar = body.lastIndexOf('$');
-  if (dollar > 0) {
+  if (dollar >= 0 && dollar > regexEnd) {
     const maybe = body.slice(dollar + 1);
     // Only treat it as options if it looks like them, not a URL fragment.
-    if (/^[a-z~][a-z0-9~,=|._-]*$/i.test(maybe)) {
+    // removeparam and csp values may carry more (regex, spaces, quotes).
+    if (/^[a-z~][a-z0-9~,=|._:-]*$/i.test(maybe) || /(^|,)(removeparam|queryprune|csp)(=|,|$)/.test(maybe)) {
       options = maybe;
       body = body.slice(0, dollar);
     }
   }
+  // A plain path filter like /ads/banner.js starts with a slash but is not a
+  // regex; only /pattern/ (slashes at BOTH ends) is.
+  if (!body) body = '*';
 
-  if (!body) return null;
-  return new Rule({ pattern: body, isException, options, raw: text });
+  const rule = new Rule({ pattern: body === '*' ? '' : body, isException, options, raw: text });
+  // A rule with no pattern matches every URL. That is only meaningful when
+  // something else narrows it (a site, a request domain) or when it modifies
+  // rather than blocks; a bare one would block the whole web.
+  if (!rule.pattern && !rule.regex && !rule.domains && !rule.requestDomains && !rule.pageFlags &&
+      rule.removeparam === null && rule.csp === null && !rule.redirectRule) return null;
+  return rule;
 }
 
 /**
@@ -393,18 +533,89 @@ function parseCosmetic(line) {
 
 const { CosmeticIndex } = require('./cosmetic');
 
+/**
+ * A set of network rules, indexed three ways so a request tests only rules
+ * that could possibly match it:
+ *   - by a token its URL must contain (most rules);
+ *   - by the site it is limited to (`*$script,3p,domain=a.com` has no URL
+ *     token, but only ever applies on a.com);
+ *   - the small remainder, tested on every request.
+ */
+class RuleSet {
+  constructor() {
+    this.buckets = new Map();
+    this.byDomain = new Map();
+    this.generic = [];
+    this.size = 0;
+  }
+
+  add(rule) {
+    this.size++;
+    if (rule.token) {
+      if (!this.buckets.has(rule.token)) this.buckets.set(rule.token, []);
+      this.buckets.get(rule.token).push(rule);
+    } else if (rule.domains && rule.domains.size) {
+      for (const domain of rule.domains) {
+        if (!this.byDomain.has(domain)) this.byDomain.set(domain, []);
+        this.byDomain.get(domain).push(rule);
+      }
+    } else {
+      this.generic.push(rule);
+    }
+  }
+
+  find(tokens, pageKeys, url, host, page, type, isThird, method) {
+    for (const token of tokens) {
+      const bucket = this.buckets.get(token);
+      if (!bucket) continue;
+      for (const rule of bucket) if (rule.matches(url, host, page, type, isThird, method)) return rule;
+    }
+    for (const key of pageKeys) {
+      const list = this.byDomain.get(key);
+      if (!list) continue;
+      for (const rule of list) if (rule.matches(url, host, page, type, isThird, method)) return rule;
+    }
+    for (const rule of this.generic) if (rule.matches(url, host, page, type, isThird, method)) return rule;
+    return null;
+  }
+}
+
+/** The keys a page's host is listed under: itself, parents, and name.* forms. */
+function domainKeys(host) {
+  const keys = [];
+  let at = 0;
+  while (at !== -1 && host) {
+    const suffix = host.slice(at);
+    keys.push(suffix);
+    const dot = suffix.indexOf('.');
+    if (dot > 0) keys.push(suffix.slice(0, dot) + '.*');
+    at = host.indexOf('.', at);
+    if (at !== -1) at += 1;
+  }
+  return keys;
+}
+
 class FilterEngine {
   constructor() {
-    this.blockBuckets = new Map();
-    this.blockGeneric = [];
-    this.allowBuckets = new Map();
-    this.allowGeneric = [];
+    this.block = new RuleSet();
+    this.allow = new RuleSet();
     this.count = 0;
     /** CSS, procedural rules, scriptlets and their exceptions. */
     this.cosmetic = new CosmeticIndex();
     this.cosmeticCount = 0;
     /** @@ rules that switch features off on matching pages. */
     this.pageExceptions = [];
+    // $important rules, kept apart so the ordinary search can stop at its
+    // first match and only this small set is searched to the end.
+    this.importantBlock = new RuleSet();
+    this.importantAllow = new RuleSet();
+    // Rules that modify rather than block, and their exceptions.
+    this.redirectRules = [];
+    /** Named $removeparam rules by parameter; the rest are scanned. */
+    this.removeParamByName = new Map();
+    this.removeParamRules = [];
+    this.cspRules = [];
+    this.modifierExceptions = [];
   }
 
   /**
@@ -425,14 +636,25 @@ class FilterEngine {
       if (!rule) continue;
       rule.list = source.id || '';
       if (rule.pageFlags) { this.pageExceptions.push(rule); continue; }
-      const buckets = rule.isException ? this.allowBuckets : this.blockBuckets;
-      const generic = rule.isException ? this.allowGeneric : this.blockGeneric;
-      if (rule.token) {
-        if (!buckets.has(rule.token)) buckets.set(rule.token, []);
-        buckets.get(rule.token).push(rule);
-      } else {
-        generic.push(rule);
+      if (rule.inert) continue;
+      // Exceptions to a modifier (@@...$redirect, $removeparam, $csp) cancel
+      // only that modifier. Filing them with the ordinary exceptions would
+      // turn them into a full unblock.
+      if (rule.isException && (rule.redirect || rule.redirectRule || rule.removeparam !== null || rule.csp !== null)) {
+        this.modifierExceptions.push(rule); continue;
       }
+      if (rule.redirectRule) { this.redirectRules.push(rule); continue; }
+      if (rule.removeparam !== null) {
+        const simple = /^[\w.-]+$/.test(rule.removeparam) ? rule.removeparam : '';
+        if (simple) {
+          if (!this.removeParamByName.has(simple)) this.removeParamByName.set(simple, []);
+          this.removeParamByName.get(simple).push(rule);
+        } else this.removeParamRules.push(rule);
+        continue;
+      }
+      if (rule.csp !== null) { this.cspRules.push(rule); continue; }
+      if (rule.important) (rule.isException ? this.importantAllow : this.importantBlock).add(rule);
+      else (rule.isException ? this.allow : this.block).add(rule);
       this.count++;
     }
     return this.count;
@@ -446,24 +668,21 @@ class FilterEngine {
    *
    * @returns {object|null} the matching rule, or null
    */
-  #findMatch(buckets, generic, tokens, url, host, page, type, isThird) {
-    for (const token of tokens) {
-      const bucket = buckets.get(token);
-      if (!bucket) continue;
-      for (const rule of bucket) {
-        if (rule.matches(url, host, page, type, isThird)) return rule;
-      }
-    }
-    for (const rule of generic) {
-      if (rule.matches(url, host, page, type, isThird)) return rule;
-    }
-    return null;
+  /** Is there an exception cancelling this modifier here? */
+  #modifierExcepted(kind, value, url, host, page, type, isThird) {
+    return this.modifierExceptions.some((rule) => {
+      const has = kind === 'redirect' ? (rule.redirect || rule.redirectRule) : kind === 'removeparam' ? rule.removeparam !== null : rule.csp !== null;
+      if (!has) return false;
+      const ruleValue = kind === 'redirect' ? (rule.redirect || rule.redirectRule) : kind === 'removeparam' ? rule.removeparam : rule.csp;
+      if (ruleValue && ruleValue !== '*' && value && ruleValue !== value) return false;
+      return rule.matches(url, host, page, type, isThird);
+    });
   }
 
   /**
    * @returns {{blocked: boolean, rule: string|null}}
    */
-  match({ url, docHost, resourceType }) {
+  match({ url, docHost, resourceType, method }) {
     const lower = String(url).toLowerCase();
     let host;
     try { host = new URL(url).hostname.toLowerCase(); } catch { return { blocked: false, rule: null }; }
@@ -471,18 +690,79 @@ class FilterEngine {
     const type = TYPE_MAP[resourceType] || 'other';
     const page = String(docHost || '').toLowerCase();
     const isThird = !!page && host !== page && !host.endsWith('.' + page) && !page.endsWith('.' + host);
+    const verb = method ? String(method).toLowerCase() : '';
 
-    // Tokenise once and reuse for both passes.
+    // Tokenise once and reuse for every pass.
     const tokens = lower.match(/[a-z0-9%]{3,}/g) || [];
 
-    // Exceptions win, so they are checked first.
-    if (this.#findMatch(this.allowBuckets, this.allowGeneric,
-                        tokens, lower, host, page, type, isThird)) {
-      return { blocked: false, rule: null };
+    const keys = domainKeys(page);
+    const importantBlock = this.importantBlock.find(tokens, keys, lower, host, page, type, isThird, verb);
+    const importantAllow = importantBlock && this.importantAllow.find(tokens, keys, lower, host, page, type, isThird, verb);
+    // $important beats an ordinary exception; only an important exception
+    // beats it back.
+    let block = importantAllow ? null : importantBlock;
+    let allow = importantAllow || null;
+    if (!block && !allow) {
+      // Most requests match nothing, so exceptions are only looked for once
+      // a blocking rule has matched.
+      block = this.block.find(tokens, keys, lower, host, page, type, isThird, verb);
+      if (block) {
+        allow = this.allow.find(tokens, keys, lower, host, page, type, isThird, verb);
+        if (allow) block = null;
+      }
     }
-    const hit = this.#findMatch(this.blockBuckets, this.blockGeneric,
-                                tokens, lower, host, page, type, isThird);
-    return hit ? { blocked: true, rule: hit.raw, list: hit.list } : { blocked: false, rule: null };
+    if (!block) {
+      const cleaned = this.#removeParams(url, lower, host, page, type, isThird, tokens);
+      return { blocked: false, rule: allow ? allow.raw : null, list: allow?.list, allowed: !!allow, removeparam: cleaned };
+    }
+    let redirect = block.redirect;
+    if (!redirect) {
+      const directive = this.redirectRules.find((rule) => rule.matches(lower, host, page, type, isThird, verb));
+      redirect = directive ? directive.redirectRule : '';
+    }
+    if (redirect && this.#modifierExcepted('redirect', redirect, lower, host, page, type, isThird)) redirect = '';
+    return { blocked: true, rule: block.raw, list: block.list, redirect };
+  }
+
+  /** The URL with tracking parameters removed, when a $removeparam rule applies. */
+  #removeParams(url, lower, host, page, type, isThird) {
+    if (!lower.includes('?')) return '';
+    let parsed;
+    try { parsed = new URL(url); } catch { return ''; }
+    let changed = false;
+    const candidates = [...this.removeParamRules];
+    for (const key of parsed.searchParams.keys()) {
+      const named = this.removeParamByName.get(key);
+      if (named) candidates.push(...named);
+    }
+    for (const rule of candidates) {
+      if (!rule.matches(lower, host, page, type, isThird)) continue;
+      if (this.#modifierExcepted('removeparam', rule.removeparam, lower, host, page, type, isThird)) continue;
+      const spec = rule.removeparam;
+      const negate = spec.startsWith('~');
+      const body = negate ? spec.slice(1) : spec;
+      const re = body.startsWith('/') && body.lastIndexOf('/') > 0 ? (() => { try { return new RegExp(body.slice(1, body.lastIndexOf('/')), body.slice(body.lastIndexOf('/') + 1).replace('g', '')); } catch { return null; } })() : null;
+      for (const [key, value] of [...parsed.searchParams]) {
+        const hit = !body ? true : re ? re.test(key + '=' + value) : key === body;
+        if (hit !== negate) { parsed.searchParams.delete(key); changed = true; }
+      }
+    }
+    return changed ? parsed.toString() : '';
+  }
+
+  /** CSP directives the lists add to this document. */
+  cspFor(url, docHost, resourceType) {
+    const type = TYPE_MAP[resourceType] || 'other';
+    if (type !== 'document' && type !== 'subdocument') return [];
+    const lower = String(url).toLowerCase();
+    let host = '';
+    try { host = new URL(url).hostname.toLowerCase(); } catch { return []; }
+    const page = String(docHost || host).toLowerCase();
+    if (this.pageFlagsFor(url).has('document')) return [];
+    return [...new Set(this.cspRules
+      .filter((rule) => rule.csp && rule.matches(lower, host, page, type, false))
+      .filter((rule) => !this.#modifierExcepted('csp', rule.csp, lower, host, page, type, false))
+      .map((rule) => rule.csp))];
   }
 
   /**
@@ -528,4 +808,4 @@ class FilterEngine {
   }
 }
 
-module.exports = { FilterEngine, parseRule, parseCosmetic, Rule, tokenOf, TYPE_MAP };
+module.exports = { FilterEngine, parseRule, parseCosmetic, Rule, tokenOf, regexToken, TYPE_MAP };

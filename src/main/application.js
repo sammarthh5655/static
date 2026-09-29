@@ -25,7 +25,7 @@ const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
-const { youtubeCosmetic: braveCosmetic, bundle: braveBundle } = require('../features/shields/brave');
+const { youtubeCosmetic: braveCosmetic, bundle: braveBundle, redirectBody: braveRedirectBody } = require('../features/shields/brave');
 const { Profiles } = require('../features/profiles');
 const { Sense } = require('../features/sense');
 const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
@@ -191,6 +191,14 @@ class BrowserApplication {
     this.#hardenSession();
     this.#installRequestFilter();
     this.#installCookiePolicy();
+    // The stand-ins $redirect rules point at (see shields/brave redirectUrl).
+    this.session.protocol.handle('static-stub', (request) => {
+      let name = '';
+      try { name = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, '')); } catch { /* bad url */ }
+      const body = braveRedirectBody(name);
+      if (!body) return new Response('', { status: 404 });
+      return new Response(body.bytes, { headers: { 'content-type': body.mime, 'access-control-allow-origin': '*', 'cache-control': 'max-age=86400' } });
+    });
 
     this.ensureWindow();
     this.#registerIpc();
@@ -296,6 +304,7 @@ class BrowserApplication {
           docHost: this.#hostForRequest(details),
           resourceType: details.resourceType,
           tabId: this.#tabIdForWebContents(details.webContentsId),
+          method: details.method,
         });
         if (verdict?.block) return callback({ cancel: true });
         if (verdict?.redirect) return callback({ redirectURL: verdict.redirect });
@@ -489,15 +498,33 @@ class BrowserApplication {
       callback({ requestHeaders: headers });
     });
 
+    // ONE onHeadersReceived for everything: Electron keeps only the last
+    // registration, so a second listener would silently replace this one.
     this.session.webRequest.onHeadersReceived((details, callback) => {
-      if (!this.shields.config.blockThirdPartyCookies || !isThirdParty(details)) {
-        return callback({ responseHeaders: details.responseHeaders });
+      let headers = null;
+      if (this.shields.config.blockThirdPartyCookies && isThirdParty(details)) {
+        headers = { ...details.responseHeaders };
+        for (const key of Object.keys(headers)) {
+          if (key.toLowerCase() === 'set-cookie') delete headers[key];
+        }
       }
-      const headers = { ...details.responseHeaders };
-      for (const key of Object.keys(headers)) {
-        if (key.toLowerCase() === 'set-cookie') delete headers[key];
+      // $csp rules from the lists: extra Content-Security-Policy on a page,
+      // typically to stop an ad script or a popup from ever running. A second
+      // CSP header only ever narrows what the page may do.
+      if ((details.resourceType === 'mainFrame' || details.resourceType === 'subFrame') &&
+          this.shields.config.enabled && this.shields.config.blockTrackers) {
+        let host = '';
+        try { host = new URL(details.url).hostname; } catch { /* keep empty */ }
+        if (host && this.shields.activeFor(host)) {
+          const extra = this.shields.engine.cspFor(details.url, host, details.resourceType);
+          if (extra.length) {
+            headers ||= { ...details.responseHeaders };
+            const key = Object.keys(headers).find((k) => k.toLowerCase() === 'content-security-policy') || 'Content-Security-Policy';
+            headers[key] = [...(headers[key] || []), extra.join('; ')];
+          }
+        }
       }
-      callback({ responseHeaders: headers });
+      callback({ responseHeaders: headers || details.responseHeaders });
     });
   }
 
