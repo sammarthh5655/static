@@ -11,6 +11,7 @@
  */
 const { ipcRenderer } = require('electron');
 const { classify, kindOf } = require('../shared/autofill-fields');
+const callout = require('./callout');
 
 const FIELD = 'input, select, textarea';
 let focused = null;
@@ -63,17 +64,44 @@ function scopeOf(el) {
     .filter((f) => f.type && visible(f.node));
 }
 
-document.addEventListener('focusin', (event) => {
-  const el = event.target;
+/**
+ * Did the person put the cursor here? A click or a key in the last moment, or
+ * the browser's own record of a recent gesture. A page focusing its own
+ * sign-in box on load is not the person, and gets the callout instead of a
+ * menu that would take the keyboard away.
+ */
+let lastGesture = 0;
+for (const type of ['pointerdown', 'keydown']) {
+  document.addEventListener(type, (event) => { if (event.isTrusted) lastGesture = Date.now(); }, true);
+}
+const byPerson = () => Date.now() - lastGesture < 1500 || navigator.userActivation?.isActive === true;
+
+document.addEventListener('focusin', (event) => offer(event.target), true);
+
+// Clicking a box that already has the cursor shows its suggestions again, as
+// in other browsers - there is no new focus event for it.
+document.addEventListener('mousedown', (event) => {
+  if (event.isTrusted && event.button === 0 && event.target === document.activeElement) {
+    lastGesture = Date.now();
+    offer(event.target);
+  }
+}, true);
+
+/** Tell main which kind of box has the cursor and where it is. */
+function offer(el) {
   let type = typeOf(el);
   if (type === 'cc-csc' || (!type && !customCandidate(el))) { focused = null; return; }
   // One-time codes are never filled from anything saved.
   if (!type && /\b(otp|one[\s_-]?time|verification[\s_-]?code|2fa|mfa|captcha)\b/i.test(describe(el))) { focused = null; return; }
   if (!type) type = 'custom';
   focused = el;
+  const person = byPerson();
+  // The person went to the sign-in box themselves: its suggestions take over.
+  if (person && callout.showing() && (el === loginField || el === calloutAnchor())) callout.hide();
   const box = el.getBoundingClientRect();
   const scope = scopeOf(el).map((f) => f.type);
   ipcRenderer.send('autofill:focus', {
+    user: person,
     type, kind: type === 'custom' ? 'custom' : kindOf(type),
     rect: { x: Math.round(box.left), y: Math.round(box.top), width: Math.round(box.width), height: Math.round(box.height) },
     scope: [...new Set(scope)].slice(0, 40),
@@ -82,11 +110,20 @@ document.addEventListener('focusin', (event) => {
     // autocomplete="username webauthn": the site offers passkeys in this box.
     webauthn: /\bwebauthn\b/i.test(el.getAttribute('autocomplete') || ''),
   });
-}, true);
+}
 
 // Typing into the field closes the suggestions, as in every browser.
 document.addEventListener('input', (event) => {
-  if (event.isTrusted && event.target === focused) ipcRenderer.send('autofill:typing');
+  if (!event.isTrusted) return;
+  if (event.target === focused) ipcRenderer.send('autofill:typing');
+  if (callout.showing() && (event.target === loginField || event.target === calloutAnchor())) callout.hide();
+}, true);
+
+// The suggestions leave the keyboard with the page: the down arrow moves into
+// them and Escape closes them, as in other browsers.
+document.addEventListener('keydown', (event) => {
+  if (!event.isTrusted || event.target !== focused) return;
+  if (event.key === 'ArrowDown' || event.key === 'Escape') ipcRenderer.send('autofill:menu-key', { key: event.key });
 }, true);
 
 /** Set a value the way a person typing would, so frameworks notice. */
@@ -126,9 +163,12 @@ function submit(anchor) {
 
 ipcRenderer.on('autofill:apply', (_event, payload) => {
   const values = payload && typeof payload.values === 'object' ? payload.values : {};
-  // An automatic sign-in fills the sign-in form, not whatever has focus.
+  // A sign-in (automatic, from the callout or from the address bar) fills the
+  // sign-in form, not whatever has focus.
+  if (payload?.target === 'login' && !(loginField && document.contains(loginField))) findLogin();
   const anchor = payload?.target === 'login' && loginField && document.contains(loginField) ? loginField
     : focused && document.contains(focused) ? focused : document.activeElement;
+  callout.hide();
   if (!anchor) return;
   // A custom field goes into the one box it was chosen for, nowhere else.
   if (payload?.only === 'focused') {
@@ -153,29 +193,75 @@ ipcRenderer.on('autofill:apply', (_event, payload) => {
 });
 
 /**
- * Sign-in forms, for signing in automatically.
+ * Sign-in forms: for signing in automatically, and for the callout that says
+ * what is saved.
  *
- * A form counts when it has exactly one visible password box that is empty
- * and not for a new password. Found on load and again as the page changes,
- * because most sign-in pages are drawn by script after the document loads.
- * Main decides whether to act; this only says the form is there.
+ * A form counts when it has exactly one visible, empty password box that is
+ * not for a new password - or, on a page that asks for the username first
+ * (Google, Microsoft and most big sites), a single username or email box
+ * marked as such. Found on load and again as the page changes, because most
+ * sign-in pages are drawn by script after the document loads. Main decides
+ * what to do; this only says the form is there.
  */
 let loginField = null;
 let loginReported = null;
 let scans = 0;
 
+const usable = (el) => visible(el) && !el.disabled && !el.readOnly;
+
+/** The one sign-in box on the page, if there is one, and whether it is a password. */
+function findLogin() {
+  const boxes = [...document.querySelectorAll('input[type=password]')].filter(usable);
+  if (boxes.length === 1 && typeOf(boxes[0]) === 'password' && !scopeOf(boxes[0]).some((f) => f.type === 'new-password')) {
+    loginField = boxes[0];
+    return { field: boxes[0], hasPassword: true };
+  }
+  if (boxes.length) return null;
+  // Username first: exactly one username/email box, and either the site marks
+  // it as a username or the page is plainly a sign-in page.
+  const names = [...document.querySelectorAll('input')].filter((el) => usable(el) && ['username', 'email'].includes(typeOf(el)));
+  if (names.length !== 1) return null;
+  const box = names[0];
+  const marked = /\b(username|webauthn)\b/i.test(box.getAttribute('autocomplete') || '');
+  const signInPage = /sign.?in|log.?in|signin|login|auth|account/i.test(location.pathname + ' ' + document.title);
+  const others = [...(box.form || document).querySelectorAll('input')].filter((el) => el !== box && usable(el) &&
+    !['hidden', 'submit', 'button', 'checkbox', 'radio', 'image', 'reset'].includes(el.type));
+  if (!(marked || signInPage) || others.length) return null;
+  loginField = box;
+  return { field: box, hasPassword: false };
+}
+
 function scanForLogin() {
   if (++scans > 40) { observer?.disconnect(); return; }
-  const boxes = [...document.querySelectorAll('input[type=password]')].filter((el) => visible(el) && !el.disabled && !el.readOnly);
-  if (boxes.length !== 1) return;
-  const box = boxes[0];
-  if (box.value || box === loginReported || typeOf(box) !== 'password') return;
-  const scope = scopeOf(box).map((f) => f.type);
-  if (scope.includes('new-password')) return;
-  loginField = box;
-  loginReported = box;
-  ipcRenderer.send('autofill:login-form', { hasUser: scope.some((t) => t === 'username' || t === 'email') });
+  const found = findLogin();
+  if (!found || found.field.value || found.field === loginReported) return;
+  loginReported = found.field;
+  const scope = scopeOf(found.field).map((f) => f.type);
+  ipcRenderer.send('autofill:login-form', { hasPassword: found.hasPassword, hasUser: scope.some((t) => t === 'username' || t === 'email') });
 }
+
+/** Where the callout points: the username box of the sign-in form, else its password box. */
+function calloutAnchor() {
+  if (!loginField || !loginField.isConnected) return null;
+  const user = scopeOf(loginField).find((f) => (f.type === 'username' || f.type === 'email') && usable(f.node));
+  return user ? user.node : loginField;
+}
+
+ipcRenderer.on('autofill:callout', (_event, data) => {
+  const anchor = calloutAnchor();
+  if (!anchor || !data || !Array.isArray(data.accounts) || !data.accounts.length) return;
+  // Already typed into: the person is signing in by hand.
+  if (loginField.value || (anchor !== loginField && anchor.value)) return;
+  callout.show(data, {
+    anchor,
+    onFill: (token) => {
+      const box = anchor.getBoundingClientRect();
+      ipcRenderer.send('autofill:callout-fill', { token, rect: { x: Math.round(box.left), y: Math.round(box.top), width: Math.round(box.width), height: Math.round(box.height) } });
+    },
+    // More accounts than the card shows: the full list, under the box.
+    onMore: () => { lastGesture = Date.now(); anchor.focus(); },
+  });
+});
 
 let pending = null;
 const later = () => { clearTimeout(pending); pending = setTimeout(scanForLogin, 300); };
@@ -211,7 +297,7 @@ function report(root) {
   ipcRenderer.send('autofill:submitted', { fields });
 }
 
-document.addEventListener('submit', (event) => report(event.target), true);
+document.addEventListener('submit', (event) => { callout.hide(); report(event.target); }, true);
 // Many sign-in pages never submit a form: they post from a button or on Enter.
 document.addEventListener('click', (event) => {
   const button = event.target.closest?.('button, input[type=submit], [role=button]');

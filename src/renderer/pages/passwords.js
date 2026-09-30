@@ -120,21 +120,96 @@ function generatorCard() {
   ]);
 }
 
+/* ---- adding and editing -------------------------------------------------------- */
+
+/**
+ * The add / edit form. Built once per opening and kept across re-renders, so
+ * nothing typed into it is lost when the list refreshes underneath.
+ */
+let editor = null;
+
+const errorText = (error) => String(error?.message || error || '').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+function openEditor(values = {}, id = null) {
+  const field = (label, control, extra) => element('label', { class: 'pw-field' + (extra ? ' ' + extra : '') }, [element('span', { text: label }), control]);
+  const url = element('input', { type: 'text', placeholder: 'github.com', autocomplete: 'off', spellcheck: 'false', value: values.url ? values.url.replace(/^https:\/\//, '') : '' });
+  const username = element('input', { type: 'text', placeholder: 'you@example.com', autocomplete: 'off', spellcheck: 'false', value: values.username || '' });
+  const password = element('input', { type: 'password', placeholder: id ? 'Leave empty to keep the current one' : '', autocomplete: 'new-password', value: values.password || '' });
+  const note = element('textarea', { rows: '3', placeholder: 'Security questions, recovery codes, PINs… (optional, encrypted like the password)' });
+  note.value = values.note || '';
+  const eye = element('button', { type: 'button', class: 'pv-eye', text: 'Show' });
+  const setShown = (show) => { password.type = show ? 'text' : 'password'; eye.textContent = show ? 'Hide' : 'Show'; };
+  eye.addEventListener('click', () => setShown(password.type === 'password'));
+  const generate = element('button', { type: 'button', class: 'pill', text: 'Generate' });
+  generate.addEventListener('click', async () => {
+    const result = await invoke('passwords:generate', { length: 20, symbols: true });
+    if (result?.password) { password.value = result.password; setShown(true); }
+  });
+  const error = element('p', { class: 'pw-error', role: 'alert' });
+  const save = element('button', { type: 'submit', class: 'pill selected', text: id ? 'Save changes' : 'Save password' });
+  const cancel = element('button', { type: 'button', class: 'pill', text: 'Cancel', onclick: () => { editor = null; render(); } });
+  const form = element('form', { class: 'pv-editor' }, [
+    element('div', { class: 'pv-editor-head' }, [
+      element('span', { class: 'pv-editor-glyph' }, [icon('key', { size: 16 })]),
+      element('strong', { text: id ? 'Edit login' : 'Add a password' }),
+      element('span', { class: 'muted', text: id ? 'Change what you need; the rest stays as it is.' : 'For a site you signed up to somewhere else, or to keep a password safe here.' }),
+    ]),
+    element('div', { class: 'pv-editor-grid' }, [
+      field('Website', url),
+      field('Username or email', username),
+      field('Password', element('div', { class: 'pv-password' }, [password, eye, generate]), 'wide'),
+      field('Note', note, 'wide'),
+    ]),
+    error,
+    element('div', { class: 'pw-row' }, [save, cancel]),
+  ]);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    error.textContent = '';
+    if (!url.value.trim()) { error.textContent = 'Enter the website.'; url.focus(); return; }
+    if (!id && !password.value) { error.textContent = 'Enter the password.'; password.focus(); return; }
+    save.disabled = true;
+    const payload = { url: url.value.trim(), username: username.value.trim(), note: note.value };
+    if (password.value) payload.password = password.value;
+    const result = await invoke(id ? 'passwords:update' : 'passwords:add', id ? { id, ...payload } : payload)
+      .catch((e) => ({ ok: false, error: errorText(e) }));
+    save.disabled = false;
+    if (!result?.ok) { error.textContent = result?.error || 'That did not work.'; return; }
+    editor = null;
+    revealed = null;
+    revealedValue = '';
+    refresh();
+  });
+  editor = { node: form, id };
+  render();
+  setTimeout(() => (values.url ? username : url).focus(), 30);
+}
+
+async function editEntry(entry) {
+  const details = await invoke('passwords:details', { id: entry.id }).catch((e) => ({ ok: false, error: errorText(e) }));
+  if (!details?.ok) { alert(details?.error || 'That login could not be opened.'); return; }
+  openEditor(details, entry.id);
+}
+
 /* ---- vault ------------------------------------------------------------------ */
 
-function vaultCard() {
-  const search = element('input', {
-    class: 'notes-search',
-    type: 'search',
-    placeholder: 'Search saved logins',
-    value: query,
-    autocomplete: 'off',
-  });
-  search.addEventListener('input', () => { query = search.value; refresh(); });
+// Kept across re-renders so typing in it never loses focus.
+const search = element('input', {
+  class: 'notes-search',
+  type: 'search',
+  placeholder: 'Search saved logins',
+  autocomplete: 'off',
+});
+search.addEventListener('input', () => { query = search.value; refresh(); });
 
+function vaultCard() {
   return element('div', { class: 'panel-card' }, [
     element('div', { class: 'notes-toolbar' }, [
       search,
+      element('button', {
+        class: 'pill selected pv-add', text: '+ Add password',
+        onclick: () => openEditor({}),
+      }),
       entries.length
         ? element('button', {
             class: 'pill', text: 'Remove all',
@@ -147,15 +222,17 @@ function vaultCard() {
         : null,
     ].filter(Boolean)),
 
+    editor && !editor.id ? editor.node : null,
+
     entries.length
-      ? element('div', { class: 'blocked-list' }, entries.map(entryRow))
+      ? element('div', { class: 'blocked-list' }, entries.map((entry) => (editor && editor.id === entry.id ? editor.node : entryRow(entry))))
       : element('p', {
           class: 'muted',
           text: query
             ? 'Nothing matches that.'
-            : 'No saved logins yet. Passwords you save while signing in will appear here.',
+            : 'No saved logins yet. Passwords you save while signing in appear here, or add one with "+ Add password".',
         }),
-  ]);
+  ].filter(Boolean));
 }
 
 function entryRow(entry) {
@@ -166,6 +243,7 @@ function entryRow(entry) {
       element('div', { class: 'password-origin', text: entry.origin.replace(/^https?:\/\//, '') }),
       element('div', { class: 'password-user' }, [
         element('span', { text: entry.username || '(no username)' }),
+        entry.hasNote ? element('span', { class: 'pv-note-tag', text: 'note' }) : null,
         entry.lastUsed
           ? element('span', { class: 'muted', text: '  ·  used ' + timeAgo(entry.lastUsed) })
           : null,
@@ -206,6 +284,9 @@ function entryRow(entry) {
             setTimeout(() => { button.textContent = 'Copy'; }, 1500);
           },
         })
+      : null,
+    entry.readable
+      ? element('button', { class: 'turn-tool', text: 'Edit', onclick: () => editEntry(entry) })
       : null,
     element('button', {
       class: 'turn-tool danger', text: 'Delete',
@@ -264,6 +345,9 @@ function render() {
     return;
   }
   lockNode = null;
+  // Moving a focused box to a new card drops its focus; put it back, caret and all.
+  const active = content.contains(document.activeElement) ? document.activeElement : null;
+  const caret = active && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
   content.replaceChildren(...[
     statusCard(),
     state.encryption?.available ? security.securityCard(render) : null,
@@ -275,6 +359,10 @@ function render() {
     // across re-renders so an open form is not lost.
     window.passwordExtras?.host,
   ].filter(Boolean));
+  if (active && active.isConnected && document.activeElement !== active) {
+    active.focus({ preventScroll: true });
+    if (caret) try { active.setSelectionRange(caret[0], caret[1]); } catch { /* not a text box */ }
+  }
 }
 
 shellApi = window.shell.mount({
@@ -294,7 +382,7 @@ async function refresh() {
 onState((next) => { if (next?.modes) shellApi?.setState(next.modes); });
 window.browser.on('passwords:changed', async () => {
   const wasLocked = security.state.locked;
-  const typing = document.activeElement?.tagName === 'INPUT' && content.contains(document.activeElement);
+  const typing = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && content.contains(document.activeElement);
   await security.load();
   // Locking or unlocking always redraws; anything else waits for the person
   // to finish typing.
@@ -303,6 +391,17 @@ window.browser.on('passwords:changed', async () => {
   if (wasLocked !== security.state.locked) window.passwordExtras?.reload();
 });
 
-refresh();
+window.passwordPage = { refresh };
+
+// browser://passwords#add=https%3A%2F%2Fgithub.com - from the key in the address bar.
+function addFromLink() {
+  const add = /^#add=(.+)$/.exec(location.hash);
+  if (!add || security.state.locked) return;
+  let site = '';
+  try { site = decodeURIComponent(add[1]); } catch { /* ignore a bad link */ }
+  if (/^https?:\/\//.test(site)) openEditor({ url: site });
+}
+window.addEventListener('hashchange', addFromLink);
+refresh().then(addFromLink);
 
 })();

@@ -82,7 +82,7 @@ let openMenu = null;
  * then clamped to the viewport, because the chrome view is only as tall as the
  * browser chrome - a menu that overflows it would be clipped, not scrolled.
  */
-function menu(items, { anchor, align = 'left', onClose } = {}) {
+function menu(items, { anchor, align = 'left', onClose, passive = false, onOutside } = {}) {
   closeMenu();
   // Drop any menu still playing its close animation, so only one menu node is
   // ever in the document.
@@ -360,8 +360,10 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
   // final frame even if the view was not composited while it played.
   root.classList.add('open');
 
-  openMenu = { root, onClose, width: window.innerWidth, height: window.innerHeight };
-  (root.querySelector('.menu-field input') || root.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
+  openMenu = { root, onClose, onOutside, passive, width: window.innerWidth, height: window.innerHeight };
+  // A passive menu (autofill suggestions) does not take the keyboard from the
+  // page; the down arrow in the field moves into it (see focusMenu).
+  if (!passive) (root.querySelector('.menu-field input') || root.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
   return root;
 }
 
@@ -391,6 +393,13 @@ function closeMenu() {
 
 function menuIsOpen() { return !!openMenu; }
 
+/** Move the keyboard into the open menu (the down arrow from a field). */
+function focusMenu() {
+  if (!openMenu) return;
+  openMenu.passive = false;
+  openMenu.root.querySelector('.menu-item:not(:disabled)')?.focus({ preventScroll: true });
+}
+
 /** Anchor helper: the bounding box of an element. */
 function anchorOf(element) {
   return element.getBoundingClientRect();
@@ -404,7 +413,11 @@ function anchorAt(x, y) {
 // Global dismissal. Pointerdown rather than click so the menu closes before a
 // click lands on whatever is underneath it.
 document.addEventListener('pointerdown', (event) => {
-  if (openMenu && !openMenu.root.contains(event.target)) closeMenu();
+  if (!openMenu || openMenu.root.contains(event.target)) return;
+  const { passive, onOutside } = openMenu;
+  closeMenu();
+  // Clicking away from a passive menu also clicks what was underneath.
+  if (passive) onOutside?.(event);
 }, true);
 
 document.addEventListener('keydown', (event) => {
@@ -435,6 +448,6 @@ window.addEventListener('resize', () => {
 });
 window.addEventListener('blur', closeMenu);
 
-window.ui = { icon, iconButton, menu, closeMenu, menuIsOpen, anchorOf, anchorAt };
+window.ui = { icon, iconButton, menu, closeMenu, menuIsOpen, focusMenu, anchorOf, anchorAt };
 
 })();

@@ -9,7 +9,7 @@ module.exports = {
     'screentime:preset', 'screentime:clear-usage', 'screentime:unlock',
     'app:state', 'ui:layout', 'ui:shortcuts', 'ui:action', 'ui:suggestions',
     'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending', 'context:run', 'find:query', 'find:close', 'wallpapers:catalog', 'wallpapers:random', 'import:detect', 'import:run', 'autofill:choose', 'autofill:decide', 'autofill:state', 'autofill:list', 'autofill:values', 'autofill:put', 'autofill:remove', 'autofill:prefs', 'autofill:never-remove', 'passwords:export', 'passwords:import', 'passwords:health', 'passwords:breach-check', 'help:system', 'help:reveal', 'feedback:categories', 'feedback:available', 'feedback:attach', 'feedback:screenshot', 'feedback:shots', 'feedback:remove', 'feedback:preview', 'feedback:submit', 'feedback:reveal', 'split:resize', 'split:reset', 'split:swap', 'split:exit', 'split:with', 'split:drag', 'split:drop', 'split:menu',
-    'tabs:new', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
+    'tabs:new', 'tabs:open-files', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
     'navigation:back', 'navigation:forward', 'navigation:reload', 'navigation:stop', 'navigation:home',
     'omnibox:suggest', 'bookmarks:toggle', 'bookmarks:remove',
     'history:search', 'history:remove',
@@ -42,7 +42,8 @@ module.exports = {
     'passwords:lock-state', 'passwords:set-master', 'passwords:change-master', 'passwords:remove-master',
     'passwords:unlock', 'passwords:unlock-device', 'passwords:lock', 'passwords:device', 'passwords:lock-after',
     'passwords:passkeys', 'passwords:remove-passkey', 'passwords:answer', 'passwords:unlock-menu', 'autofill:no-auto-remove',
+    'passwords:add', 'passwords:update', 'passwords:details', 'passwords:key-menu', 'menu:passthrough',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
-  events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'passwords:changed', 'organizer:changed', 'screentime:changed'],
+  events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'ui:menu-focus', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'passwords:changed', 'organizer:changed', 'screentime:changed'],
 };

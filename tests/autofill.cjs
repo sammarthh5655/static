@@ -49,7 +49,7 @@ async function run(browser) {
     };
     const focus = async (selector) => {
       browser.lastMenu = null;
-      await wc.executeJavaScript(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+      await wc.executeJavaScript(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
       await wait(400);
       return (browser.lastMenu?.items || []).filter((i) => i.label).map((i) => i.label);
     };

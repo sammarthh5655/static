@@ -1,9 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog } = require('electron');
+const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog, net } = require('electron');
+const { pathToFileURL, fileURLToPath } = require('node:url');
 const { requests, events } = require('../shared/channels');
 const { ENGINES, internalPage, resolveInput, allowedURL } = require('../shared/urls');
-const { THEMES, SURFACE_STYLES, RADIUS, forgePlanet } = require('../shared/theme');
+const { THEMES, SURFACE_STYLES, RADIUS, forgePlanet, cssVariables } = require('../shared/theme');
 const { WIDGETS, BACKGROUNDS } = require('../shared/widgets');
 const { ACCELERATORS, matchAccelerator } = require('./shortcuts');
 const { JsonStore } = require('./storage');
@@ -24,6 +25,7 @@ const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Biometric } = require('../features/passwords/biometric');
+const { LocalFiles } = require('../features/tabs/local-files');
 const webauthn = require('../features/passwords/webauthn');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
@@ -216,6 +218,19 @@ class BrowserApplication {
     this.#installCookiePolicy();
     // Fetch newer wallpapers in the background; never holds startup up.
     setTimeout(() => { wallpapers.refresh(); }, 6000);
+    // Files dragged into Static: served by token, only the ones dropped.
+    this.localFiles = new LocalFiles(this.dir);
+    this.session.protocol.handle('static-file', async (request) => {
+      const file = this.localFiles.lookup(request.url);
+      if (!file) return new Response('This file is no longer available. Drag it in again.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
+      const response = await net.fetch(pathToFileURL(file.path).href, { headers: request.headers });
+      const headers = new Headers(response.headers);
+      headers.set('content-type', file.mime);
+      // A dropped web page or SVG runs on its own, with no origin to reach anything else.
+      if (/html|svg|xml/.test(file.mime)) headers.set('content-security-policy', 'sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads');
+      return new Response(response.body, { status: response.status, headers });
+    });
+
     // The stand-ins $redirect rules point at (see shields/brave redirectUrl).
     this.session.protocol.handle('static-stub', (request) => {
       let name = '';
@@ -743,6 +758,16 @@ class BrowserApplication {
       },
     });
 
+    // A file dropped onto a page opens in a new tab beside it, by token.
+    this.tabs.onFileDropped = (tab, url) => {
+      let file = '';
+      try { file = fileURLToPath(url); } catch { return; }
+      const result = this.localFiles.add(file);
+      if (!result.url) { this.notify(result.error); return; }
+      const index = this.tabs.order.indexOf(tab.id);
+      this.tabs.create({ url: result.url, index: index >= 0 ? index + 1 : undefined });
+    };
+
     this.window.on('resize', () => this.layout());
     // macOS enters fullscreen from its own menu and green button too.
     this.window.on('enter-full-screen', () => {
@@ -817,6 +842,10 @@ class BrowserApplication {
     ipcMain.on('autofill:focus', (event, payload) => {
       const at = tabFor(event);
       if (!at || !payload || typeof payload.type !== 'string') return;
+      // Only when the person put the cursor there. A page that focuses its
+      // own email box on load would otherwise pop a menu that takes the
+      // keyboard away from it - the sign-in callout covers that case.
+      if (payload.user !== true) return;
       const type = payload.type;
       const kind = type === 'custom' ? 'custom' : kindOf(type);
       const prefs = this.autofill.prefs();
@@ -866,14 +895,27 @@ class BrowserApplication {
       }
       if (!items.length) return;
       items.push({ separator: true }, { label: kind === 'login' ? 'Manage passwords' : 'Manage autofill', icon: 'gear',
-        action: { channel: 'tabs:new', payload: { url: 'browser://passwords' + (kind === 'login' ? '' : '#autofill') } } });
-      this.#showMenu(items, anchor);
+        action: { channel: 'tabs:new', payload: { url: kind === 'login' ? 'browser://passwords' : 'browser://autofill' } } });
+      // Passive: the page keeps the keyboard, so typing goes on working and
+      // closes the list; the down arrow moves into it.
+      this.#showMenu(items, anchor, 'left', { passive: true });
+    });
+
+    // Keys pressed in the field while its suggestions are open.
+    ipcMain.on('autofill:menu-key', (event, payload) => {
+      if (!tabFor(event) || !this.overlayInteractive || !this.overlayPassive) return;
+      if (payload?.key === 'Escape') { this.#closeMenu(); return; }
+      if (payload?.key === 'ArrowDown') {
+        this.overlayPassive = false;
+        this.overlay.webContents.focus();
+        this.overlay.webContents.send('ui:menu-focus');
+      }
     });
 
     ipcMain.on('autofill:typing', (event) => {
       if (!tabFor(event) || !this.overlayInteractive) return;
       const items = this.lastMenu?.items || [];
-      if (items.some((i) => i.action?.channel === 'autofill:choose')) this.overlay?.webContents.send('ui:render-menu', { items: [] });
+      if (items.some((i) => i.action?.channel === 'autofill:choose')) this.#closeMenu();
     });
     ipcMain.on('autofill:filled', () => {});
 
@@ -947,24 +989,53 @@ class BrowserApplication {
      * the button. At most once per site in ten minutes, so signing out - or a
      * password the site no longer accepts - never turns into a loop.
      */
-    ipcMain.on('autofill:login-form', (event) => {
+    ipcMain.on('autofill:login-form', (event, payload) => {
       const at = tabFor(event);
       if (!at || this.incognito) return;
+      const logins = this.passwords.forUrl(at.origin);
+      if (!logins.length) return;
+      const prefs = this.autofill.prefs();
+      const hasPassword = payload?.hasPassword !== false;
       // Never send a password on its own over plain http, except to this computer.
       const loopback = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(at.origin).hostname);
-      if (!at.origin.startsWith('https:') && !loopback) return;
-      if (!this.autofill.prefs().autoSignIn || this.autofill.noAuto(at.origin) || this.silentBlocked.has(at.origin)) return;
-      if (this.passwords.locked) return;
-      const logins = this.passwords.forUrl(at.origin);
-      if (logins.length !== 1) return;
-      if (Date.now() - (this.autoSignedIn.get(at.origin) || 0) < 10 * 60 * 1000) return;
-      const secret = this.passwords.reveal(logins[0].id);
-      if (!secret?.ok) return;
-      this.autoSignedIn.set(at.origin, Date.now());
-      const values = { username: secret.username, password: secret.password };
-      if (/@/.test(secret.username || '')) values.email = secret.username;
-      event.sender.send('autofill:apply', { values, target: 'login', submit: true });
-      this.notify('Signed in to ' + at.host + ' automatically' + (secret.username ? ' as ' + secret.username : ''));
+      const secure = at.origin.startsWith('https:') || loopback;
+      const recently = Date.now() - (this.autoSignedIn.get(at.origin) || 0) < 10 * 60 * 1000;
+      if (hasPassword && secure && prefs.autoSignIn && logins.length === 1 && !recently && !this.passwords.locked &&
+          !this.autofill.noAuto(at.origin) && !this.silentBlocked.has(at.origin)) {
+        const secret = this.passwords.reveal(logins[0].id);
+        if (secret?.ok) {
+          this.autoSignedIn.set(at.origin, Date.now());
+          const values = { username: secret.username, password: secret.password };
+          if (/@/.test(secret.username || '')) values.email = secret.username;
+          event.sender.send('autofill:apply', { values, target: 'login', submit: true });
+          this.notify('Signed in to ' + at.host + ' automatically' + (secret.username ? ' as ' + secret.username : ''));
+          return;
+        }
+      }
+      // Otherwise say what is saved, right at the form, with one click to fill.
+      if (prefs.loginHints === false) return;
+      event.sender.send('autofill:callout', {
+        site: at.host.replace(/^www\./, ''),
+        accounts: logins.slice(0, 4).map((login) => ({
+          token: token({ wc: event.sender.id, origin: at.origin, login: login.id, target: 'login' }),
+          username: login.username || '',
+        })),
+        more: Math.max(0, logins.length - 4),
+        locked: this.passwords.locked,
+        theme: this.#calloutTheme(),
+        // Probes only: an open shadow root, so a test can find the buttons to
+        // click them for real. Everywhere else it is closed to the page.
+        inspectable: process.env.STATIC_OFFSCREEN === '1',
+      });
+    });
+
+    // A click on the callout's Fill button. Checked like any suggestion: the
+    // token must be for this tab and this site.
+    ipcMain.on('autofill:callout-fill', (event, payload) => {
+      const at = tabFor(event);
+      const data = at && this.autofillTokens.get(String(payload?.token || ''));
+      if (!data || data.wc !== event.sender.id || data.origin !== at.origin || !data.login) return;
+      this.#fillChoice({ ...data, anchor: fieldAnchor(at, payload?.rect) });
     });
 
     // Probes run while someone is using this computer. The system's own
@@ -1012,6 +1083,73 @@ class BrowserApplication {
     return id;
   }
 
+  /**
+   * Fill what a suggestion, the sign-in callout or the address-bar key stands
+   * for. The page must still be the site it was offered for.
+   */
+  async #fillChoice(data) {
+    if (!data) return false;
+    const tab = this.#tabByWebContentsId(data.wc);
+    const wc = tab?.view.webContents;
+    const sameSite = () => {
+      try { return !!wc && !wc.isDestroyed() && new URL(wc.getURL()).origin === data.origin; } catch { return false; }
+    };
+    if (!sameSite()) return false;
+    // A passkey the page was waiting for: answer that request, not a fill.
+    if (data.passkey) {
+      const waiting = this.conditional.get(data.wc);
+      const passkey = waiting && this.passwords.passkeysFor(waiting.request.rpId).find((k) => k.id === data.passkey);
+      if (!passkey) return false;
+      waiting.resolve(await this.#signWith(waiting.request, passkey, data.anchor));
+      return true;
+    }
+    let values = {};
+    if (data.login) {
+      let secret = this.passwords.reveal(data.login);
+      if (secret?.locked) {
+        if (!(await this.#askUnlock({ anchor: data.anchor, align: data.anchor ? 'left' : 'right', reason: 'Unlock to fill your password' }))) return false;
+        secret = this.passwords.reveal(data.login);
+      }
+      if (!secret?.ok || !sameSite()) return false;
+      values = { username: secret.username, password: secret.password };
+      if (/@/.test(secret.username || '')) values.email = secret.username;
+    } else if (data.generated) {
+      values = { 'new-password': data.generated, password: data.generated };
+    } else if (data.entry) {
+      const entry = this.autofill.values(data.entry);
+      if (!entry) return false;
+      // With a master password, cards wait for the vault to be open too.
+      if (entry.kind === 'card' && this.passwords.locked) {
+        if (!(await this.#askUnlock({ anchor: data.anchor, align: 'left', reason: 'Unlock to fill your card' })) || !sameSite()) return false;
+      }
+      values = fillValues(entry.kind, entry.fields);
+      if (entry.kind === 'custom') { wc.send('autofill:apply', { values, only: 'focused' }); return true; }
+    }
+    wc.send('autofill:apply', { values, target: data.target });
+    return true;
+  }
+
+  /** The browser's own colours, so the callout on a page matches its planet. */
+  #calloutTheme() {
+    try {
+      const vars = cssVariables(this.settings.value);
+      const pick = (name, fallback) => String(vars[name] || fallback).slice(0, 80);
+      return {
+        accent: pick('--accent', '#5aa7f0'), accentAlt: pick('--accent-alt', '#7d8ef2'), surface: pick('--surface', '#131e2c'),
+        text: pick('--text', '#e7eef7'), dim: pick('--text-dim', '#93a6bd'), border: pick('--border', '#223047'), bg: pick('--bg', '#0a1018'),
+      };
+    } catch { return null; }
+  }
+
+  /** What is saved for the page in the active tab, for the key in the address bar. */
+  #activeSaved() {
+    if (this.incognito || !this.passwords) return null;
+    const url = this.tabs?.activeState().url || '';
+    if (!/^https?:/i.test(url)) return null;
+    const saved = this.passwords.savedFor(url);
+    return saved.logins || saved.passkeys ? { ...saved, locked: this.passwords.locked } : null;
+  }
+
   /** navigator.credentials from a page: passkeys and password sign-in. */
   async #webauthnRequest(event, message) {
     const token = (data) => this.#autofillToken(data);
@@ -1055,10 +1193,17 @@ class BrowserApplication {
     return { fallback: true };
   }
 
-  /** Draw a menu in the overlay. */
-  #showMenu(items, anchor, align = 'left') {
+  /** Draw a menu in the overlay. A passive one leaves the keyboard with the page. */
+  #showMenu(items, anchor, align = 'left', { passive = false } = {}) {
     if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
-    this.pendingMenu = this.lastMenu = { items: items.filter(Boolean), anchor, align };
+    this.pendingMenu = this.lastMenu = { items: items.filter(Boolean), anchor, align, passive };
+    this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+  }
+
+  /** Close whatever menu is open. The overlay picks this up like any menu. */
+  #closeMenu() {
+    if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
+    this.pendingMenu = { items: [] };
     this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
   }
 
@@ -1936,6 +2081,7 @@ class BrowserApplication {
       active: this.tabs ? this.tabs.activeState() : {},
       bookmarks: this.bookmarks.list(),
       bookmarked: this.#activeIsBookmarked(),
+      saved: this.#activeSaved(),
       downloads: this.downloads.list().slice(0, 100),
       // The new tab page builds its most-visited grid from this slice.
       history: this.history.store.data.slice(0, 300),
@@ -2068,49 +2214,7 @@ class BrowserApplication {
         return true;
       },
       'feedback:categories': () => feedback.CATEGORIES,
-      'autofill:choose': async (_sender, payload) => {
-        const data = this.autofillTokens?.get(String(payload?.token || ''));
-        if (!data) return false;
-        const tab = this.#tabByWebContentsId(data.wc);
-        const wc = tab?.view.webContents;
-        const sameSite = () => {
-          try { return !!wc && !wc.isDestroyed() && new URL(wc.getURL()).origin === data.origin; } catch { return false; }
-        };
-        // The page must still be the site the suggestion was made for.
-        if (!sameSite()) return false;
-        // A passkey the page was waiting for: answer that request, not a fill.
-        if (data.passkey) {
-          const waiting = this.conditional.get(data.wc);
-          const passkey = waiting && this.passwords.passkeysFor(waiting.request.rpId).find((k) => k.id === data.passkey);
-          if (!passkey) return false;
-          waiting.resolve(await this.#signWith(waiting.request, passkey, data.anchor));
-          return true;
-        }
-        let values = {};
-        if (data.login) {
-          let secret = this.passwords.reveal(data.login);
-          if (secret?.locked) {
-            if (!(await this.#askUnlock({ anchor: data.anchor, align: 'left', reason: 'Unlock to fill your password' }))) return false;
-            secret = this.passwords.reveal(data.login);
-          }
-          if (!secret?.ok || !sameSite()) return false;
-          values = { username: secret.username, password: secret.password };
-          if (/@/.test(secret.username || '')) values.email = secret.username;
-        } else if (data.generated) {
-          values = { 'new-password': data.generated, password: data.generated };
-        } else if (data.entry) {
-          const entry = this.autofill.values(data.entry);
-          if (!entry) return false;
-          // With a master password, cards wait for the vault to be open too.
-          if (entry.kind === 'card' && this.passwords.locked) {
-            if (!(await this.#askUnlock({ anchor: data.anchor, align: 'left', reason: 'Unlock to fill your card' })) || !sameSite()) return false;
-          }
-          values = fillValues(entry.kind, entry.fields);
-          if (entry.kind === 'custom') { wc.send('autofill:apply', { values, only: 'focused' }); return true; }
-        }
-        wc.send('autofill:apply', { values });
-        return true;
-      },
+      'autofill:choose': (_sender, payload) => this.#fillChoice(this.autofillTokens?.get(String(payload?.token || ''))),
       'autofill:decide': (_sender, payload) => {
         const data = this.autofillTokens?.get(String(payload?.token || ''));
         if (!data) return false;
@@ -2274,10 +2378,86 @@ class BrowserApplication {
         return pageMenu.runCommand(this, target, String(payload?.command || ''), payload?.arg);
       },
       'menu:state': (_sender, payload) => {
-        this.setOverlayInteractive(!!payload?.open);
+        this.setOverlayInteractive(!!payload?.open, { passive: !!payload?.passive });
+        return true;
+      },
+      /**
+       * A click outside a passive menu closes it AND reaches whatever was
+       * under the pointer, as with any browser's autofill list - rather than
+       * the first click on the page only dismissing the menu.
+       */
+      'menu:passthrough': (_sender, payload) => {
+        const x = Number(payload?.x);
+        const y = Number(payload?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !this.window) return false;
+        const views = (this.window.contentView.children || []).filter((view) => view !== this.overlay && view.webContents && !view.webContents.isDestroyed());
+        for (const view of views.reverse()) {
+          if (view.getVisible?.() === false) continue;
+          const b = view.getBounds();
+          if (x < b.x || y < b.y || x >= b.x + b.width || y >= b.y + b.height) continue;
+          const wc = view.webContents;
+          const at = { x: Math.round(x - b.x), y: Math.round(y - b.y), button: payload.button === 'right' ? 'right' : 'left', clickCount: 1 };
+          wc.focus();
+          wc.sendInputEvent({ type: 'mouseDown', ...at });
+          wc.sendInputEvent({ type: 'mouseUp', ...at });
+          return true;
+        }
+        return false;
+      },
+      // The key in the address bar: what is saved for this site, one click to fill.
+      'passwords:key-menu': (sender, payload) => {
+        const tab = this.tabs?.active;
+        const wc = tab?.view.webContents;
+        let origin = '';
+        try { origin = new URL(wc?.getURL() || '').origin; } catch { return false; }
+        if (!/^https?:/.test(origin)) return false;
+        const host = new URL(origin).host.replace(/^www\./, '');
+        const logins = this.passwords.forUrl(origin);
+        const saved = this.passwords.savedFor(origin);
+        const items = [{ heading: logins.length || saved.passkeys ? 'Saved for ' + host : 'Nothing saved for ' + host }];
+        for (const login of logins.slice(0, 8)) {
+          items.push({ label: login.username || '(no username)', icon: 'key',
+            hint: this.passwords.locked ? 'Locked · unlock to fill' : 'Fill on this page',
+            action: { channel: 'autofill:choose', payload: { token: this.#autofillToken({ wc: wc.id, origin, login: login.id, target: 'login' }) } } });
+        }
+        if (saved.passkeys) {
+          items.push({ label: saved.passkeys + (saved.passkeys === 1 ? ' passkey' : ' passkeys'), icon: 'lock', disabled: true,
+            hint: 'Used when ' + host + ' asks for one' });
+        }
+        items.push({ separator: true },
+          { label: 'Add a password for ' + host, icon: 'plus', action: { channel: 'tabs:new', payload: { url: 'browser://passwords#add=' + encodeURIComponent(origin) } } },
+          { label: 'Manage passwords', icon: 'gear', action: { channel: 'tabs:new', payload: { url: 'browser://passwords' } } });
+        let anchor = payload?.anchor;
+        if (anchor && sender === this.chrome?.webContents) {
+          const b = this.chrome.getBounds();
+          anchor = { ...anchor, left: anchor.left + b.x, right: anchor.right + b.x, top: anchor.top + b.y, bottom: anchor.bottom + b.y };
+        }
+        this.#showMenu(items, anchor || this.#promptAnchor(), 'right');
         return true;
       },
 
+      /**
+       * Files dropped on the tab strip (by path) or images dragged from a page
+       * that exist only in memory (by bytes): each opens in a new tab, or the
+       * first replaces the tab it was dropped onto.
+       */
+      'tabs:open-files': (_sender, payload) => {
+        const opened = [];
+        const errors = [];
+        const items = Array.isArray(payload?.files) ? payload.files.slice(0, 20) : [];
+        for (const item of items) {
+          const result = item?.path ? this.localFiles.add(String(item.path))
+            : item?.bytes ? this.localFiles.addBytes(String(item.name || 'image'), item.bytes)
+            : { error: 'Nothing to open.' };
+          if (result.url) opened.push(result.url); else errors.push(result.error);
+        }
+        opened.forEach((url, index) => {
+          if (index === 0 && payload?.intoTab && this.tabs.tabs.has(payload.intoTab)) this.tabs.navigate(payload.intoTab, url);
+          else this.tabs.create({ url, background: index > 0 });
+        });
+        if (errors.length && !opened.length) this.notify(errors[0]);
+        return { opened: opened.length, errors };
+      },
       'tabs:new': (_sender, payload) => this.tabs.create({
         url: payload?.url,
         background: !!payload?.background,
@@ -2792,6 +2972,13 @@ class BrowserApplication {
           add('Master password', state.hasMaster ? (state.locked ? 'Locked' : 'Unlocked') : 'Off');
           add('Encryption', state.encryption?.available === false ? 'Unavailable' : 'Available');
           if (state.hasMaster && !state.locked) act('Lock now', 'passwords:lock', {});
+        } else if (id === 'autofill') {
+          const counts = this.autofill?.state?.().counts || {};
+          add('Addresses', counts.address || 0);
+          add('Payment cards', counts.card || 0);
+          add('UPI IDs', counts.upi || 0);
+          add('IDs & documents', counts.document || 0);
+          add('Custom fields', counts.custom || 0);
         } else if (id === 'dashboard') {
           add('Open tabs', this.tabs ? this.tabs.list().length : 0);
           add('Blocked all time', this.shields.stats.lifetime().blocked.toLocaleString());
@@ -3235,6 +3422,17 @@ class BrowserApplication {
       },
       'passwords:reveal': (_sender, payload) => this.passwords.reveal(payload?.id),
       'passwords:remove': (_sender, payload) => this.passwords.remove(payload?.id),
+      'passwords:add': (_sender, payload) => this.passwords.add({
+        url: String(payload?.url || ''), username: String(payload?.username || ''),
+        password: String(payload?.password || ''), note: String(payload?.note || ''),
+      }),
+      'passwords:update': (_sender, payload) => this.passwords.update(String(payload?.id || ''), {
+        url: payload?.url === undefined ? undefined : String(payload.url),
+        username: payload?.username === undefined ? undefined : String(payload.username),
+        password: payload?.password ? String(payload.password) : undefined,
+        note: payload?.note === undefined ? undefined : String(payload.note),
+      }),
+      'passwords:details': (_sender, payload) => this.passwords.details(String(payload?.id || '')),
       'passwords:clear': () => this.passwords.clear(),
       'passwords:generate': (_sender, payload) => ({
         password: generatePassword(payload || {}),
@@ -3835,10 +4033,12 @@ class BrowserApplication {
    * always run) and is instead shrunk to a 1x1 corner when idle, which leaves
    * the whole window clickable underneath it.
    */
-  setOverlayInteractive(interactive) {
+  setOverlayInteractive(interactive, { passive = false } = {}) {
     if (!this.overlay || !this.window || this.window.isDestroyed()) return;
     const wasInteractive = this.overlayInteractive;
+    const wasPassive = this.overlayPassive;
     this.overlayInteractive = interactive;
+    this.overlayPassive = interactive && passive;
     const { width, height } = this.window.getContentBounds();
     // Full-window while a menu is open; a 1x1 corner otherwise, so clicks pass
     // straight through to the chrome and the page. The view stays attached
@@ -3852,7 +4052,8 @@ class BrowserApplication {
       // bug stayed hidden; on a real site the page covered the menu entirely.
       this.window.contentView.addChildView(this.overlay);
       this.overlay.setBounds({ x: 0, y: 0, width, height });
-      this.overlay.webContents.focus();
+      // A passive menu (autofill suggestions) leaves the keyboard where it is.
+      if (!passive) this.overlay.webContents.focus();
     } else {
       // A 1x1 corner when idle, so clicks pass straight through to the chrome
       // and the page below. The view stays attached either way.
@@ -3861,7 +4062,8 @@ class BrowserApplication {
       // A menu can open from F10 while a web tab owns focus, so chrome never
       // gets a blur event. Explicitly reset its trigger on every dismissal.
       this.chrome.webContents.send('ui:menu-closed');
-      if (wasInteractive) this.chrome.webContents.focus();
+      // After a passive menu the keyboard never left the page; do not take it.
+      if (wasInteractive && !wasPassive) this.chrome.webContents.focus();
     }
   }
 
@@ -3986,6 +4188,22 @@ class BrowserApplication {
       legal: { active: false, badge: null, summary: 'Indian legal research' },
       shopping: { active: false, badge: null, summary: 'Compare open products' },
       dashboard: { active: false, badge: null, summary: 'All modes' },
+      passwords: (() => {
+        // Counts only: state() decrypts every entry, and this runs on every push.
+        const vault = { count: this.passwords.data.entries.length, passkeys: this.passwords.data.passkeys.length,
+          hasMaster: this.passwords.hasMaster, locked: this.passwords.locked };
+        return {
+          active: vault.hasMaster && !vault.locked,
+          badge: vault.count ? String(vault.count) : null,
+          summary: vault.count + (vault.count === 1 ? ' login' : ' logins') + (vault.passkeys ? ' · ' + vault.passkeys + ' passkeys' : '') +
+            (vault.hasMaster ? (vault.locked ? ' · locked' : ' · unlocked') : ''),
+        };
+      })(),
+      autofill: (() => {
+        const counts = this.autofill.state().counts || {};
+        const total = Object.values(counts).reduce((n, c) => n + c, 0);
+        return { active: false, badge: total ? String(total) : null, summary: total ? total + ' saved for forms' : 'Nothing saved yet' };
+      })(),
     };
   }
 

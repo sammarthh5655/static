@@ -170,11 +170,24 @@ list.addEventListener('drop', (event) => {
     dragId = null;
     return;
   }
-  const url = linkFrom(event);
-  if (!url) return;
   // Onto a tab: that tab goes there. Anywhere else: a new tab.
-  if (over) invoke('tabs:navigate', { id: over.dataset.id, input: url });
-  else invoke('tabs:new', { url });
+  const url = linkFrom(event);
+  const files = [...(event.dataTransfer?.files || [])];
+  if (url && (/^https?:/i.test(url) || !files.length)) {
+    if (over) invoke('tabs:navigate', { id: over.dataset.id, input: url });
+    else invoke('tabs:new', { url });
+    return;
+  }
+  // Files from the computer by path; an image that exists only in memory by its bytes.
+  (async () => {
+    const payload = [];
+    for (const file of files.slice(0, 20)) {
+      const path = window.browser.filePath?.(file) || '';
+      if (path) payload.push({ path });
+      else if (file.size && file.size <= 64 * 1024 * 1024) payload.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+    }
+    if (payload.length) invoke('tabs:open-files', { files: payload, intoTab: over?.dataset.id });
+  })();
 });
 list.addEventListener('dragend', () => { dragId = null; invoke('split:drag', { id: null }); render(); });
 

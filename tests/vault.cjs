@@ -127,12 +127,12 @@ async function run(browser) {
     V.lock();
     await go(base + '/login');
     browser.lastMenu = null;
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await until(() => browser.lastMenu);
     V.save_credential({ url: base, username: 'sam@example.com', password: 'page-Secret-4' });
     V.save_credential({ url: base, username: 'kim@example.com', password: 'page-Secret-5' });
     browser.lastMenu = null;
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.blur(); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.blur(); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await until(() => browser.lastMenu);
     const hints = (browser.lastMenu?.items || []).map((i) => i.label + '=' + (i.hint || ''));
     check('saved logins say they need unlocking', hints.some((h) => h.startsWith('sam@example.com=Locked')), hints.join(' | '));
@@ -222,7 +222,7 @@ async function run(browser) {
     check('two saved logins: it waits for you to choose', !(await wc.executeJavaScript(`document.body.dataset.signedIn || ''`)));
     V.remove(V.forUrl(base).find((l) => l.username === 'kim@example.com').id);
     browser.lastMenu = null;
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await until(() => browser.lastMenu);
     await pick('Don’t sign in automatically here');
     await wait(200);
@@ -243,7 +243,7 @@ async function run(browser) {
     browser.autofill.put('custom', { label: 'Employee ID', value: 'EMP-4471', match: 'staff no' });
     await go(base + '/profile');
     browser.lastMenu = null;
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('e'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('e'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await until(() => browser.lastMenu);
     const custom = (browser.lastMenu?.items || []).map((i) => i.label + '=' + (i.hint || ''));
     check('a custom field is offered in the box its name matches', custom.includes('EMP-4471=Employee ID · custom field'), custom.join(' | '));
@@ -251,11 +251,11 @@ async function run(browser) {
     const form = await until(() => wc.executeJavaScript(`document.getElementById('e').value ? [document.getElementById('e').value, document.getElementById('d').value] : null`));
     check('and fills only that box', form && form[0] === 'EMP-4471' && form[1] === '', JSON.stringify(form));
     browser.lastMenu = null;
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('d'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('d'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await wait(500);
     check('boxes it does not match get nothing', !browser.lastMenu);
     browser.lastMenu = null;
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('o'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('o'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await wait(500);
     check('one-time code boxes still get nothing', !browser.lastMenu);
 

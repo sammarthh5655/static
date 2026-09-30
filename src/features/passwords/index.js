@@ -245,7 +245,11 @@ class Passwords {
 
   /** Re-encrypt every stored secret. Throws, changing nothing, if any is locked. */
   #rewriteAll(read, write) {
-    const rows = [...this.data.entries.map((e) => [e, 'password']), ...this.data.passkeys.map((k) => [k, 'privateKey'])];
+    const rows = [
+      ...this.data.entries.map((e) => [e, 'password']),
+      ...this.data.entries.filter((e) => e.note).map((e) => [e, 'note']),
+      ...this.data.passkeys.map((k) => [k, 'privateKey']),
+    ];
     const plain = rows.map(([row, field]) => {
       const value = read(row[field]);
       if (value === LOCKED) throw new Error('Unlock first.');
@@ -396,7 +400,7 @@ class Passwords {
    * Matching is by origin plus username, so several accounts on one site are
    * separate entries rather than overwriting each other.
    */
-  save_credential({ url, username, password, title }) {
+  save_credential({ url, username, password, title, note }) {
     const status = this.encryptionStatus();
     if (!status.available) {
       return { ok: false, error: status.reason || 'Encryption is unavailable.' };
@@ -413,8 +417,9 @@ class Passwords {
       existing.password = this.#encrypt(password);
       existing.updatedAt = now;
       if (title) existing.title = String(title).slice(0, 200);
+      if (note !== undefined) this.#setNote(existing, note);
     } else {
-      this.data.entries.unshift({
+      const entry = {
         id: crypto.randomUUID(),
         origin,
         username: String(username || ''),
@@ -423,13 +428,74 @@ class Passwords {
         createdAt: now,
         updatedAt: now,
         lastUsed: 0,
-      });
+      };
+      if (note) this.#setNote(entry, note);
+      this.data.entries.unshift(entry);
       if (this.data.entries.length > MAX_ENTRIES) this.data.entries.length = MAX_ENTRIES;
     }
 
     this.save();
     this.onChange();
-    return { ok: true, origin };
+    return { ok: true, origin, id: (existing || this.data.entries[0]).id };
+  }
+
+  /** A note is a secret like the password: sealed and encrypted the same way. */
+  #setNote(entry, note) {
+    const text = String(note || '').replace(/\r\n/g, '\n').slice(0, 4000);
+    if (text.trim()) entry.note = this.#encrypt(text);
+    else delete entry.note;
+  }
+
+  /**
+   * Add a login by hand, from the manager. Unlike saving after a sign-in, an
+   * existing login for the same site and username is not silently replaced.
+   */
+  add({ url, username, password, note }) {
+    const origin = originOf(withScheme(url));
+    if (!origin) return { ok: false, error: 'Enter the website, like github.com or https://mail.example.com.' };
+    if (!String(password || '')) return { ok: false, error: 'Enter the password.' };
+    const name = String(username || '').trim().slice(0, 300);
+    if (this.data.entries.some((entry) => entry.origin === origin && entry.username === name)) {
+      return { ok: false, error: 'You already have a login for ' + origin.replace(/^https?:\/\//, '') + (name ? ' as ' + name : '') + '. Edit that one instead.' };
+    }
+    return this.save_credential({ url: origin, username: name, password: String(password), note, title: origin });
+  }
+
+  /**
+   * Change a saved login. Only what is given changes: leave `password` empty
+   * to keep the current one.
+   */
+  update(id, { url, username, password, note } = {}) {
+    const entry = this.data.entries.find((candidate) => candidate.id === id);
+    if (!entry) return { ok: false, error: 'That login no longer exists.' };
+    const status = this.encryptionStatus();
+    if (!status.available) return { ok: false, error: status.reason || 'Encryption is unavailable.' };
+    const origin = url === undefined ? entry.origin : originOf(withScheme(url));
+    if (!origin) return { ok: false, error: 'Enter the website, like github.com or https://mail.example.com.' };
+    const name = username === undefined ? entry.username : String(username || '').trim().slice(0, 300);
+    if (this.data.entries.some((other) => other !== entry && other.origin === origin && other.username === name)) {
+      return { ok: false, error: 'Another saved login already uses that website and username.' };
+    }
+    if (origin !== entry.origin && entry.title === entry.origin) entry.title = origin;
+    entry.origin = origin;
+    entry.username = name;
+    if (password) entry.password = this.#encrypt(String(password));
+    if (note !== undefined) this.#setNote(entry, note);
+    entry.updatedAt = Date.now();
+    this.touch();
+    this.save();
+    this.onChange();
+    return { ok: true, id: entry.id };
+  }
+
+  /** How much is saved for a page, for the key in the address bar. Nothing secret. */
+  savedFor(url) {
+    let host = '';
+    try { host = new URL(url).hostname.toLowerCase(); } catch { return { logins: 0, passkeys: 0 }; }
+    return {
+      logins: this.forUrl(url).length,
+      passkeys: this.data.passkeys.filter((k) => host === k.rpId || host.endsWith('.' + k.rpId)).length,
+    };
   }
 
   /** Credentials for a page. Passwords are NOT included - see `reveal`. */
@@ -471,6 +537,18 @@ class Passwords {
     return { ok: true, username: entry.username, password };
   }
 
+  /** Everything about one login, for the edit form: password and note included. */
+  details(id) {
+    const entry = this.data.entries.find((candidate) => candidate.id === id);
+    if (!entry) return { ok: false, error: 'That login no longer exists.' };
+    const password = this.#decrypt(entry.password);
+    if (password === LOCKED) return { ok: false, locked: true, error: 'Your passwords are locked.' };
+    if (password === null) return { ok: false, error: 'This entry cannot be decrypted on this machine.' };
+    const note = entry.note ? this.#decrypt(entry.note) : '';
+    this.touch();
+    return { ok: true, id: entry.id, url: entry.origin, username: entry.username, password, note: typeof note === 'string' ? note : '' };
+  }
+
   /** Vault listing. Never includes passwords. */
   list(query = '') {
     const q = String(query || '').trim().toLowerCase();
@@ -485,6 +563,7 @@ class Passwords {
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
         lastUsed: entry.lastUsed,
+        hasNote: !!entry.note,
         readable: this.#outer(entry.password) !== null,
       }))
       .sort((a, b) => a.origin.localeCompare(b.origin));
@@ -556,11 +635,15 @@ class Passwords {
     return { checked: this.#all().length, breached: results };
   }
 
-  /** CSV in the format Chrome, Edge and Brave use: name,url,username,password. */
+  /** CSV in the format Chrome, Edge and Brave use: name,url,username,password,note. */
   exportCsv() {
     const quote = (value) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
-    return ['name,url,username,password', ...this.#all().map(({ entry, password }) =>
-      [entry.title, entry.origin, entry.username, password].map(quote).join(','))].join('\r\n') + '\r\n';
+    const noteOf = (entry) => {
+      const note = entry.note ? this.#decrypt(entry.note) : '';
+      return typeof note === 'string' ? note : '';
+    };
+    return ['name,url,username,password,note', ...this.#all().map(({ entry, password }) =>
+      [entry.title, entry.origin, entry.username, password, noteOf(entry)].map(quote).join(','))].join('\r\n') + '\r\n';
   }
 
   /**
@@ -577,11 +660,13 @@ class Passwords {
     const user = col('username', 'login_username', 'login', 'email');
     const pass = col('password', 'login_password');
     const name = col('name', 'title');
+    const notes = col('note', 'notes', 'extra', 'comments');
     if (url < 0 || pass < 0) return { ok: false, error: 'This does not look like a password export (no url and password columns).' };
     let added = 0;
     let skipped = 0;
     for (const row of rows.slice(1)) {
-      const result = row[pass] ? this.save_credential({ url: row[url], username: user >= 0 ? row[user] : '', password: row[pass], title: name >= 0 ? row[name] : '' }) : { ok: false };
+      const result = row[pass] ? this.save_credential({ url: row[url], username: user >= 0 ? row[user] : '', password: row[pass],
+        title: name >= 0 ? row[name] : '', note: notes >= 0 && row[notes] ? row[notes] : undefined }) : { ok: false };
       if (result.ok) added++; else skipped++;
     }
     return { ok: true, added, skipped };
@@ -622,6 +707,13 @@ function originOf(url) {
   } catch {
     return '';
   }
+}
+
+/** "github.com" -> "https://github.com": people type sites without a scheme. */
+function withScheme(input) {
+  const text = String(input || '').trim();
+  if (!text) return '';
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : 'https://' + text;
 }
 
 /**

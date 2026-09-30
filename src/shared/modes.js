@@ -105,6 +105,15 @@ const MODES = {
     group: 'system',
     order: 9,
   },
+  autofill: {
+    id: 'autofill',
+    name: 'Autofill',
+    tagline: 'Addresses, cards, IDs and more',
+    icon: 'user',
+    page: 'browser://autofill',
+    group: 'system',
+    order: 9.5,
+  },
   health: {
     id: 'health',
     name: 'Health',

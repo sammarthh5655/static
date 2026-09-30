@@ -18,7 +18,7 @@ const el = {
   windowTitle: $('window-title'),
   tabs: $('tabs'), newtab: $('newtab'),
   back: $('back'), forward: $('forward'), reload: $('reload'), home: $('home'),
-  address: $('address'), security: $('security'), star: $('star'),
+  address: $('address'), security: $('security'), star: $('star'), key: $('key'),
   suggestions: $('suggestions'), bookmarks: $('bookmarks'),
   overflow: $('overflow'), notice: $('notice'),
 };
@@ -75,6 +75,7 @@ function buildChrome() {
   setIcon(el.reload, 'reload');
   setIcon(el.home, 'home');
   setIcon(el.star, 'star');
+  setIcon(el.key, 'key');
   setIcon(el.newtab, 'plus');
   setIcon(el.overflow, 'menu');
   el.appMenu.append(icon('menu', { size: 16 }));
@@ -241,6 +242,39 @@ function droppedLink(event) {
   return (raw.split(/\r?\n/).find((line) => line && !line.startsWith('#')) || '').trim();
 }
 
+/** Does the drag carry a link, a file, or an image? Anything a tab can open. */
+function canOpen(event) {
+  const types = event.dataTransfer?.types || [];
+  return types.includes('Files') || types.includes('text/uri-list') || types.includes('text/plain');
+}
+
+/**
+ * Open what was dropped: a web link or image by its address, files from the
+ * computer by their path, and an image that exists only in memory (a data: or
+ * blob: picture from a page) by its bytes. Onto a tab: the first replaces it.
+ * Must be called during the drop event - its data is gone afterwards.
+ */
+function openDropped(event, intoTab) {
+  const link = droppedLink(event);
+  const files = [...(event.dataTransfer?.files || [])];
+  if (link && (/^https?:/i.test(link) || !files.length)) {
+    if (intoTab) invoke('tabs:navigate', { id: intoTab, input: link });
+    else invoke('tabs:new', { url: link });
+    return true;
+  }
+  if (!files.length) return false;
+  (async () => {
+    const payload = [];
+    for (const file of files.slice(0, 20)) {
+      const path = window.browser.filePath?.(file) || '';
+      if (path) payload.push({ path });
+      else if (file.size && file.size <= 64 * 1024 * 1024) payload.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+    }
+    if (payload.length) invoke('tabs:open-files', { files: payload, intoTab });
+  })();
+  return true;
+}
+
 /** Right-click menu for a tab. */
 function tabContextMenu(tab, event) {
   const activeId = state.tabs.find((t) => t.active)?.id;
@@ -381,7 +415,7 @@ function renderToolbar() {
     el.address.value = displayUrl(active.url);
   }
 
-  const marks = { secure: 'lock', insecure: 'warn', error: 'warn', internal: 'gear', extension: 'puzzle' };
+  const marks = { secure: 'lock', insecure: 'warn', error: 'warn', internal: 'gear', extension: 'puzzle', file: 'doc' };
   el.security.replaceChildren(window.ui.icon(marks[active.security] || 'search', { size: 14 }));
   el.security.className = 'security ' + (active.security || '');
   el.security.title = {
@@ -390,7 +424,18 @@ function renderToolbar() {
     error: 'Page failed to load',
     internal: 'Built-in page',
     extension: 'Extension page',
+    file: 'A file from this computer, opened only because you dragged it in',
   }[active.security] || '';
+
+  // The key: this site has saved logins or passkeys. One click lists them.
+  const saved = state.saved;
+  el.key.hidden = !saved;
+  if (saved) {
+    const parts = [saved.logins ? saved.logins + (saved.logins === 1 ? ' saved login' : ' saved logins') : '',
+      saved.passkeys ? saved.passkeys + (saved.passkeys === 1 ? ' passkey' : ' passkeys') : ''].filter(Boolean);
+    el.key.title = parts.join(' and ') + ' for this site' + (saved.locked ? ' (locked)' : '') + ' - click to fill';
+    el.key.classList.toggle('locked', !!saved.locked);
+  }
 
   el.star.classList.toggle('on', !!state.bookmarked);
   el.star.title = (state.bookmarked ? 'Remove bookmark' : 'Bookmark this page') +
@@ -600,6 +645,10 @@ el.forward.addEventListener('click', () => act('page:forward'));
 el.home.addEventListener('click', () => act('page:home'));
 el.reload.addEventListener('click', () => act(state.active?.loading ? 'page:stop' : 'page:reload'));
 el.star.addEventListener('click', () => act('bookmarks:toggle'));
+el.key.addEventListener('click', () => {
+  const box = el.key.getBoundingClientRect();
+  invoke('passwords:key-menu', { anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } });
+});
 
 el.appMenu.addEventListener('click', () => toggleMenu(el.appMenu, mainMenuItems(), 'left'));
 el.overflow.addEventListener('click', () => toggleMenu(el.overflow, mainMenuItems(), 'right'));
@@ -647,9 +696,8 @@ el.tabs.addEventListener('dragstart', (event) => {
 
 el.tabs.addEventListener('dragover', (event) => {
   if (!local.dragId) {
-    // A link from a page: onto a tab replaces it, anywhere else opens one.
-    const types = event.dataTransfer?.types || [];
-    if (!types.includes('text/uri-list') && !types.includes('text/plain')) return;
+    // A link, an image or a file: onto a tab replaces it, anywhere else opens one.
+    if (!canOpen(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     el.tabs.querySelectorAll('.link-target').forEach((n) => n.classList.remove('link-target'));
@@ -667,12 +715,8 @@ el.tabs.addEventListener('dragleave', () => {
 el.tabs.addEventListener('drop', (event) => {
   if (!local.dragId) {
     el.tabs.querySelectorAll('.link-target').forEach((n) => n.classList.remove('link-target'));
-    const url = droppedLink(event);
-    if (!url) return;
     event.preventDefault();
-    const over = event.target.closest('.tab');
-    if (over) invoke('tabs:navigate', { id: over.dataset.id, input: url });
-    else invoke('tabs:new', { url });
+    openDropped(event, event.target.closest('.tab')?.dataset.id);
     return;
   }
   event.preventDefault();
@@ -700,20 +744,18 @@ el.tabs.addEventListener('dragend', () => {
   renderTabs();
 });
 
-// Links dropped on the + button or the empty strip open in a new tab.
-for (const target of [el.newtab, document.querySelector('.strip-drag')]) {
+// Links, images and files dropped on the + button or the empty strip open in a new tab.
+for (const target of [el.newtab, document.querySelector('.strip-drag'), document.querySelector('.strip')]) {
   if (!target) continue;
   target.addEventListener('dragover', (event) => {
-    const types = event.dataTransfer?.types || [];
-    if (local.dragId || (!types.includes('text/uri-list') && !types.includes('text/plain'))) return;
+    if (local.dragId || !canOpen(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
   });
   target.addEventListener('drop', (event) => {
-    const url = droppedLink(event);
-    if (!url || local.dragId) return;
+    if (local.dragId || event.defaultPrevented || !canOpen(event)) return;
     event.preventDefault();
-    invoke('tabs:new', { url });
+    openDropped(event);
   });
 }
 

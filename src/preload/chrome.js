@@ -1,4 +1,4 @@
-﻿const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const { injectBrowserAction } = require('electron-chrome-extensions/browser-action');
 const { requests, events } = require('../shared/channels');
 // This bundle belongs only to our local chrome WebContentsView, never web tabs.
@@ -20,6 +20,11 @@ if (location.protocol === 'file:' && TRUSTED.some(p => location.pathname.endsWit
       return () => ipcRenderer.removeListener(channel, listener);
     },
     platform: process.platform,
+    // Where a file dragged in from the computer lives, so it can open in a tab.
+    // Empty for a file that exists only in memory (an image from a page).
+    filePath(file) {
+      try { return webUtils.getPathForFile(file) || ''; } catch { return ''; }
+    },
   }));
   // The upstream helper exposes only its browser-action interface, not ipcRenderer.
   // Extension action buttons belong in the toolbar only, not the overlay.

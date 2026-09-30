@@ -91,12 +91,15 @@ async function renderMenu(payload) {
 
   // Size the overlay to the window BEFORE building the menu, and wait for that
   // to land: a 1x1 view has nowhere to paint a menu.
-  await invoke('menu:state', { open: true });
+  const passive = !!payload.passive;
+  await invoke('menu:state', { open: true, passive });
 
   window.ui.menu(items, {
     anchor: payload.anchor,
     align: payload.align || 'left',
+    passive,
     onClose: () => { if (!replacing) setInteractive(false); },
+    onOutside: (event) => invoke('menu:passthrough', { x: event.clientX, y: event.clientY, button: event.button === 2 ? 'right' : 'left' }),
   });
 }
 
@@ -111,6 +114,9 @@ setInterval(() => {
   if (window.ui.menuIsOpen()) return;
   invoke('menu:pending').then((payload) => { if (payload) renderMenu(payload); });
 }, 120);
+
+// The down arrow in a field whose suggestions are showing.
+window.browser.on('ui:menu-focus', () => window.ui.focusMenu());
 
 window.browser.on('app:state', (next) => {
   state = next;

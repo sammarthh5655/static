@@ -121,6 +121,9 @@ protocol.registerSchemesAsPrivileged([
   // Stand-ins for $redirect filter rules. Chromium refuses to redirect a web
   // request to a data: URL, so they are served from a scheme of our own.
   { scheme: 'static-stub', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+  // Files from this computer opened in a tab (dragged in). Serves only files
+  // the person dropped - see features/tabs/local-files.js.
+  { scheme: 'static-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
 if (!app.requestSingleInstanceLock()) app.quit();

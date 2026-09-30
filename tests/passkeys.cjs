@@ -166,7 +166,7 @@ async function run(browser) {
     browser.lastMenu = null;
     const conditional = wc.executeJavaScript(`signIn({ mediation: 'conditional' })`);
     await wait(400);
-    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`);
+    await wc.executeJavaScript(`(() => { const el = document.getElementById('u'); el.focus(); el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })); })()`, true);
     await menuWith('sam@local');
     const suggestion = (browser.lastMenu?.items || []).find((i) => i.label === 'sam@local');
     check('the username box offers the passkey', suggestion?.hint === 'Passkey for localhost', suggestion?.hint);

@@ -73,7 +73,7 @@ class Autofill {
   constructor(dir, { onChange } = {}) {
     this.file = path.join(dir, FILE);
     this.onChange = onChange || (() => {});
-    this.data = { version: 1, entries: [], never: [], noAuto: [], prefs: { offerPasswords: true, fillAddresses: true, fillCards: true, autoSignIn: true, passkeys: true } };
+    this.data = { version: 1, entries: [], never: [], noAuto: [], prefs: { offerPasswords: true, fillAddresses: true, fillCards: true, autoSignIn: true, passkeys: true, loginHints: true } };
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (Array.isArray(raw.entries)) this.data.entries = raw.entries;
@@ -130,7 +130,8 @@ class Autofill {
     return this.data.entries.filter((e) => !kind || e.kind === kind).map((entry) => {
       const fields = this.#open(entry) || {};
       return { id: entry.id, kind: entry.kind, label: fields.label || '', summary: mask(entry.kind, fields),
-        docType: fields.docType, cardKind: fields.cardKind, purpose: fields.purpose, updatedAt: entry.updatedAt };
+        docType: fields.docType, cardKind: fields.cardKind, purpose: fields.purpose, updatedAt: entry.updatedAt,
+        view: view(entry.kind, fields) };
     });
   }
 
@@ -203,6 +204,24 @@ class Autofill {
     return { available: this.available(), prefs: this.prefs(), never: [...this.data.never], noAuto: [...this.data.noAuto],
       counts: Object.fromEntries(Object.keys(SHAPES).map((k) => [k, this.data.entries.filter((e) => e.kind === k).length])) };
   }
+}
+
+/**
+ * What the manager draws for an entry: never a full card or document number,
+ * only what the masked summary already shows, laid out.
+ */
+function view(kind, f) {
+  if (kind === 'card') {
+    const n = f['cc-number'] || '';
+    return { network: cardNetwork(n), last4: n.slice(-4), holder: f['cc-name'] || '',
+      expires: f['cc-exp-month'] ? String(f['cc-exp-month']).padStart(2, '0') + '/' + String(f['cc-exp-year'] || '').slice(-2) : '' };
+  }
+  if (kind === 'address') {
+    return { name: f.name || [f['given-name'], f['family-name']].filter(Boolean).join(' '),
+      lines: [f['address-line1'], f['address-line2'], [f['address-level2'], f['address-level1'], f['postal-code']].filter(Boolean).join(', '), f.country].filter(Boolean),
+      contact: [f.tel, f.email].filter(Boolean).join(' · ') };
+  }
+  return {};
 }
 
 /** What an entry puts into each field type. */

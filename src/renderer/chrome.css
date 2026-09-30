@@ -236,6 +236,15 @@ body.mac .window-controls { display: none; }
   cursor: text;
 }
 
+/* The key: saved logins for this site. It arrives with a small glint. */
+.key { color: var(--accent); }
+.key[hidden] { display: none; }
+.key:not([hidden]) { animation: key-in 420ms var(--ease) both; }
+.key .icon-filled { display: none; }
+.key:hover .icon-outline { display: none; }
+.key:hover .icon-filled { display: block; }
+.key.locked { color: var(--text-dim); }
+@keyframes key-in { from { opacity: 0; transform: scale(.6) rotate(-30deg); } to { opacity: 1; transform: none; } }
 .star.on { color: var(--warn); }
 .star.on .icon-outline { display: none; }
 .star.on .icon-filled { display: block; }

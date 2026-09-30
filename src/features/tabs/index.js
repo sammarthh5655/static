@@ -2,6 +2,10 @@ const { WebContentsView } = require('electron');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const { resolveInput, securityState, internalPage } = require('../../shared/urls');
+const { pathToFileURL } = require('node:url');
+
+/** Where Static's own pages load from; a file:// navigation outside it is a dropped file. */
+const RENDERER_ROOT = pathToFileURL(path.join(__dirname, '..', '..', 'renderer')).href;
 
 const NEW_TAB = 'browser://newtab';
 
@@ -314,6 +318,16 @@ class Tabs {
       const url = tab.state.internalUrl || wc.getURL();
       tab.historyId = this.onNavigate?.({ type: 'visit', url, title: wc.getTitle() }) || null;
       sync();
+    });
+
+    // A file dropped onto a page. Chromium would open it as file://, which
+    // tabs may never load; main opens it the safe way instead. Our own pages
+    // are file:// too, so anything under the app's renderer folder is left alone.
+    wc.on('will-navigate', (event, legacyUrl) => {
+      const url = typeof legacyUrl === 'string' ? legacyUrl : event?.url || '';
+      if (!/^file:/i.test(url) || url.startsWith(RENDERER_ROOT)) return;
+      event.preventDefault();
+      this.onFileDropped?.(tab, url);
     });
 
     // Popups and target=_blank become real tabs instead of extra windows.

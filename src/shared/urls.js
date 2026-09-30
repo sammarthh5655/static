@@ -1,6 +1,6 @@
 ﻿const INTERNAL_PAGES = new Set(['newtab', 'bookmarks', 'history', 'extensions', 'downloads', 'settings', 'ai',
   'dashboard', 'notes', 'focus', 'resources', 'safety',
-  'student', 'legal', 'shopping', 'shields', 'passwords', 'organizer', 'screentime', 'health', 'welcome', 'profiles', 'edge', 'licences', 'help']);
+  'student', 'legal', 'shopping', 'shields', 'passwords', 'autofill', 'organizer', 'screentime', 'health', 'welcome', 'profiles', 'edge', 'licences', 'help']);
 const ENGINES = { google: 'https://www.google.com/search?q=', brave: 'https://search.brave.com/search?q=' };
 function internalPage(input) {
   try { const u = new URL(input); return u.protocol === 'browser:' && INTERNAL_PAGES.has(u.hostname) ? u.hostname : null; }
@@ -11,6 +11,8 @@ function allowedURL(input) {
     const u = new URL(input);
     return ['http:', 'https:'].includes(u.protocol) ||
       (u.protocol === 'chrome-extension:' && /^[a-p]{32}$/.test(u.hostname)) ||
+      // A file dropped into Static, by its random token (never a path).
+      (u.protocol === 'static-file:' && /^[a-f0-9]{32}$/.test(u.hostname)) ||
       (!!internalPage(input) && !u.username && !u.password) || input === 'about:blank' ||
       // Source of a web page only; never of an internal or file page.
       (u.protocol === 'view-source:' && /^https?:\/\//i.test(String(input).slice('view-source:'.length)));
@@ -36,6 +38,7 @@ function securityState(url, error) {
   if (error) return 'error';
   if (internalPage(url) || url === 'about:blank') return 'internal';
   if (url.startsWith('chrome-extension://')) return 'extension';
+  if (url.startsWith('static-file://')) return 'file';
   return url.startsWith('https://') ? 'secure' : 'insecure';
 }
 module.exports = { ENGINES, INTERNAL_PAGES, internalPage, allowedURL, resolveInput, securityState };

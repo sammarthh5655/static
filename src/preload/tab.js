@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, webFrame } = require('electron');
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require('electron');
 const { requests, events } = require('../shared/channels');
 const { PAGE_SCRIPT, isYouTubeHost } = require('../features/shields/youtube');
 // Pre-built at build time: a sandboxed preload cannot read resources.json,
@@ -30,6 +30,10 @@ if (isInternalPage) {
       return () => ipcRenderer.removeListener(channel, listener);
     },
     platform: process.platform,
+    // Where a dropped file lives (the vertical tab strip opens it in a tab).
+    filePath(file) {
+      try { return webUtils.getPathForFile(file) || ''; } catch { return ''; }
+    },
   }));
 }
 
