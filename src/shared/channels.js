@@ -39,7 +39,10 @@ module.exports = {
     'shields:stats', 'shields:activity', 'shields:reset-stats',
     'passwords:state', 'passwords:list', 'passwords:save', 'passwords:for-url',
     'passwords:reveal', 'passwords:remove', 'passwords:clear', 'passwords:generate',
+    'passwords:lock-state', 'passwords:set-master', 'passwords:change-master', 'passwords:remove-master',
+    'passwords:unlock', 'passwords:unlock-device', 'passwords:lock', 'passwords:device', 'passwords:lock-after',
+    'passwords:passkeys', 'passwords:remove-passkey', 'passwords:answer', 'passwords:unlock-menu', 'autofill:no-auto-remove',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
   ],
-  events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'organizer:changed', 'screentime:changed'],
+  events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'passwords:changed', 'organizer:changed', 'screentime:changed'],
 };

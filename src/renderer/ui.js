@@ -236,6 +236,52 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
       root.append(row);
       continue;
     }
+    // A secret typed into the menu itself - the master password when a login
+    // is chosen while the vault is locked. The menu stays open until main
+    // answers, and shows why if the answer is no.
+    if (item.field) {
+      const form = document.createElement('form');
+      form.className = 'menu-field';
+      const lockGlyph = document.createElement('span');
+      lockGlyph.className = 'menu-field-glyph';
+      lockGlyph.append(icon(item.icon || 'lock', { size: 15 }));
+      const input = document.createElement('input');
+      input.type = item.field.type || 'password';
+      input.placeholder = item.field.placeholder || '';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.setAttribute('aria-label', item.field.placeholder || item.label || 'Password');
+      const go = document.createElement('button');
+      go.type = 'submit';
+      go.className = 'menu-field-go';
+      go.textContent = item.field.button || 'OK';
+      const error = document.createElement('div');
+      error.className = 'menu-field-error';
+      error.setAttribute('role', 'alert');
+      if (item.field.error) error.textContent = item.field.error;
+      form.append(lockGlyph, input, go, error);
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!input.value || go.disabled) return;
+        go.disabled = true;
+        form.classList.add('is-busy');
+        error.textContent = '';
+        const result = await item.onSubmit?.(input.value);
+        go.disabled = false;
+        form.classList.remove('is-busy');
+        if (result && result.ok === false) {
+          error.textContent = result.error || 'That did not work.';
+          input.select();
+          form.classList.remove('is-wrong');
+          void form.offsetWidth;
+          form.classList.add('is-wrong');
+          return;
+        }
+        closeMenu();
+      });
+      root.append(form);
+      continue;
+    }
     if (item.heading) {
       const heading = document.createElement('div');
       heading.className = 'menu-heading';
@@ -315,7 +361,7 @@ function menu(items, { anchor, align = 'left', onClose } = {}) {
   root.classList.add('open');
 
   openMenu = { root, onClose, width: window.innerWidth, height: window.innerHeight };
-  root.querySelector('.menu-item:not(:disabled)')?.focus({ preventScroll: true });
+  (root.querySelector('.menu-field input') || root.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
   return root;
 }
 
@@ -367,9 +413,11 @@ document.addEventListener('keydown', (event) => {
     closeMenu();
     return;
   }
-  if (openMenu && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) {
+  // Arrow keys belong to a text box while one has focus.
+  const typing = event.target instanceof HTMLInputElement && ['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key);
+  if (openMenu && !typing && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) {
     event.preventDefault();
-    const buttons = [...openMenu.root.querySelectorAll('button:not(:disabled)')];
+    const buttons = [...openMenu.root.querySelectorAll('input, button:not(:disabled)')];
     let index = buttons.indexOf(document.activeElement);
     const step = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
     if (event.key === 'Home') index = 0;

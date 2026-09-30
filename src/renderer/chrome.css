@@ -422,6 +422,51 @@ body.mac .window-controls { display: none; }
   letter-spacing: 0.7px;
 }
 
+/* A secret typed into a menu: the master password, on a locked vault. */
+.menu-field {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 4px 6px;
+  padding: 5px 5px 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.menu-field-glyph { display: grid; color: var(--accent); }
+.menu-field input {
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  letter-spacing: 0.5px;
+}
+.menu-field-go {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(120deg, var(--accent), var(--accent-alt));
+  color: var(--bg);
+  font: inherit;
+  font-weight: 600;
+  font-size: 12px;
+}
+.menu-field-go:disabled { opacity: 0.6; }
+.menu-field.is-busy .menu-field-go { animation: menu-field-busy 900ms ease-in-out infinite; }
+@keyframes menu-field-busy { 50% { opacity: 0.55; } }
+.menu-field-error { grid-column: 1 / -1; color: var(--danger); font-size: 11.5px; }
+.menu-field-error:empty { display: none; }
+.menu-field.is-wrong { animation: menu-field-shake 380ms var(--ease); border-color: var(--danger); }
+@keyframes menu-field-shake {
+  20% { transform: translateX(-6px); } 40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); } 80% { transform: translateX(2px); }
+}
+
 /* ---- notice -------------------------------------------------------------- */
 
 .notice {

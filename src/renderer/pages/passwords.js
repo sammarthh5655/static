@@ -10,6 +10,7 @@
 (function () {
 
 const { invoke, onState, element, icon, timeAgo } = window.page;
+const security = window.passwordSecurity;
 
 let state = { count: 0, encryption: {}, unreadable: 0 };
 let entries = [];
@@ -23,14 +24,19 @@ const content = element('div');
 
 /* ---- encryption status ----------------------------------------------------- */
 
-function statusCard() {
+/** Which part of the operating system holds the key. */
+function backendLabel() {
   const encryption = state.encryption || {};
-  const backendName = {
+  return {
     dpapi: 'Windows data protection',
     keychain: 'macOS Keychain',
     gnome_libsecret: 'GNOME Keyring',
     kwallet: 'KWallet', kwallet5: 'KWallet', kwallet6: 'KWallet',
   }[encryption.backend] || encryption.backend || 'unknown';
+}
+
+function statusCard() {
+  const encryption = state.encryption || {};
 
   if (!encryption.available) {
     return element('div', { class: 'panel-card warning-panel' }, [
@@ -54,7 +60,8 @@ function statusCard() {
   return element('div', { class: 'panel-card' }, [
     element('div', { class: 'stat-grid' }, [
       stat(String(state.count), 'saved logins'),
-      stat(backendName, 'encrypted by'),
+      stat(String(state.passkeys || 0), 'passkeys'),
+      stat(state.hasMaster ? 'On' : 'Off', 'master password'),
       stat(state.unreadable ? String(state.unreadable) : '0', 'unreadable'),
     ]),
     state.unreadable
@@ -132,7 +139,7 @@ function vaultCard() {
         ? element('button', {
             class: 'pill', text: 'Remove all',
             onclick: async () => {
-              if (!confirm('Delete every saved login? This cannot be undone.')) return;
+              if (!confirm('Delete every saved login and passkey? This cannot be undone.')) return;
               await invoke('passwords:clear');
               refresh();
             },
@@ -226,23 +233,43 @@ function limitsCard() {
         + 'to your user account. If the vault file is copied to another machine it is '
         + 'unreadable.',
     }),
+    element('p', { class: 'muted', text: 'Encrypted by ' + backendLabel() + (state.hasMaster ? ' and your master password.' : '.') }),
     element('p', {
       class: 'muted limits-note',
-      text: 'It does not defend against malware already running as you — that can ask '
-        + 'the same system to decrypt, exactly as this browser does. No local password '
-        + 'manager can prevent that, including the ones in Chrome and Brave. There is '
-        + 'also no sync: these logins exist only on this device.',
+      text: state.hasMaster
+        ? 'With a master password, a locked vault cannot be read even by software running '
+          + 'as you - it needs your master password or your ' + (security.state.device?.label || 'device unlock') + '. '
+          + 'While it is unlocked, it is as open as any running password manager. There is '
+          + 'no sync: these logins and passkeys exist only on this device.'
+        : 'Without a master password it does not defend against malware already running as '
+          + 'you - that can ask the same system to decrypt, exactly as this browser does. '
+          + 'Set a master password above to close that gap. There is no sync: these logins '
+          + 'and passkeys exist only on this device.',
     }),
   ]);
 }
 
 /* ---- render ----------------------------------------------------------------- */
 
+let lockNode = null;
+
 function render() {
+  // Locked: only the lock screen. Kept across refreshes so a half-typed
+  // master password is not wiped by an unrelated change.
+  if (security.state.locked) {
+    if (!lockNode || !content.contains(lockNode)) {
+      lockNode = security.lockScreen(state, () => { lockNode = null; refresh(); window.passwordExtras?.reload(); });
+      content.replaceChildren(lockNode);
+    }
+    return;
+  }
+  lockNode = null;
   content.replaceChildren(...[
     statusCard(),
+    state.encryption?.available ? security.securityCard(render) : null,
     state.encryption?.available ? generatorCard() : null,
     vaultCard(),
+    security.passkeysCard(render),
     limitsCard(),
     // Health, import/export and autofill: drawn by passwords-extra.js, kept
     // across re-renders so an open form is not lost.
@@ -259,11 +286,22 @@ shellApi = window.shell.mount({
 
 async function refresh() {
   state = (await invoke('passwords:state')) || state;
-  entries = (await invoke('passwords:list', { query })) || [];
+  await security.load();
+  entries = security.state.locked ? [] : (await invoke('passwords:list', { query })) || [];
   render();
 }
 
 onState((next) => { if (next?.modes) shellApi?.setState(next.modes); });
+window.browser.on('passwords:changed', async () => {
+  const wasLocked = security.state.locked;
+  const typing = document.activeElement?.tagName === 'INPUT' && content.contains(document.activeElement);
+  await security.load();
+  // Locking or unlocking always redraws; anything else waits for the person
+  // to finish typing.
+  if (typing && wasLocked === security.state.locked) return;
+  refresh();
+  if (wasLocked !== security.state.locked) window.passwordExtras?.reload();
+});
 
 refresh();
 

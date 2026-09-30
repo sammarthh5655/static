@@ -23,6 +23,8 @@ const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
 const { Passwords, generatePassword } = require('../features/passwords');
+const { Biometric } = require('../features/passwords/biometric');
+const webauthn = require('../features/passwords/webauthn');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
 const { youtubeCosmetic: braveCosmetic, bundle: braveBundle, redirectBody: braveRedirectBody } = require('../features/shields/brave');
@@ -185,8 +187,18 @@ class BrowserApplication {
     }
     this.autofill = new Autofill(this.dir, { onChange: () => this.push() });
     this.passwords = new Passwords(this.dir, {
-      onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); },
+      onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); broadcastToPages(this, 'passwords:changed'); },
     });
+    // Windows Hello / Touch ID. The Windows helper lives beside the profiles,
+    // compiled once per version of its source.
+    this.biometric = new Biometric(path.join(app.getPath('userData'), 'bin'), () => this.window);
+    {
+      // A locked screen or a sleeping computer locks the vault too.
+      const { powerMonitor } = require('electron');
+      const lockVault = () => this.passwords?.lock();
+      powerMonitor.on('lock-screen', lockVault);
+      powerMonitor.on('suspend', lockVault);
+    }
     // Static Sense: local intent detection. Reads tab titles and URLs already
     // in memory - nothing is sent anywhere and no page content is read.
     this.sense = new Sense(this.dir, { onChange: () => this.push() });
@@ -783,63 +795,79 @@ class BrowserApplication {
    */
   #installAutofill() {
     this.autofillTokens = new Map();
-    const tabFor = (event) => {
-      const tab = this.#tabByContents(event.sender);
-      if (!tab || tab.state.internalUrl) return null;
-      if (event.senderFrame && event.senderFrame !== event.sender.mainFrame) return null;
-      let origin = '';
-      try { origin = new URL(event.sender.getURL()).origin; } catch { return null; }
-      if (!/^https?:/.test(origin)) return null;
-      return { tab, origin, host: new URL(origin).host };
-    };
-    const token = (data) => {
-      const id = require('node:crypto').randomUUID();
-      this.autofillTokens.set(id, { ...data, at: Date.now() });
-      for (const [key, value] of this.autofillTokens) if (Date.now() - value.at > 5 * 60 * 1000) this.autofillTokens.delete(key);
-      return id;
-    };
-    const showMenu = (items, anchor, align = 'left') => {
-      if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
-      this.pendingMenu = this.lastMenu = { items, anchor, align };
-      this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+    /** Menus waiting for an answer: token -> { resolve, busy }. */
+    this.prompts = new Map();
+    /** Passkey sign-ins a page left waiting for the autofill menu: wc id -> request. */
+    this.conditional = new Map();
+    /** Origins that called preventSilentAccess(): no automatic sign-in until a manual one. */
+    this.silentBlocked = new Set();
+    /** When Static last signed in on its own, per origin. */
+    this.autoSignedIn = new Map();
+
+    const tabFor = (event) => this.#autofillTab(event);
+    const token = (data) => this.#autofillToken(data);
+    const fieldAnchor = (at, rect) => {
+      const bounds = at.tab.view.getBounds();
+      const r = rect || {};
+      const x = bounds.x + (Number(r.x) || 0);
+      const y = bounds.y + (Number(r.y) || 0);
+      return { left: x, right: x + (Number(r.width) || 0), top: y, bottom: y + (Number(r.height) || 0), width: Number(r.width) || 0, height: Number(r.height) || 0 };
     };
 
     ipcMain.on('autofill:focus', (event, payload) => {
       const at = tabFor(event);
       if (!at || !payload || typeof payload.type !== 'string') return;
       const type = payload.type;
-      const kind = kindOf(type);
+      const kind = type === 'custom' ? 'custom' : kindOf(type);
       const prefs = this.autofill.prefs();
+      const anchor = fieldAnchor(at, payload.rect);
       const items = [];
+      const choose = (data) => ({ channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, anchor, ...data }) } });
       // An email or phone box next to a password box is how most sites ask
       // for the username.
       const loginish = kind === 'login' || (['email', 'tel', 'username'].includes(type) && (payload.scope || []).includes('password'));
+
+      // Passkeys the page is waiting on, offered in its username box.
+      const waiting = this.conditional.get(event.sender.id);
+      if (waiting && waiting.origin === at.origin && (loginish || payload.webauthn || type === 'email' || type === 'username')) {
+        for (const passkey of this.passwords.passkeysFor(waiting.request.rpId, waiting.request.allow).slice(0, 6)) {
+          items.push({ label: passkey.userName || passkey.displayName || 'Passkey', icon: 'key',
+            hint: 'Passkey for ' + passkey.rpId + (this.passwords.locked ? ' · unlock to use' : ''), action: choose({ passkey: passkey.id }) });
+        }
+      }
       if (loginish && type !== 'new-password') {
-        for (const login of this.passwords.forUrl(at.origin).slice(0, 6)) {
-          items.push({ label: login.username || '(no username)', icon: 'key', hint: 'Saved password for ' + at.host,
-            action: { channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, login: login.id }) } } });
+        const logins = this.passwords.forUrl(at.origin);
+        for (const login of logins.slice(0, 6)) {
+          items.push({ label: login.username || '(no username)', icon: 'key',
+            hint: this.passwords.locked ? 'Locked · unlock to fill' : 'Saved password for ' + at.host, action: choose({ login: login.id }) });
+        }
+        if (logins.length === 1 && prefs.autoSignIn && !this.autofill.noAuto(at.origin)) {
+          items.push({ label: 'Don’t sign in automatically here', icon: 'close',
+            action: { channel: 'autofill:decide', payload: { token: token({ save: 'no-auto', wc: event.sender.id, origin: at.origin }) } } });
         }
       }
       if (type === 'new-password') {
         const suggestion = generatePassword({ length: 18, symbols: true });
         items.push({ label: 'Use a strong password', icon: 'key', hint: suggestion.slice(0, 4) + '••••••••••••' + ' · saved when you submit',
-          action: { channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, generated: suggestion }) } } });
+          action: choose({ generated: suggestion }) });
       }
       const allowed = kind === 'card' ? prefs.fillCards : kind === 'address' || kind === 'upi' || kind === 'document' ? prefs.fillAddresses : false;
       if (allowed) {
         for (const hit of this.autofill.suggestionsFor(type).slice(0, 6)) {
           items.push({ label: hit.value, icon: kind === 'card' ? 'key' : 'user', hint: [hit.label, hit.kind === 'card' ? '' : hit.summary].filter(Boolean).join(' · ').slice(0, 80),
-            action: { channel: 'autofill:choose', payload: { token: token({ wc: event.sender.id, origin: at.origin, entry: hit.id, type }) } } });
+            action: choose({ entry: hit.id, type }) });
+        }
+      }
+      // Custom fields, in any box whose own words name them.
+      if (prefs.fillAddresses && kind !== 'login' && kind !== 'card') {
+        for (const hit of this.autofill.customFor(payload.text).slice(0, 4)) {
+          items.push({ label: hit.summary, icon: 'doc', hint: hit.label + ' · custom field', action: choose({ entry: hit.id, type: 'custom', only: true }) });
         }
       }
       if (!items.length) return;
       items.push({ separator: true }, { label: kind === 'login' ? 'Manage passwords' : 'Manage autofill', icon: 'gear',
         action: { channel: 'tabs:new', payload: { url: 'browser://passwords' + (kind === 'login' ? '' : '#autofill') } } });
-      const bounds = at.tab.view.getBounds();
-      const r = payload.rect || {};
-      const x = bounds.x + (Number(r.x) || 0);
-      const y = bounds.y + (Number(r.y) || 0);
-      showMenu(items, { left: x, right: x + (Number(r.width) || 0), top: y, bottom: y + (Number(r.height) || 0), width: Number(r.width) || 0, height: Number(r.height) || 0 });
+      this.#showMenu(items, anchor);
     });
 
     ipcMain.on('autofill:typing', (event) => {
@@ -854,19 +882,22 @@ class BrowserApplication {
       const fields = payload?.fields;
       if (!at || !fields || typeof fields !== 'object' || this.incognito) return;
       const prefs = this.autofill.prefs();
-      const top = chromeHeight(this.settings.value);
-      const width = this.window.getContentBounds().width;
-      const anchor = { left: width - 16, right: width - 16, top: top - 6, bottom: top - 6, width: 0, height: 0 };
+      const anchor = this.#promptAnchor();
       const decide = (data) => ({ channel: 'autofill:decide', payload: { token: token({ ...data, wc: event.sender.id, origin: at.origin }) } });
 
       const password = fields.password || fields['new-password'];
       const username = fields.username || fields.email || '';
+      // Signing in by hand ends a site's request not to be signed in silently.
+      if (password) this.silentBlocked.delete(at.origin);
       if (password && prefs.offerPasswords && !this.autofill.never(at.origin)) {
         const saved = this.passwords.forUrl(at.origin).find((l) => l.username === username);
-        const same = saved && this.passwords.reveal(saved.id)?.password === password;
+        const secret = saved ? this.passwords.reveal(saved.id) : null;
+        // Locked: a known account cannot be compared, so it is left alone
+        // rather than nagging "update?" at every sign-in.
+        const same = saved && (secret?.locked || secret?.password === password);
         if (!same) {
           const data = { save: 'password', username, password };
-          showMenu([
+          this.#showMenu([
             { heading: saved ? 'Update password for ' + at.host + '?' : 'Save password for ' + at.host + '?' },
             { label: saved ? 'Update' : 'Save', icon: 'key', hint: (username || 'No username') + ' · ••••••••', action: decide(data) },
             { label: 'Never for this site', icon: 'close', action: decide({ save: 'never' }) },
@@ -882,7 +913,7 @@ class BrowserApplication {
         const [month, year] = String(combined || '').split(/\s*\/\s*/);
         const card = { 'cc-name': fields['cc-name'], 'cc-number': number,
           'cc-exp-month': fields['cc-exp-month'] || month, 'cc-exp-year': fields['cc-exp-year'] || (year ? (year.length === 2 ? '20' + year : year) : '') };
-        showMenu([
+        this.#showMenu([
           { heading: 'Save this card?' },
           { label: 'Save card ending ' + number.slice(-4), icon: 'key', hint: 'Encrypted on this device. The security code is never saved.', action: decide({ save: 'card', fields: card }) },
           { label: 'Not now', action: decide({ save: 'dismiss' }) },
@@ -893,7 +924,7 @@ class BrowserApplication {
       const filled = addressKeys.filter((k) => fields[k]);
       if (prefs.fillAddresses && fields['address-line1'] && filled.length >= 3 && !this.autofill.has('address', fields)) {
         const address = Object.fromEntries(Object.entries(fields).filter(([k]) => kindOf(k) === 'address'));
-        showMenu([
+        this.#showMenu([
           { heading: 'Save this address?' },
           { label: [fields.name || fields['given-name'], fields['address-line1'], fields['address-level2']].filter(Boolean).join(', ').slice(0, 60),
             icon: 'user', hint: 'For filling forms next time. Kept on this device.', action: decide({ save: 'address', fields: address }) },
@@ -902,13 +933,328 @@ class BrowserApplication {
         return;
       }
       if (fields.upi && prefs.fillAddresses && !this.autofill.has('upi', { upi: fields.upi })) {
-        showMenu([
+        this.#showMenu([
           { heading: 'Save this UPI ID?' },
           { label: fields.upi, icon: 'key', action: decide({ save: 'upi', fields: { upi: fields.upi } }) },
           { label: 'Not now', action: decide({ save: 'dismiss' }) },
         ], anchor, 'right');
       }
     });
+
+    /**
+     * Automatic sign-in. A sign-in form appeared; if there is exactly one
+     * saved login for this site and nothing says otherwise, fill it and press
+     * the button. At most once per site in ten minutes, so signing out - or a
+     * password the site no longer accepts - never turns into a loop.
+     */
+    ipcMain.on('autofill:login-form', (event) => {
+      const at = tabFor(event);
+      if (!at || this.incognito) return;
+      // Never send a password on its own over plain http, except to this computer.
+      const loopback = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(at.origin).hostname);
+      if (!at.origin.startsWith('https:') && !loopback) return;
+      if (!this.autofill.prefs().autoSignIn || this.autofill.noAuto(at.origin) || this.silentBlocked.has(at.origin)) return;
+      if (this.passwords.locked) return;
+      const logins = this.passwords.forUrl(at.origin);
+      if (logins.length !== 1) return;
+      if (Date.now() - (this.autoSignedIn.get(at.origin) || 0) < 10 * 60 * 1000) return;
+      const secret = this.passwords.reveal(logins[0].id);
+      if (!secret?.ok) return;
+      this.autoSignedIn.set(at.origin, Date.now());
+      const values = { username: secret.username, password: secret.password };
+      if (/@/.test(secret.username || '')) values.email = secret.username;
+      event.sender.send('autofill:apply', { values, target: 'login', submit: true });
+      this.notify('Signed in to ' + at.host + ' automatically' + (secret.username ? ' as ' + secret.username : ''));
+    });
+
+    // Probes run while someone is using this computer. The system's own
+    // WebAuthn (security keys, Windows Hello passkeys) opens a Windows Security
+    // window on their screen, so under a probe every request is answered here
+    // and the system path is closed.
+    const probe = process.env.STATIC_OFFSCREEN === '1';
+
+    // Asked synchronously at document-start: is the page's navigator.credentials ours?
+    ipcMain.on('webauthn:enabled', (event) => {
+      const prefs = this.autofill.prefs();
+      const ours = !!tabFor(event) && !this.incognito;
+      event.returnValue = ours && probe ? 'probe' : ours && !!(prefs.passkeys || prefs.autoSignIn);
+    });
+
+    ipcMain.handle('webauthn:request', async (event, message) => {
+      const answer = await this.#webauthnRequest(event, message);
+      if (probe && answer?.fallback) {
+        console.log('[passkeys] the system WebAuthn path is closed during probes (' + String(message?.op) + ')');
+        return { error: 'NotAllowedError' };
+      }
+      return answer;
+    });
+  }
+
+  /**
+   * The tab and site a page message comes from: one of our tabs, its top
+   * frame, a web page. Read from the frame main sees, never from the message.
+   */
+  #autofillTab(event) {
+    const tab = this.#tabByContents(event.sender);
+    if (!tab || tab.state.internalUrl) return null;
+    if (event.senderFrame && event.senderFrame !== event.sender.mainFrame) return null;
+    let origin = '';
+    try { origin = new URL(event.senderFrame?.url || event.sender.getURL()).origin; } catch { return null; }
+    if (!/^https?:/.test(origin)) return null;
+    return { tab, origin, host: new URL(origin).host };
+  }
+
+  /** A one-use handle for a menu item, so the page never sees what it does. */
+  #autofillToken(data) {
+    const id = require('node:crypto').randomUUID();
+    this.autofillTokens.set(id, { ...data, at: Date.now() });
+    for (const [key, value] of this.autofillTokens) if (Date.now() - value.at > 5 * 60 * 1000) this.autofillTokens.delete(key);
+    return id;
+  }
+
+  /** navigator.credentials from a page: passkeys and password sign-in. */
+  async #webauthnRequest(event, message) {
+    const token = (data) => this.#autofillToken(data);
+    const tabFor = (e) => this.#autofillTab(e);
+    const at = tabFor(event);
+    if (!at || this.incognito) return { fallback: true };
+    const op = String(message?.op || '');
+    const payload = message?.payload && typeof message.payload === 'object' ? message.payload : {};
+    try {
+      if (op === 'create') return await this.#passkeyCreate(at, payload);
+      if (op === 'get') {
+        return payload.mediation === 'conditional'
+          ? await this.#passkeyConditional(at, event.sender, payload)
+          : await this.#passkeyGet(at, payload);
+      }
+      if (op === 'abort') {
+        const waiting = this.conditional.get(event.sender.id);
+        if (waiting && waiting.id === payload.id) waiting.resolve({ error: 'AbortError' });
+        if (this.promptOpen && this.prompts.get(this.promptOpen)?.wc === event.sender.id) this.#settlePrompt(this.promptOpen, null);
+        return { ok: true };
+      }
+      if (op === 'password-get') return await this.#passwordGet(at, payload);
+      if (op === 'password-store') {
+        if (payload.password && this.autofill.prefs().offerPasswords && !this.autofill.never(at.origin)) {
+          const saved = this.passwords.forUrl(at.origin).find((l) => l.username === String(payload.id || ''));
+          const decide = (data) => ({ channel: 'autofill:decide', payload: { token: token({ ...data, wc: event.sender.id, origin: at.origin }) } });
+          this.#showMenu([
+            { heading: (saved ? 'Update' : 'Save') + ' password for ' + at.host + '?' },
+            { label: saved ? 'Update' : 'Save', icon: 'key', hint: (payload.id || 'No username') + ' · ••••••••',
+              action: decide({ save: 'password', username: String(payload.id || ''), password: String(payload.password) }) },
+            { label: 'Not now', action: decide({ save: 'dismiss' }) },
+          ], this.#promptAnchor(), 'right');
+        }
+        return { ok: true };
+      }
+      if (op === 'prevent-silent') { this.silentBlocked.add(at.origin); return { ok: true }; }
+    } catch (error) {
+      console.error('[passkeys]', error);
+      return { error: 'NotAllowedError' };
+    }
+    return { fallback: true };
+  }
+
+  /** Draw a menu in the overlay. */
+  #showMenu(items, anchor, align = 'left') {
+    if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
+    this.pendingMenu = this.lastMenu = { items: items.filter(Boolean), anchor, align };
+    this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+  }
+
+  /** Where a question about the page goes: under the toolbar, at the right. */
+  #promptAnchor() {
+    const top = chromeHeight(this.settings.value);
+    const width = this.window.getContentBounds().width;
+    return { left: width - 16, right: width - 16, top: top - 6, bottom: top - 6, width: 0, height: 0 };
+  }
+
+  /**
+   * Ask a question with a menu and wait for the answer. Items carrying a
+   * `choice` become answers; closing the menu any other way answers null.
+   */
+  #prompt(items, { anchor = this.#promptAnchor(), align = 'right', wc = null, timeout = 3 * 60 * 1000 } = {}) {
+    return new Promise((resolve) => {
+      const id = require('node:crypto').randomUUID();
+      const timer = setTimeout(() => this.#settlePrompt(id, null), timeout);
+      this.prompts.set(id, { resolve, timer, wc });
+      this.promptOpen = id;
+      this.#showMenu(items.map((item) => {
+        if (item && item.choice !== undefined) return { ...item, action: { channel: 'passwords:answer', payload: { token: id, choice: item.choice } } };
+        if (item && item.field) return { ...item, field: { ...item.field, action: { ...item.field.action, payload: { ...item.field.action.payload, token: id } } } };
+        return item;
+      }), anchor, align);
+    });
+  }
+
+  #settlePrompt(id, value) {
+    const entry = this.prompts.get(id);
+    if (!entry) return;
+    this.prompts.delete(id);
+    clearTimeout(entry.timer);
+    if (this.promptOpen === id) this.promptOpen = null;
+    entry.resolve(value);
+  }
+
+  /** The overlay closed. A question left open was dismissed, unless its answer is on its way. */
+  #promptClosed() {
+    const id = this.promptOpen;
+    if (!id) return;
+    setTimeout(() => {
+      const entry = this.prompts.get(id);
+      if (entry && !entry.busy) this.#settlePrompt(id, null);
+    }, 600);
+  }
+
+  /**
+   * Unlock the vault from a menu: the master password typed into the menu, or
+   * Windows Hello / Touch ID. With `verify`, the vault is already open and
+   * this only proves the person is here (for a passkey's user verification).
+   * Resolves true once done, false if abandoned.
+   */
+  async #askUnlock({ anchor = this.#promptAnchor(), align = 'right', reason = 'Unlock your passwords', verify = false, error = '' } = {}) {
+    if (!verify && !this.passwords.locked) return true;
+    const device = this.passwords.deviceUnlock ? await this.biometric.check() : null;
+    const answer = await this.#prompt([
+      { heading: reason },
+      { field: { type: 'password', placeholder: 'Master password', button: verify ? 'Confirm' : 'Unlock', error,
+        action: { channel: 'passwords:unlock-menu', payload: { mode: verify ? 'verify' : 'unlock' } } } },
+      device?.available ? { label: 'Use ' + device.label, icon: 'key', hint: 'Face, fingerprint or PIN', choice: 'device' } : null,
+      { label: 'Cancel', choice: 'cancel' },
+    ], { anchor, align });
+    if (answer === 'ok') return true;
+    if (answer === 'device') {
+      const ok = await this.biometric.verify(reason);
+      if (ok && (verify || this.passwords.unlockWithDevice().ok)) return true;
+      return this.#askUnlock({ anchor, align, reason, verify, error: device.label + ' did not confirm it was you. Use your master password.' });
+    }
+    return false;
+  }
+
+  /**
+   * User verification for a passkey: Windows Hello or Touch ID where there is
+   * one, else the master password. true = verified, false = not verified but
+   * the site allows that, null = refused or abandoned.
+   */
+  async #verifyUser(requirement, reason) {
+    if (requirement === 'discouraged') return false;
+    const device = await this.biometric.check();
+    if (device.available) return (await this.biometric.verify(reason)) ? true : null;
+    if (this.passwords.hasMaster) return (await this.#askUnlock({ reason, verify: true })) ? true : null;
+    return requirement === 'required' ? null : false;
+  }
+
+  async #passkeyCreate(at, payload) {
+    if (!this.autofill.prefs().passkeys) return { fallback: true };
+    const request = webauthn.parseCreate(payload.options, at.origin);
+    if (request.error === 'NotSupportedError') return { fallback: true };
+    if (request.error) return { error: request.error };
+    if (request.exclude.length && this.passwords.hasCredential(request.rpId, request.exclude)) {
+      this.notify('You already have a passkey for ' + request.rpId + ' in Static');
+      return { error: 'InvalidStateError' };
+    }
+    const account = request.user.name || request.user.displayName || 'this account';
+    const choice = await this.#prompt([
+      { heading: 'Create a passkey for ' + request.rpId + '?' },
+      { label: account, icon: 'key', hint: 'Saved in Static. Sign in with it instead of a password.', choice: 'static' },
+      { label: 'Use another device or security key', icon: 'lock', choice: 'native' },
+      { label: 'Cancel', choice: 'cancel' },
+    ], { wc: at.tab.view.webContents.id });
+    if (choice === 'native') return { fallback: true };
+    if (choice !== 'static') return { error: 'NotAllowedError' };
+    const uv = await this.#verifyUser(request.userVerification, 'Create a passkey for ' + request.rpId);
+    if (uv === null) return { error: 'NotAllowedError' };
+    const made = webauthn.register(request, { uv });
+    const saved = this.passwords.addPasskey(made.stored);
+    if (!saved.ok) { this.notify(saved.error); return { error: 'NotAllowedError' }; }
+    this.notify('Passkey saved for ' + request.rpId);
+    return { credential: made.response };
+  }
+
+  async #passkeyGet(at, payload) {
+    if (!this.autofill.prefs().passkeys) return { fallback: true };
+    const request = webauthn.parseGet(payload.options, at.origin);
+    if (request.error) return { error: request.error };
+    const candidates = this.passwords.passkeysFor(request.rpId, request.allow);
+    // Nothing of ours: a security key, a phone, or the system's own passkeys.
+    if (!candidates.length) return { fallback: true };
+    const choice = await this.#prompt([
+      { heading: 'Sign in to ' + request.rpId + ' with a passkey' },
+      ...candidates.slice(0, 8).map((passkey) => ({
+        label: passkey.userName || passkey.displayName || 'Passkey', icon: 'key', choice: passkey.id,
+        hint: (passkey.displayName && passkey.displayName !== passkey.userName ? passkey.displayName + ' · ' : '') + 'Passkey in Static',
+      })),
+      { label: 'Use another device or security key', icon: 'lock', choice: 'native' },
+      { label: 'Cancel', choice: 'cancel' },
+    ], { wc: at.tab.view.webContents.id });
+    if (choice === 'native') return { fallback: true };
+    const passkey = candidates.find((candidate) => candidate.id === choice);
+    if (!passkey) return { error: 'NotAllowedError' };
+    return this.#signWith(request, passkey);
+  }
+
+  /** A page waiting for a passkey to be picked from its username box. */
+  #passkeyConditional(at, wc, payload) {
+    if (!this.autofill.prefs().passkeys) return { fallback: true };
+    const request = webauthn.parseGet(payload.options, at.origin);
+    if (request.error) return { error: request.error };
+    if (!this.passwords.passkeysFor(request.rpId, request.allow).length) return { fallback: true };
+    this.conditional.get(wc.id)?.resolve({ error: 'AbortError' });
+    return new Promise((done) => {
+      // Leaving the page ends the wait; moving within it does not.
+      const onNavigate = (details, _url, inPlace, mainFrame) => {
+        if ((details?.isSameDocument ?? inPlace) || !(details?.isMainFrame ?? mainFrame)) return;
+        resolve({ error: 'AbortError' });
+      };
+      const resolve = (result) => {
+        wc.off('did-start-navigation', onNavigate);
+        if (this.conditional.get(wc.id)?.resolve === resolve) this.conditional.delete(wc.id);
+        done(result);
+      };
+      wc.on('did-start-navigation', onNavigate);
+      this.conditional.set(wc.id, { id: payload.id, origin: at.origin, request, resolve });
+    });
+  }
+
+  /** Sign a passkey request, unlocking or verifying the person first. */
+  async #signWith(request, passkey, anchor) {
+    let uv;
+    if (this.passwords.locked) {
+      // Unlocking is itself a verification: master password or the device's.
+      if (!(await this.#askUnlock({ anchor, align: anchor ? 'left' : 'right', reason: 'Unlock to sign in to ' + request.rpId }))) return { error: 'NotAllowedError' };
+      uv = true;
+    } else {
+      uv = await this.#verifyUser(request.userVerification, 'Sign in to ' + request.rpId);
+      if (uv === null) return { error: 'NotAllowedError' };
+    }
+    const secret = this.passwords.passkeyPrivate(passkey.id);
+    if (typeof secret !== 'string') return { error: 'NotAllowedError' };
+    return { credential: webauthn.assert(request, passkey, secret, { uv }) };
+  }
+
+  /** navigator.credentials.get({ password: true }): the Credential Management way to sign in. */
+  async #passwordGet(at, payload) {
+    const prefs = this.autofill.prefs();
+    const logins = this.passwords.forUrl(at.origin);
+    if (!prefs.autoSignIn || !logins.length) return {};
+    const mediation = String(payload.mediation || 'optional');
+    let login = null;
+    if (mediation !== 'required' && logins.length === 1 && !this.silentBlocked.has(at.origin) && !this.autofill.noAuto(at.origin) && !this.passwords.locked) {
+      login = logins[0];
+    } else if (mediation !== 'silent') {
+      const choice = await this.#prompt([
+        { heading: 'Sign in to ' + at.host },
+        ...logins.slice(0, 8).map((l) => ({ label: l.username || '(no username)', icon: 'key', hint: 'Saved password', choice: l.id })),
+        { label: 'Cancel', choice: 'cancel' },
+      ], { wc: at.tab.view.webContents.id });
+      login = logins.find((l) => l.id === choice) || null;
+    }
+    if (!login) return {};
+    if (this.passwords.locked && !(await this.#askUnlock({ reason: 'Unlock to sign in to ' + at.host }))) return {};
+    const secret = this.passwords.reveal(login.id);
+    if (!secret?.ok) return {};
+    if (mediation !== 'required' && logins.length === 1) this.notify('Signed in to ' + at.host + ' automatically');
+    return { credential: { id: secret.username, password: secret.password, name: '' } };
   }
 
   /** What About and Diagnostics show. Read fresh each time. */
@@ -1722,19 +2068,32 @@ class BrowserApplication {
         return true;
       },
       'feedback:categories': () => feedback.CATEGORIES,
-      'autofill:choose': (_sender, payload) => {
+      'autofill:choose': async (_sender, payload) => {
         const data = this.autofillTokens?.get(String(payload?.token || ''));
         if (!data) return false;
         const tab = this.#tabByWebContentsId(data.wc);
         const wc = tab?.view.webContents;
-        let origin = '';
-        try { origin = new URL(wc?.getURL()).origin; } catch { return false; }
+        const sameSite = () => {
+          try { return !!wc && !wc.isDestroyed() && new URL(wc.getURL()).origin === data.origin; } catch { return false; }
+        };
         // The page must still be the site the suggestion was made for.
-        if (!wc || origin !== data.origin) return false;
+        if (!sameSite()) return false;
+        // A passkey the page was waiting for: answer that request, not a fill.
+        if (data.passkey) {
+          const waiting = this.conditional.get(data.wc);
+          const passkey = waiting && this.passwords.passkeysFor(waiting.request.rpId).find((k) => k.id === data.passkey);
+          if (!passkey) return false;
+          waiting.resolve(await this.#signWith(waiting.request, passkey, data.anchor));
+          return true;
+        }
         let values = {};
         if (data.login) {
-          const secret = this.passwords.reveal(data.login);
-          if (!secret?.ok) return false;
+          let secret = this.passwords.reveal(data.login);
+          if (secret?.locked) {
+            if (!(await this.#askUnlock({ anchor: data.anchor, align: 'left', reason: 'Unlock to fill your password' }))) return false;
+            secret = this.passwords.reveal(data.login);
+          }
+          if (!secret?.ok || !sameSite()) return false;
           values = { username: secret.username, password: secret.password };
           if (/@/.test(secret.username || '')) values.email = secret.username;
         } else if (data.generated) {
@@ -1742,7 +2101,12 @@ class BrowserApplication {
         } else if (data.entry) {
           const entry = this.autofill.values(data.entry);
           if (!entry) return false;
+          // With a master password, cards wait for the vault to be open too.
+          if (entry.kind === 'card' && this.passwords.locked) {
+            if (!(await this.#askUnlock({ anchor: data.anchor, align: 'left', reason: 'Unlock to fill your card' })) || !sameSite()) return false;
+          }
           values = fillValues(entry.kind, entry.fields);
+          if (entry.kind === 'custom') { wc.send('autofill:apply', { values, only: 'focused' }); return true; }
         }
         wc.send('autofill:apply', { values });
         return true;
@@ -1757,6 +2121,9 @@ class BrowserApplication {
         } else if (data.save === 'never') {
           this.autofill.addNever(data.origin);
           this.notify('Static will not offer to save passwords on ' + new URL(data.origin).host);
+        } else if (data.save === 'no-auto') {
+          this.autofill.addNoAuto(data.origin);
+          this.notify('Static will not sign in automatically on ' + new URL(data.origin).host);
         } else if (['card', 'address', 'upi'].includes(data.save)) {
           try {
             this.autofill.put(data.save, data.fields);
@@ -2420,8 +2787,11 @@ class BrowserApplication {
           add('Game Mode', this.resources.config.gameMode ? 'On' : 'Off');
         } else if (id === 'passwords') {
           const state = this.passwords?.state?.() || {};
-          add('Saved logins', (this.passwords?.list?.() || []).length);
-          add('Encryption', state.available === false ? 'Unavailable' : 'Available');
+          add('Saved logins', state.count ?? (this.passwords?.list?.() || []).length);
+          add('Passkeys', state.passkeys || 0);
+          add('Master password', state.hasMaster ? (state.locked ? 'Locked' : 'Unlocked') : 'Off');
+          add('Encryption', state.encryption?.available === false ? 'Unavailable' : 'Available');
+          if (state.hasMaster && !state.locked) act('Lock now', 'passwords:lock', {});
         } else if (id === 'dashboard') {
           add('Open tabs', this.tabs ? this.tabs.list().length : 0);
           add('Blocked all time', this.shields.stats.lifetime().blocked.toLocaleString());
@@ -2869,6 +3239,51 @@ class BrowserApplication {
       'passwords:generate': (_sender, payload) => ({
         password: generatePassword(payload || {}),
       }),
+
+      // ---- master password, device unlock, passkeys -----------------------
+      'passwords:lock-state': async () => ({ ...this.passwords.lockState(), device: await this.biometric.check() }),
+      'passwords:set-master': (_sender, payload) => this.passwords.setMaster(String(payload?.password || '')),
+      'passwords:change-master': (_sender, payload) => this.passwords.changeMaster(String(payload?.current || ''), String(payload?.next || '')),
+      'passwords:remove-master': (_sender, payload) => this.passwords.removeMaster(String(payload?.current || '')),
+      'passwords:unlock': (_sender, payload) => this.passwords.unlock(String(payload?.password || '')),
+      'passwords:unlock-device': async () => {
+        if (!this.passwords.deviceUnlock) return { ok: false, error: 'Unlocking with ' + this.biometric.label + ' is not turned on.' };
+        if (!(await this.biometric.verify('Unlock your saved passwords'))) return { ok: false, error: this.biometric.label + ' did not confirm it was you.' };
+        return this.passwords.unlockWithDevice();
+      },
+      'passwords:lock': () => { this.passwords.lock(); return { ok: true }; },
+      'passwords:device': async (_sender, payload) => {
+        if (!payload?.enabled) return this.passwords.setDeviceUnlock(false);
+        const device = await this.biometric.check();
+        if (!device.available) return { ok: false, error: device.reason };
+        // Prove the sensor works for this person before relying on it.
+        if (!(await this.biometric.verify('Turn on unlocking with ' + device.label))) return { ok: false, error: device.label + ' did not confirm it was you.' };
+        return this.passwords.setDeviceUnlock(true);
+      },
+      'passwords:lock-after': (_sender, payload) => this.passwords.setLockAfter(Number(payload?.minutes)),
+      'passwords:passkeys': (_sender, payload) => this.passwords.listPasskeys(payload?.query),
+      'passwords:remove-passkey': (_sender, payload) => this.passwords.removePasskey(String(payload?.id || '')),
+      'autofill:no-auto-remove': (_sender, payload) => { this.autofill.removeNoAuto(String(payload?.origin || '')); return true; },
+      // Answers to questions asked in the overlay (see #prompt).
+      'passwords:answer': (_sender, payload) => {
+        const id = String(payload?.token || '');
+        if (!this.prompts?.has(id)) return false;
+        this.#settlePrompt(id, payload.choice);
+        return true;
+      },
+      'passwords:unlock-menu': async (_sender, payload) => {
+        const id = String(payload?.token || '');
+        const entry = this.prompts?.get(id);
+        if (!entry) return { ok: false, error: 'This has expired. Try again.' };
+        entry.busy = true;
+        const result = payload.mode === 'verify'
+          ? await this.passwords.verify(String(payload.value || ''))
+          : await this.passwords.unlock(String(payload.value || ''));
+        entry.busy = false;
+        if (!result.ok) return result;
+        this.#settlePrompt(id, 'ok');
+        return { ok: true };
+      },
 
       // ---- dashboard -------------------------------------------------------
       /** Live per-mode state for the dashboard cards and sidebar badges. */
@@ -3442,6 +3857,7 @@ class BrowserApplication {
       // A 1x1 corner when idle, so clicks pass straight through to the chrome
       // and the page below. The view stays attached either way.
       this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+      this.#promptClosed?.();
       // A menu can open from F10 while a web tab owns focus, so chrome never
       // gets a blur event. Explicitly reset its trigger on every dismissal.
       this.chrome.webContents.send('ui:menu-closed');

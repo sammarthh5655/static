@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { safeStorage } = require('electron');
+const lock = require('./lock');
 
 /**
  * Password vault.
@@ -24,17 +25,36 @@ const { safeStorage } = require('electron');
  *
  * Each entry is encrypted individually rather than the file as a whole, so a
  * single corrupt record loses one login instead of the entire vault.
+ *
+ * A MASTER PASSWORD (optional) adds a second layer inside the OS one - see
+ * lock.js. With it set, secrets are sealed to the vault's public key and can
+ * only be opened between an unlock and the next lock, and the vault locks
+ * itself after a quiet spell, when the computer sleeps or locks, and when
+ * Static closes. Passkeys are kept here too, their private keys sealed exactly
+ * like passwords.
  */
 
 const FILE = 'vault.json';
 const MAX_ENTRIES = 2000;
+const MAX_PASSKEYS = 1000;
+/** What a sealed secret decrypts to while the vault is locked. */
+const LOCKED = Symbol('locked');
+/** Auto-lock choices, in minutes. 0 = only when Static closes. */
+const LOCK_AFTER = [1, 5, 15, 60, 240, 0];
 
 class Passwords {
   constructor(dir, { onChange } = {}) {
     this.file = path.join(dir, FILE);
     this.onChange = onChange || (() => {});
-    this.data = { version: 1, entries: [] };
+    this.data = { version: 1, entries: [], passkeys: [], lock: null };
+    /** The vault's private key while unlocked. Memory only. */
+    this.key = null;
+    this.lastUse = 0;
+    this.failures = 0;
+    this.waitUntil = 0;
     this.load();
+    this.timer = setInterval(() => this.#autoLock(), 20_000);
+    this.timer.unref?.();
   }
 
   /**
@@ -76,6 +96,8 @@ class Passwords {
       // Missing or unreadable file is the normal first-run case.
       this.data = { version: 1, entries: [] };
     }
+    if (!Array.isArray(this.data.passkeys)) this.data.passkeys = [];
+    if (this.data.lock && !this.data.lock.publicKey) this.data.lock = null;
   }
 
   save() {
@@ -90,11 +112,17 @@ class Passwords {
     }
   }
 
+  /**
+   * Encrypt a secret: sealed to the vault key first when there is a master
+   * password (which needs no unlock - only the public half), then the OS.
+   */
   #encrypt(plain) {
-    return safeStorage.encryptString(String(plain)).toString('base64');
+    const inner = this.data.lock ? lock.seal(this.data.lock.publicKey, plain) : String(plain);
+    return safeStorage.encryptString(inner).toString('base64');
   }
 
-  #decrypt(encoded) {
+  /** The OS layer only: the stored string, or null if unreadable here. */
+  #outer(encoded) {
     try {
       return safeStorage.decryptString(Buffer.from(String(encoded), 'base64'));
     } catch {
@@ -102,6 +130,264 @@ class Passwords {
       // read. Report it rather than throwing away the row.
       return null;
     }
+  }
+
+  /** The plaintext, LOCKED while the vault is locked, or null if unreadable. */
+  #decrypt(encoded) {
+    const outer = this.#outer(encoded);
+    if (outer === null || !lock.isSealed(outer)) return outer;
+    if (!this.key || !this.data.lock) return LOCKED;
+    try { return lock.open(this.key, this.data.lock.publicKey, outer); } catch { return null; }
+  }
+
+  /* ---- master password --------------------------------------------------- */
+
+  get hasMaster() { return !!this.data.lock; }
+  get locked() { return !!this.data.lock && !this.key; }
+
+  /** Something used the vault: the auto-lock clock starts again. */
+  touch() { this.lastUse = Date.now(); }
+
+  lockAfter() {
+    const minutes = this.data.lock?.lockAfter;
+    return LOCK_AFTER.includes(minutes) ? minutes : 15;
+  }
+
+  #autoLock() {
+    if (!this.key) return;
+    const minutes = this.lockAfter();
+    if (minutes && Date.now() - this.lastUse > minutes * 60_000) this.lock();
+  }
+
+  lock() {
+    if (!this.key) return;
+    this.key = null;
+    this.onChange();
+  }
+
+  /** Wrong guesses make the next attempt wait. */
+  #waiting() {
+    const left = this.waitUntil - Date.now();
+    return left > 0 ? { ok: false, wait: left, error: 'Too many wrong tries. Wait ' + Math.ceil(left / 1000) + ' s.' } : null;
+  }
+
+  async #check(password) {
+    const blocked = this.#waiting();
+    if (blocked) return { blocked };
+    const key = await lock.unlockLock(this.data.lock, String(password || ''));
+    if (!key) {
+      this.failures++;
+      this.waitUntil = Date.now() + lock.penaltyMs(this.failures);
+      return { blocked: { ok: false, error: 'That is not your master password.' } };
+    }
+    this.failures = 0;
+    this.waitUntil = 0;
+    return { key };
+  }
+
+  /** Open the vault with the master password. */
+  async unlock(password) {
+    if (!this.data.lock) return { ok: true };
+    const { key, blocked } = await this.#check(password);
+    if (blocked) return blocked;
+    this.key = key;
+    this.touch();
+    this.onChange();
+    return { ok: true };
+  }
+
+  /** Is this the master password? For re-checking before something sensitive. */
+  async verify(password) {
+    if (!this.data.lock) return { ok: false, error: 'There is no master password.' };
+    const { blocked } = await this.#check(password);
+    return blocked || { ok: true };
+  }
+
+  get deviceUnlock() { return !!this.data.lock?.device; }
+
+  /** Open the vault with the device copy, AFTER the OS has verified the person. */
+  unlockWithDevice() {
+    const device = this.data.lock?.device;
+    if (!device) return { ok: false, error: 'Device unlock is not set up.' };
+    try {
+      const pkcs8 = Buffer.from(safeStorage.decryptString(Buffer.from(device, 'base64')), 'base64');
+      this.key = lock.importPrivate(pkcs8);
+    } catch {
+      return { ok: false, error: 'The device key could not be read. Unlock with your master password.' };
+    }
+    this.failures = 0;
+    this.touch();
+    this.onChange();
+    return { ok: true };
+  }
+
+  /** Keep a copy of the vault key under the OS, released by Windows Hello or Touch ID. */
+  setDeviceUnlock(enabled) {
+    if (!this.data.lock) return { ok: false, error: 'Set a master password first.' };
+    if (enabled) {
+      if (!this.key) return { ok: false, error: 'Unlock first.' };
+      this.data.lock.device = safeStorage.encryptString(lock.exportPrivate(this.key).toString('base64')).toString('base64');
+    } else {
+      delete this.data.lock.device;
+    }
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  setLockAfter(minutes) {
+    if (!this.data.lock || !LOCK_AFTER.includes(Number(minutes))) return { ok: false };
+    this.data.lock.lockAfter = Number(minutes);
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  /** Re-encrypt every stored secret. Throws, changing nothing, if any is locked. */
+  #rewriteAll(read, write) {
+    const rows = [...this.data.entries.map((e) => [e, 'password']), ...this.data.passkeys.map((k) => [k, 'privateKey'])];
+    const plain = rows.map(([row, field]) => {
+      const value = read(row[field]);
+      if (value === LOCKED) throw new Error('Unlock first.');
+      return value;
+    });
+    rows.forEach(([row, field], index) => {
+      // A row this machine cannot read stays as it is: it is lost either way,
+      // and it must not stop a master password being set.
+      if (typeof plain[index] === 'string') row[field] = write(plain[index]);
+    });
+  }
+
+  /** Turn on a master password. */
+  async setMaster(password) {
+    if (this.data.lock) return { ok: false, error: 'A master password is already set.' };
+    const text = String(password || '');
+    if (text.length < 8) return { ok: false, error: 'Use at least 8 characters.' };
+    if (!this.encryptionStatus().available) return { ok: false, error: 'Encryption is unavailable on this system.' };
+    const { record, privateKey } = await lock.createLock(text);
+    this.#rewriteAll((value) => this.#outer(value),
+      (plain) => safeStorage.encryptString(lock.seal(record.publicKey, plain)).toString('base64'));
+    this.data.lock = { ...record, lockAfter: 15 };
+    this.key = privateKey;
+    this.touch();
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  async changeMaster(current, next) {
+    if (!this.data.lock) return { ok: false, error: 'There is no master password.' };
+    if (String(next || '').length < 8) return { ok: false, error: 'Use at least 8 characters.' };
+    const { key, blocked } = await this.#check(current);
+    if (blocked) return blocked;
+    this.data.lock = await lock.rewrapLock(this.data.lock, key, String(next));
+    this.key = key;
+    this.touch();
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  /** Turn the master password off: the OS layer alone protects the vault again. */
+  async removeMaster(current) {
+    if (!this.data.lock) return { ok: true };
+    const { key, blocked } = await this.#check(current);
+    if (blocked) return blocked;
+    this.key = key;
+    this.#rewriteAll((value) => this.#decrypt(value), (plain) => safeStorage.encryptString(plain).toString('base64'));
+    this.data.lock = null;
+    this.key = null;
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  lockState() {
+    return {
+      hasMaster: this.hasMaster,
+      locked: this.locked,
+      deviceUnlock: this.deviceUnlock,
+      lockAfter: this.hasMaster ? this.lockAfter() : null,
+      lockAfterChoices: LOCK_AFTER,
+      waitMs: Math.max(0, this.waitUntil - Date.now()),
+    };
+  }
+
+  /* ---- passkeys ----------------------------------------------------------- */
+
+  /**
+   * Store a new passkey. A second one for the same account on the same site
+   * replaces the first, as the spec asks: the site has just forgotten it.
+   */
+  addPasskey(stored) {
+    const status = this.encryptionStatus();
+    if (!status.available) return { ok: false, error: status.reason || 'Encryption is unavailable.' };
+    this.data.passkeys = this.data.passkeys.filter((k) => !(k.rpId === stored.rpId && k.userId === stored.userId));
+    const now = Date.now();
+    const entry = {
+      id: crypto.randomUUID(),
+      credentialId: stored.credentialId,
+      rpId: stored.rpId,
+      rpName: stored.rpName,
+      userId: stored.userId,
+      userName: stored.userName,
+      displayName: stored.displayName,
+      publicKey: stored.publicKey,
+      privateKey: this.#encrypt(stored.privatePkcs8),
+      createdAt: now,
+      lastUsed: 0,
+    };
+    this.data.passkeys.unshift(entry);
+    if (this.data.passkeys.length > MAX_PASSKEYS) this.data.passkeys.length = MAX_PASSKEYS;
+    this.save();
+    this.onChange();
+    return { ok: true, id: entry.id };
+  }
+
+  #publicPasskey(k) {
+    return { id: k.id, credentialId: k.credentialId, rpId: k.rpId, rpName: k.rpName, userId: k.userId,
+      userName: k.userName, displayName: k.displayName, createdAt: k.createdAt, lastUsed: k.lastUsed };
+  }
+
+  /** Passkeys a site may use, optionally only those it named. No private keys. */
+  passkeysFor(rpId, allow = []) {
+    const wanted = new Set(allow || []);
+    return this.data.passkeys
+      .filter((k) => k.rpId === rpId && (!wanted.size || wanted.has(k.credentialId)))
+      .map((k) => this.#publicPasskey(k));
+  }
+
+  hasCredential(rpId, credentialIds) {
+    const ids = new Set(credentialIds || []);
+    return this.data.passkeys.some((k) => k.rpId === rpId && ids.has(k.credentialId));
+  }
+
+  /** The private key for signing: a string, LOCKED, or null. */
+  passkeyPrivate(id) {
+    const entry = this.data.passkeys.find((k) => k.id === id);
+    if (!entry) return null;
+    const value = this.#decrypt(entry.privateKey);
+    if (typeof value === 'string') {
+      entry.lastUsed = Date.now();
+      this.touch();
+      this.save();
+    }
+    return value;
+  }
+
+  listPasskeys(query = '') {
+    const q = String(query || '').trim().toLowerCase();
+    return this.data.passkeys
+      .filter((k) => !q || (k.rpId + ' ' + k.userName + ' ' + k.displayName + ' ' + k.rpName).toLowerCase().includes(q))
+      .map((k) => ({ ...this.#publicPasskey(k), readable: this.#outer(k.privateKey) !== null }))
+      .sort((a, b) => a.rpId.localeCompare(b.rpId) || String(a.userName).localeCompare(String(b.userName)));
+  }
+
+  removePasskey(id) {
+    const before = this.data.passkeys.length;
+    this.data.passkeys = this.data.passkeys.filter((k) => k.id !== id);
+    if (this.data.passkeys.length !== before) { this.save(); this.onChange(); }
+    return { ok: true };
   }
 
   /**
@@ -171,6 +457,7 @@ class Passwords {
     const entry = this.data.entries.find((candidate) => candidate.id === id);
     if (!entry) return { ok: false, error: 'That login no longer exists.' };
     const password = this.#decrypt(entry.password);
+    if (password === LOCKED) return { ok: false, locked: true, error: 'Your passwords are locked.' };
     if (password === null) {
       return {
         ok: false,
@@ -179,6 +466,7 @@ class Passwords {
       };
     }
     entry.lastUsed = Date.now();
+    this.touch();
     this.save();
     return { ok: true, username: entry.username, password };
   }
@@ -197,7 +485,7 @@ class Passwords {
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
         lastUsed: entry.lastUsed,
-        readable: this.#decrypt(entry.password) !== null,
+        readable: this.#outer(entry.password) !== null,
       }))
       .sort((a, b) => a.origin.localeCompare(b.origin));
   }
@@ -214,6 +502,7 @@ class Passwords {
 
   clear() {
     this.data.entries = [];
+    this.data.passkeys = [];
     this.save();
     this.onChange();
     return { ok: true };
@@ -221,8 +510,10 @@ class Passwords {
 
   /** Every login with its password, for export and health checks only. */
   #all() {
+    if (this.locked) throw new Error('Your passwords are locked. Unlock them first.');
+    this.touch();
     return this.data.entries.map((entry) => ({ entry, password: this.#decrypt(entry.password) }))
-      .filter((item) => item.password !== null);
+      .filter((item) => typeof item.password === 'string');
   }
 
   /**
@@ -230,6 +521,7 @@ class Passwords {
    * ids; no password leaves main.
    */
   health() {
+    if (this.locked) return { total: 0, weak: [], reused: [], strong: 0, locked: true };
     const all = this.#all();
     const byPassword = new Map();
     for (const { entry, password } of all) byPassword.set(password, [...(byPassword.get(password) || []), entry.id]);
@@ -299,14 +591,18 @@ class Passwords {
     const status = this.encryptionStatus();
     return {
       count: this.data.entries.length,
+      passkeys: this.data.passkeys.length,
       encryption: status,
       // Flagged so the UI can explain rather than showing a silent failure.
       unreadable: this.data.entries.filter((entry) =>
-        this.#decrypt(entry.password) === null).length,
+        this.#outer(entry.password) === null).length,
+      ...this.lockState(),
     };
   }
 
   flush() { this.save(); }
+
+  dispose() { clearInterval(this.timer); this.key = null; }
 }
 
 /**
@@ -398,4 +694,4 @@ function parseCsv(text) {
   return rows;
 }
 
-module.exports = { Passwords, generatePassword, originOf, isWeak, parseCsv };
+module.exports = { Passwords, generatePassword, originOf, isWeak, parseCsv, LOCKED, LOCK_AFTER };

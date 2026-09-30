@@ -43,6 +43,14 @@ const FORMS = {
       ['label', 'Label'], ['number', 'Number'], ['holder', 'Name on it'], ['expires', 'Expires', 'MM/YYYY'],
     ],
   },
+  custom: {
+    title: 'Custom fields', noun: 'custom field', glyph: 'doc',
+    note: 'Anything else a form asks for - an employee ID, a library card, a frequent-flyer number. Static offers it in any box whose label or name matches.',
+    fields: [
+      ['label', 'Name', 'Employee ID, Library card…'], ['value', 'Value'],
+      ['match', 'Also fill fields named', 'staff no, badge number (optional, comma-separated)'],
+    ],
+  },
 };
 
 let state = { prefs: {}, never: [], counts: {}, available: true };
@@ -186,7 +194,9 @@ function autofillCard() {
   return card('Autofill', 'user', [
     element('div', { class: 'pw-toggles' }, [
       toggle('Offer to save passwords', 'After you sign in somewhere new', 'offerPasswords'),
-      toggle('Fill addresses, UPI and IDs', 'Suggested under the field; nothing is filled until you pick', 'fillAddresses'),
+      toggle('Sign in automatically', 'When a site has one saved login, Static fills it and signs in - at most once in 10 minutes per site', 'autoSignIn'),
+      toggle('Save and use passkeys', 'Sites that offer passkeys keep them in Static, unlocked with your face, fingerprint or PIN', 'passkeys'),
+      toggle('Fill addresses, UPI, IDs and custom fields', 'Suggested under the field; nothing is filled until you pick', 'fillAddresses'),
       toggle('Fill payment cards', 'Never the security code', 'fillCards'),
     ]),
     tabs,
@@ -206,12 +216,20 @@ function neverCard() {
   ])));
 }
 
+function noAutoCard() {
+  if (!state.noAuto?.length) return null;
+  return card('Never sign in automatically on', 'close', state.noAuto.map((origin) => element('div', { class: 'pw-item' }, [
+    element('div', {}, [element('strong', { text: origin.replace(/^https?:\/\//, '') })]),
+    element('button', { type: 'button', class: 'pill', text: 'Remove', onclick: async () => { await invoke('autofill:no-auto-remove', { origin }); await load(); } }),
+  ])));
+}
+
 function draw() {
   if (!state.available) {
     host.replaceChildren(card('Autofill', 'user', [element('p', { class: 'pw-error', text: 'Your system has no secure storage, so Static will not store addresses or cards here.' })]));
     return;
   }
-  host.replaceChildren(...[healthCard(), transferCard(), autofillCard(), neverCard()].filter(Boolean));
+  host.replaceChildren(...[health?.locked ? null : healthCard(), transferCard(), autofillCard(), neverCard(), noAutoCard()].filter(Boolean));
 }
 
 async function load() {

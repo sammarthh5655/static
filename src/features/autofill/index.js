@@ -26,7 +26,9 @@ const SHAPES = {
   card: ['label', 'cardKind', 'cc-name', 'cc-number', 'cc-exp-month', 'cc-exp-year'],
   upi: ['label', 'upi'],
   document: ['label', 'docType', 'number', 'holder', 'expires'],
-  custom: ['label', 'value'],
+  // Anything else a form asks for: an employee ID, a library card, a
+  // frequent-flyer number. `match` lists other names the field goes by.
+  custom: ['label', 'value', 'match'],
 };
 const DOC_TYPES = ['passport', 'driving-licence', 'vehicle-registration', 'national-id', 'other'];
 
@@ -37,6 +39,7 @@ function clean(kind, input) {
     if (value === undefined || value === null || value === '') continue;
     out[key] = String(value).replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, key === 'value' ? 2000 : 200);
   }
+  if (kind === 'custom' && out.value && !out.label) throw new Error('Give it a name, so Static knows which fields it belongs in.');
   if (kind === 'card') {
     if (out['cc-number']) out['cc-number'] = out['cc-number'].replace(/\D/g, '');
     if (out['cc-number'] && !luhn(out['cc-number'])) throw new Error('That card number does not look right.');
@@ -62,6 +65,7 @@ function mask(kind, fields) {
       fields['address-line1'], fields['address-level2'], fields['postal-code']].filter(Boolean).join(', ');
   }
   if (kind === 'upi') return fields.upi || '';
+  if (kind === 'custom') return fields.value ? (fields.value.length > 40 ? fields.value.slice(0, 39) + '…' : fields.value) : '';
   return fields.value ? fields.value.slice(0, 40) : '';
 }
 
@@ -69,11 +73,12 @@ class Autofill {
   constructor(dir, { onChange } = {}) {
     this.file = path.join(dir, FILE);
     this.onChange = onChange || (() => {});
-    this.data = { version: 1, entries: [], never: [], prefs: { offerPasswords: true, fillAddresses: true, fillCards: true } };
+    this.data = { version: 1, entries: [], never: [], noAuto: [], prefs: { offerPasswords: true, fillAddresses: true, fillCards: true, autoSignIn: true, passkeys: true } };
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (Array.isArray(raw.entries)) this.data.entries = raw.entries;
       if (Array.isArray(raw.never)) this.data.never = raw.never;
+      if (Array.isArray(raw.noAuto)) this.data.noAuto = raw.noAuto;
       if (raw.prefs) this.data.prefs = { ...this.data.prefs, ...raw.prefs };
     } catch { /* first run */ }
   }
@@ -100,7 +105,7 @@ class Autofill {
     if (!SHAPES[kind]) throw new Error('Unknown kind of entry.');
     if (!this.available()) throw new Error('Your system has no secure storage, so autofill data cannot be saved safely.');
     const values = clean(kind, fields);
-    if (Object.keys(values).filter((k) => !['label', 'purpose', 'cardKind', 'docType'].includes(k)).length === 0) {
+    if (Object.keys(values).filter((k) => !['label', 'purpose', 'cardKind', 'docType', 'match'].includes(k)).length === 0) {
       throw new Error('There is nothing to save.');
     }
     const box = safeStorage.encryptString(JSON.stringify(values)).toString('base64');
@@ -149,6 +154,32 @@ class Autofill {
     return out;
   }
 
+  /**
+   * Custom fields that belong in a field described by `text` (its label, name,
+   * id and placeholder). A custom field matches when every word of its name,
+   * or of one of its other names, appears in the description.
+   */
+  customFor(text) {
+    const words = normalise(text);
+    if (!words) return [];
+    const out = [];
+    for (const entry of this.data.entries) {
+      if (entry.kind !== 'custom') continue;
+      const fields = this.#open(entry);
+      if (!fields?.value) continue;
+      const names = [fields.label, ...String(fields.match || '').split(/[,;\n]/)].map(normalise).filter(Boolean);
+      if (names.some((name) => name.split(' ').every((word) => (' ' + words + ' ').includes(' ' + word + ' ')))) {
+        out.push({ id: entry.id, kind: 'custom', label: fields.label, value: fields.value, summary: mask('custom', fields) });
+      }
+    }
+    return out;
+  }
+
+  /** Sites where Static must not sign in on its own. */
+  noAuto(origin) { return this.data.noAuto.includes(origin); }
+  addNoAuto(origin) { if (!this.noAuto(origin)) { this.data.noAuto.push(origin); this.#save(); } }
+  removeNoAuto(origin) { this.data.noAuto = this.data.noAuto.filter((o) => o !== origin); this.#save(); }
+
   /** Is there already an entry that matches what was typed? */
   has(kind, fields) {
     const probe = clean(kind, fields);
@@ -169,7 +200,7 @@ class Autofill {
   }
 
   state() {
-    return { available: this.available(), prefs: this.prefs(), never: [...this.data.never],
+    return { available: this.available(), prefs: this.prefs(), never: [...this.data.never], noAuto: [...this.data.noAuto],
       counts: Object.fromEntries(Object.keys(SHAPES).map((k) => [k, this.data.entries.filter((e) => e.kind === k).length])) };
   }
 }
@@ -198,7 +229,13 @@ function fillValues(kind, f) {
   }
   if (kind === 'upi') return { upi: f.upi };
   if (kind === 'document') return { [f.docType]: f.number };
+  if (kind === 'custom') return { custom: f.value };
   return {};
+}
+
+/** "Employee_ID no." -> "employee id no" */
+function normalise(text) {
+  return String(text || '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9\u00c0-\uffff]+/g, ' ').trim();
 }
 
 module.exports = { Autofill, SHAPES, DOC_TYPES, fillValues, mask };

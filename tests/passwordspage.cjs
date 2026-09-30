@@ -34,7 +34,7 @@ async function run(browser) {
     const stats = await wc.executeJavaScript(`[...document.querySelectorAll('.pw-stat')].map(s => s.textContent)`);
     check('the page shows password health', stats.some((s) => /1weak/.test(s)) && stats.some((s) => /2reused/.test(s)), stats.join(' | '));
     const tabs = await wc.executeJavaScript(`[...document.querySelectorAll('.pw-tab span')].map(s => s.textContent)`);
-    check('autofill has addresses, cards, UPI and documents', tabs.length === 4, tabs.join(' | '));
+    check('autofill has addresses, cards, UPI, documents and custom fields', tabs.length === 5 && tabs[4] === 'Custom fields', tabs.join(' | '));
 
     await wc.executeJavaScript(`document.querySelector('.pw-add').click()`);
     await wait(200);

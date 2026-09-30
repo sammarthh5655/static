@@ -51,6 +51,15 @@ function hydrate(item) {
       },
     };
   }
+  if (item && item.field && item.field.action) {
+    const act = item.field.action;
+    return {
+      ...item,
+      // Main answers { ok: false, error } to keep the menu open with a reason.
+      onSubmit: (value) => window.browser.invoke(act.channel, { ...act.payload, value })
+        .catch((error) => ({ ok: false, error: String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })),
+    };
+  }
   if (!item || item.separator || item.heading || item.brand) return item;
   if (item.zoom) {
     return { ...item, zoom: { ...item.zoom, in: hydrate(item.zoom.in), out: hydrate(item.zoom.out), full: hydrate(item.zoom.full) } };
@@ -67,13 +76,18 @@ function hydrate(item) {
   };
 }
 
+/** True while one menu is being swapped for another. */
+let replacing = false;
+
 /** Draw a menu from a request, if there is one. */
 async function renderMenu(payload) {
   const items = (payload?.items || []).map(hydrate);
-  // Dismiss first: otherwise the old menu's close callback can shrink the
-  // native overlay after the replacement menu has already been opened.
-  window.ui.closeMenu();
-  if (!items.length) return;
+  if (!items.length) { window.ui.closeMenu(); return; }
+  // Dismiss first, quietly: a menu being REPLACED has not been closed, and
+  // telling main it had would both shrink the overlay under the replacement
+  // and answer a question main has only just asked (see #prompt).
+  replacing = true;
+  try { window.ui.closeMenu(); } finally { replacing = false; }
 
   // Size the overlay to the window BEFORE building the menu, and wait for that
   // to land: a 1x1 view has nowhere to paint a menu.
@@ -82,7 +96,7 @@ async function renderMenu(payload) {
   window.ui.menu(items, {
     anchor: payload.anchor,
     align: payload.align || 'left',
-    onClose: () => setInteractive(false),
+    onClose: () => { if (!replacing) setInteractive(false); },
   });
 }
 
