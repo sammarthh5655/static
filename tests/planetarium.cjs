@@ -11,8 +11,12 @@ async function run(browser) {
   };
 
   try {
-    browser.window.show();
+    // Off-screen: probes never show the window (see main.js).
     await wait(1200);
+    // A clean solar system: a planet forged by an earlier run would make the
+    // forge (rightly) refuse a second one with the same name.
+    browser.settings.update({ customPlanets: [], theme: 'neptune' });
+    browser.push();
     browser.tabs.navigate(browser.tabs.activeId, 'browser://settings#appearance');
     const wc = browser.tabs.active.view.webContents;
     for (let i = 0; i < 60 && wc.isLoading(); i++) await wait(200);
@@ -101,48 +105,45 @@ async function run(browser) {
       inside + ' lit pixels on the border');
     check('the forge is there', view.hasForge === true);
 
-    // Clicking a planet must change the theme for real.
+    // Clicking a planet must change the theme for real: a real mouse press
+    // and release where the planet is drawn, and the stored theme follows.
     const before = browser.settings.value.theme;
-    const clicked = await wc.executeJavaScript(`(function(){
-      var c = document.querySelector('.planetarium-canvas');
+    const target = await wc.executeJavaScript(`(function(){
+      var wrap = document.querySelector('.planetarium');
+      var c = wrap.querySelector('.planetarium-canvas');
       var r = c.getBoundingClientRect();
-      // Walk the canvas for a lit pixel that is not the background, then
-      // click there - that is a planet.
-      var ctx = c.getContext('2d');
-      for (var y = 10; y < c.height - 10; y += 6) {
-        for (var x = 10; x < c.width - 10; x += 6) {
-          var p = ctx.getImageData(x, y, 1, 1).data;
-          if (p[3] > 200 && (p[0] + p[1] + p[2]) > 260) {
-            var cx = r.left + (x / c.width) * r.width;
-            var cy = r.top + (y / c.height) * r.height;
-            c.dispatchEvent(new PointerEvent('pointerdown', { clientX: cx, clientY: cy, bubbles: true, pointerId: 1 }));
-            c.dispatchEvent(new PointerEvent('pointerup', { clientX: cx, clientY: cy, bubbles: true, pointerId: 1 }));
-            return { x: x, y: y };
-          }
-        }
-      }
-      return null;
+      var pick = wrap.planetariumBodies().filter(function (b) { return b.id !== ${JSON.stringify(before)}; })[0];
+      return pick ? { id: pick.id, x: Math.round(r.left + pick.x), y: Math.round(r.top + pick.y) } : null;
     })()`);
-    await wait(1400);
-    check('a planet was found to click', !!clicked, JSON.stringify(clicked));
+    check('a planet was found to click', !!target, JSON.stringify(target));
+    if (target) {
+      wc.sendInputEvent({ type: 'mouseMove', x: target.x, y: target.y });
+      wc.sendInputEvent({ type: 'mouseDown', x: target.x, y: target.y, button: 'left', clickCount: 1 });
+      wc.sendInputEvent({ type: 'mouseUp', x: target.x, y: target.y, button: 'left', clickCount: 1 });
+      await wait(900);
+    }
     check('clicking a planet changes the theme for real',
-      browser.settings.value.theme !== before || !!clicked,
-      'was ' + before + ', now ' + browser.settings.value.theme);
+      !!target && browser.settings.value.theme === target.id,
+      'was ' + before + ', clicked ' + (target && target.id) + ', now ' + browser.settings.value.theme);
 
-    // The forge must build a working world.
+    // The forge must build a working world, and it joins the solar system.
     await wc.executeJavaScript(`(function(){
-      document.getElementById('forge-colour').value = '#e8713f';
+      document.getElementById('forge-name').value = 'Ember';
+      document.getElementById('forge-primary').value = '#e8713f';
       document.querySelector('[data-light="light"]').click();
       document.getElementById('forge-apply').click();
       return true;
     })()`);
-    await wait(1400);
-    check('the forge applies a custom world',
-      browser.settings.value.theme === 'custom' &&
-      browser.settings.value.customColour === '#e8713f' &&
-      browser.settings.value.customLight === true,
-      JSON.stringify({ t: browser.settings.value.theme, c: browser.settings.value.customColour,
-                       l: browser.settings.value.customLight }));
+    await wait(1600);
+    const made = (browser.settings.value.customPlanets || []).find((planet) => planet.name === 'Ember');
+    check('the forge applies a world of your own',
+      !!made && browser.settings.value.theme === made.id && made.primary === '#e8713f' && made.light === true,
+      JSON.stringify({ theme: browser.settings.value.theme, made }));
+    const joined = await wc.executeJavaScript(`(function(){
+      var wrap = document.querySelector('.planetarium');
+      return wrap && wrap.planetariumBodies ? wrap.planetariumBodies().map(function (b) { return b.id; }) : [];
+    })()`);
+    check('it joins the solar system', !!made && joined.includes(made.id), joined.join(','));
 
     check('no page errors', errors.length === 0, errors.join(' | '));
 

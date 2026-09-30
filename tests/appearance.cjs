@@ -29,7 +29,8 @@ async function run(browser) {
 
   browser.settings.update({ theme: 'pluto' }); browser.push();
   await wait(400);
-  check('third theme applies', (await read('--bg')) === '#0f1117', await read('--bg'));
+  const plutoBg = require('../src/shared/theme').THEMES.pluto.tokens.bg;
+  check('third theme applies', (await read('--bg')) === plutoBg, (await read('--bg')) + ' want ' + plutoBg);
 
   // Radius is one variable driving everything.
   browser.settings.update({ radius: 'sharp' }); browser.push();

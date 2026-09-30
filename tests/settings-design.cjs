@@ -22,7 +22,10 @@ async function run(browser) {
   const js = code => wc.executeJavaScript(code);
   const overlay = code => browser.overlay.webContents.executeJavaScript(code);
   await until('settings navigation', () => js("!!document.querySelector('[data-category=about]')").catch(() => false));
-  assert.equal(await js("document.querySelectorAll('[data-category]').length"), 14);
+  // Every section on the page is reachable from the side list, however many
+  // sections there are.
+  assert.equal(await js("document.querySelectorAll('[data-category]').length"),
+    await js("new Set([...document.querySelectorAll('[data-section]')].map((node) => node.dataset.section)).size"));
   assert.equal(await js("document.querySelector('[data-section=start]').hidden"), false);
   assert.equal(await js("document.querySelector('.settings-brand img').naturalWidth > 0"), true);
   await wait(250);
@@ -88,7 +91,7 @@ async function run(browser) {
   assert.equal(await js("document.querySelector('#app-version').textContent"), 'Version ' + app.getVersion());
   await js("document.querySelector('[data-category=start]').click()");
   browser.settings.update({ theme: 'sun' }); browser.push();
-  await until('light theme reaches settings', () => js("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#f2f3f5'"));
+  await until('light theme reaches settings', () => js("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '" + require('../src/shared/theme').THEMES.sun.tokens.bg + "'"));
   // CSS state can update before Chromium presents the next compositor frame.
   await wait(300);
   fs.writeFileSync(path.join(output, 'settings-reference-light.png'), (await wc.capturePage()).toPNG());
