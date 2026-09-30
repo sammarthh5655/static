@@ -325,11 +325,13 @@ class Shields {
       const verdict = this.engine.match({ url, docHost, resourceType, method });
       if (verdict.blocked) {
         this.#count(tabId, docHost, url);
-        this.stats.record(classify(verdict.rule, url));
+        const category = classify(verdict.rule, url);
+        this.stats.record(category);
         // A redirect rule answers with a harmless stand-in (an empty script,
         // a 1x1 image) instead of an error, so a page that insists the ad
         // library exists keeps working. Documents are never redirected.
         const stand = verdict.redirect && resourceType !== 'mainFrame' ? redirectUrl(verdict.redirect) : '';
+        this.stats.note({ url, site: docHost, category, type: resourceType, list: verdict.list, action: stand ? 'redirected' : 'blocked' });
         if (stand) {
           this.stats.record('redirect');
           return { redirect: stand, rule: verdict.rule, list: verdict.list, action: 'redirected' };
@@ -460,6 +462,7 @@ class Shields {
       totalBlocked: this.stats.lifetime().blocked,
       lifetime: this.stats.lifetime(),
       lists: LISTS.map((list) => ({ id: list.id, name: list.name })),
+      disabledSites: [...(this.config.disabledSites || [])],
     };
   }
 

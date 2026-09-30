@@ -90,7 +90,7 @@ class BrowserApplication {
     // The wallpaper service, before Settings reads any wallpaper choice: the
     // cached remote catalogue has to be known for those to validate.
     let remoteKeys = {};
-    try { remoteKeys = require('./secure/keys').supabase || {}; } catch { /* not configured: built-in only */ }
+    try { remoteKeys = require('./secure/load').keys().supabase || {}; } catch { /* not configured: built-in only */ }
     wallpapers.configure({
       cacheFile: path.join(this.root, 'wallpapers-remote.json'),
       url: remoteKeys.url, key: remoteKeys.key,
@@ -506,6 +506,7 @@ class BrowserApplication {
         return callback({ requestHeaders: details.requestHeaders });
       }
       const headers = { ...details.requestHeaders };
+      if (headers.Cookie || headers.cookie) this.shields.stats.record('cookies');
       delete headers.Cookie;
       delete headers.cookie;
       callback({ requestHeaders: headers });
@@ -518,7 +519,9 @@ class BrowserApplication {
       if (this.shields.config.blockThirdPartyCookies && isThirdParty(details)) {
         headers = { ...details.responseHeaders };
         for (const key of Object.keys(headers)) {
-          if (key.toLowerCase() === 'set-cookie') delete headers[key];
+          if (key.toLowerCase() !== 'set-cookie') continue;
+          this.shields.stats.record('cookies', Array.isArray(headers[key]) ? headers[key].length : 1);
+          delete headers[key];
         }
       }
       // $csp rules from the lists: extra Content-Security-Policy on a page,
@@ -2814,8 +2817,15 @@ class BrowserApplication {
       'shields:update': (_sender, payload) => this.shields.update(payload),
       'shields:site': (_sender, payload) => {
         this.shields.setSiteEnabled(payload?.host, !!payload?.enabled);
-        // Reload so the change takes effect on what is already on screen.
-        this.tabs.navigateActive('reload');
+        // Reload the pages on that site so the change takes effect on what is
+        // already open. From the Shields page itself that is not the active
+        // tab, so every tab on the site is reloaded rather than the active one.
+        const target = String(payload?.host || '').toLowerCase().replace(/^www\./, '');
+        for (const tab of this.tabs?.tabs.values() || []) {
+          let host = '';
+          try { host = new URL(tab.state.url || '').hostname.toLowerCase().replace(/^www\./, ''); } catch { continue; }
+          if (host && (host === target || host.endsWith('.' + target)) && !tab.view.webContents.isDestroyed()) tab.view.webContents.reload();
+        }
         return { ok: true };
       },
       'shields:report': () => this.shields.tabReport(this.tabs?.activeId),
@@ -2824,472 +2834,23 @@ class BrowserApplication {
       // `isEmpty` so the widget can show an empty state rather than zeros
       // that look like a broken blocker.
       'shields:stats': () => this.shields.stats.summary(),
-
-      // ---- first launch ----------------------------------------------------
-      // Each of these returns the whole onboarding state, so the page never
-      // has to work out what changed or which step follows.
-      /**
-       * The planets travel WITH the onboarding state rather than being read
-       * from the catalog, so the welcome page needs exactly one call to
-       * render any step.
-       */
-      'onboarding:state': () => this.#onboardingState(),
-      'onboarding:next': () => this.#onboardingState(this.onboarding.next()),
-      'onboarding:back': () => this.#onboardingState(this.onboarding.back()),
-      'onboarding:skip': () => this.#onboardingState(this.onboarding.skip()),
-      'onboarding:profile': (_sender, payload) => this.#onboardingState(this.onboarding.chooseProfile(String(payload?.id || ''))),
-      'onboarding:layout': (_sender, payload) => this.#onboardingState(this.onboarding.chooseLayout(String(payload?.id || ''))),
-      'onboarding:theme': (_sender, payload) => this.#onboardingState(this.onboarding.chooseTheme(String(payload?.id || ''))),
-      'onboarding:privacy': (_sender, payload) => this.#onboardingState(this.onboarding.choosePrivacy(String(payload?.id || ''))),
-      'onboarding:ai': (_sender, payload) => this.#onboardingState(this.onboarding.chooseAI(payload?.id === 'on')),
-      /**
-       * Finish or dismiss. Both mark it complete and then leave the welcome
-       * page, because a setup flow you cannot get out of is a trap.
-       */
-      'onboarding:complete': (_sender, _payload) => {
-        const state = this.onboarding.complete();
-        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://newtab');
-        return state;
+      // The live side of the Shields page: the latest blocks and this tab.
+      //
+      // Every open web page, most recently used first. The Shields page is
+      // itself the active tab while it is open, so "this page" means the last
+      // web page you were on rather than browser://shields.
+      'shields:activity': (_sender, payload) => {
+        const tabs = (this.tabs ? this.tabs.list() : [])
+          .filter((tab) => /^https?:/i.test(tab.url || ''))
+          .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
+          .map((tab) => ({ id: tab.id, title: tab.title, url: tab.url, favicon: tab.favicon, ...this.shields.tabReport(tab.id) }));
+        return {
+          recent: this.shields.stats.recent(payload?.limit || 60),
+          tabs,
+          session: this.shields.stats.summary().session,
+        };
       },
-      'onboarding:restart': () => {
-        const state = this.onboarding.restart();
-        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://welcome');
-        return state;
-      },
-
-      'health:report': () => this.health.report(),
-      /**
-       * One-click fixes. Each returns what it actually did, so the UI can say
-       * "slept 3 tabs" rather than claiming success it cannot verify.
-       */
-      'health:fix': async (_sender, payload) => {
-        const action = String(payload?.action || '');
-        switch (action) {
-          case 'sleep-heavy': {
-            const before = this.resources.sample().totals?.totalMemoryMb || 0;
-            const slept = this.resources.sleepInactive
-              ? this.resources.sleepInactive()
-              : this.#sleepHeavyTabs();
-            const after = this.resources.sample().totals?.totalMemoryMb || 0;
-            return { action, slept, freedMb: Math.max(0, before - after) };
-          }
-          case 'enable-shields':
-            this.shields.update({ enabled: true });
-            return { action, enabled: true };
-          case 'update-lists': {
-            const result = await this.shields.refresh({ force: true });
-            return { action, rules: this.shields.engine.count, result };
-          }
-          case 'clear-cache':
-            await this.session.clearCache();
-            return { action, cleared: true };
-          case 'open-shields':
-            this.tabs.navigate(this.tabs.activeId, 'browser://shields');
-            return { action };
-          case 'open-passwords':
-            this.tabs.navigate(this.tabs.activeId, 'browser://passwords');
-            return { action };
-          case 'open-extensions':
-            this.tabs.navigate(this.tabs.activeId, 'browser://extensions');
-            return { action };
-          default:
-            throw new Error('Unknown fix.');
-        }
-      },
-
-      'sidebar:toggle': (_sender, payload) => this.toggleSidebar(payload?.open),
-      'sidebar:state': () => ({ open: this.sidebarOpen, width: this.sidebarWidth }),
-      'sidebar:peek': (_sender, payload) => this.peekSidebar(payload?.show !== false),
-
-
-      /**
-       * The omnibox dropdown is inside the chrome view, which is only as tall
-       * as the toolbar - so the list needs the view to grow while it is open.
-       */
-      'ui:suggestions': (_sender, payload) => {
-        const open = !!payload?.open;
-        if (open === this.suggestionsOpen) return open;
-        this.suggestionsOpen = open;
-        this.layout();
-        return open;
-      },
-
-      'ai:formats': () => Object.values(pagecontext.FORMATS)
-        .map(({ id, name }) => ({ id, name })),
-
-      'ai:ask': async (_sender, payload) => {
-        const prompt = String(payload?.prompt || '').trim();
-        if (!prompt) throw new Error('Ask a question first.');
-
-        // One in-flight request at a time; a new ask cancels the previous.
-        this.aiController?.abort();
-        this.aiController = new AbortController();
-
-        try {
-          const result = await gemini.generate({
-            prompt,
-            system: payload?.system,
-            context: payload?.context,
-            // Conversation history was accepted from the caller and then
-            // dropped, so every follow-up question was answered as if it were
-            // the first thing ever asked.
-            history: payload?.history,
-            model: payload?.model,
-            // One retry rather than two: in a sidebar, a fast failure the user
-            // can retry beats a long wait that fails anyway.
-            retries: payload?.retries ?? 1,
-            // Callers that need a long answer raise these; the default is
-            // tuned for a quick one.
-            maxOutputTokens: payload?.maxOutputTokens ?? 1536,
-            thinking: payload?.thinking ?? 0,
-            signal: this.aiController.signal,
-          });
-          return { ok: true, text: result.text, model: result.model };
-        } catch (error) {
-          // THROW rather than returning {ok:false}. A caller reading
-          // `result.text` got undefined and rendered an empty or broken reply,
-          // because its catch block never ran - which is exactly what typing a
-          // question in the sidebar did.
-          throw new Error(error.message);
-        }
-      },
-
-      'ai:cancel': () => {
-        this.aiController?.abort();
-        this.aiController = null;
-        return true;
-      },
-
-      // ---- chat history ----------------------------------------------------
-      // Backs browser://ai. Conversations live in main so the transcript
-      // survives the tab being closed, and so the Gemini call that continues a
-      // conversation can read prior turns without the renderer resending them.
-      'chat:list': () => this.chats.list(),
-      'chat:get': (_sender, payload) => this.chats.get(payload?.id),
-      'chat:new': () => {
-        const chat = this.chats.create(Date.now());
-        ipcBroadcastChats(this);
-        return chat;
-      },
-      'chat:rename': (_sender, payload) => {
-        this.chats.rename(payload?.id, payload?.title);
-        ipcBroadcastChats(this);
-        return { ok: true };
-      },
-      'chat:pin': (_sender, payload) => {
-        this.chats.setPinned(payload?.id, payload?.pinned);
-        ipcBroadcastChats(this);
-        return { ok: true };
-      },
-      'chat:delete': (_sender, payload) => {
-        this.chats.remove(payload?.id);
-        ipcBroadcastChats(this);
-        return { ok: true };
-      },
-      'chat:clear': () => {
-        this.chats.clear();
-        ipcBroadcastChats(this);
-        return { ok: true };
-      },
-
-      /**
-       * Send a message in a conversation and store both turns.
-       *
-       * The user's turn is written BEFORE the request so a failed or cancelled
-       * answer still leaves the question in the transcript - losing what you
-       * typed because the network blipped would be worse than an error row.
-       */
-      'chat:send': async (_sender, payload) => {
-        const prompt = String(payload?.prompt || '').trim();
-        if (!prompt) throw new Error('Type a message first.');
-
-        let chatId = payload?.id;
-        if (!chatId || !this.chats.get(chatId)) chatId = this.chats.create(Date.now()).id;
-
-        const history = this.chats.contextTurns(chatId);
-        this.chats.addTurn(chatId, { role: 'user', text: prompt, now: Date.now() });
-        ipcBroadcastChats(this);
-
-        this.aiController?.abort();
-        this.aiController = new AbortController();
-
-        try {
-          const result = await gemini.generate({
-            prompt,
-            history,
-            system: payload?.system,
-            context: payload?.context,
-            model: payload?.model,
-            signal: this.aiController.signal,
-          });
-          this.chats.addTurn(chatId, {
-            role: 'model', text: result.text, model: result.model, now: Date.now(),
-          });
-          ipcBroadcastChats(this);
-          return { ok: true, id: chatId, text: result.text, model: result.model };
-        } catch (error) {
-          ipcBroadcastChats(this);
-          return { ok: false, id: chatId, error: error.message };
-        }
-      },
-
-      // ---- resources -------------------------------------------------------
-      'resources:state': () => this.resources.state(),
-      'resources:watch': (_sender, payload) => {
-        if (payload?.watch === false) this.resources.stop();
-        else this.resources.start();
-        return this.resources.state();
-      },
-      'resources:update': (_sender, payload) => this.resources.update(payload),
-      'resources:suspend': (_sender, payload) =>
-        this.resources.suspend(payload?.id, 'manual', { discard: !!payload?.discard }),
-      'resources:resume': (_sender, payload) => this.resources.resume(payload?.id),
-      'resources:resume-all': () => this.resources.resumeAll(),
-      'resources:game-mode': (_sender, payload) => this.resources.setGameMode(!!payload?.on),
-
-      // ---- focus -----------------------------------------------------------
-      'focus:state': () => this.focus.state(),
-      'focus:start': (_sender, payload) => this.focus.start(payload),
-      'focus:stop': () => this.focus.finish('stopped'),
-      'focus:update': (_sender, payload) => this.focus.update(payload),
-      'focus:unlock': () => this.focus.requestUnlock(),
-
-      // ---- notes -----------------------------------------------------------
-      'notes:state': () => this.notes.state(),
-      'notes:list': (_sender, payload) => this.notes.list(payload || {}),
-      'notes:add': (_sender, payload) => this.notes.add(payload || {}),
-      'notes:update': (_sender, payload) => this.notes.update(payload?.id, payload || {}),
-      'notes:remove': (_sender, payload) => this.notes.remove(payload?.id),
-      'notes:workspace-add': (_sender, payload) => this.notes.addWorkspace(payload?.name),
-      'notes:workspace-remove': (_sender, payload) => this.notes.removeWorkspace(payload?.id),
-      'notes:workspace-select': (_sender, payload) => this.notes.setActiveWorkspace(payload?.id),
-      'notes:export': (_sender, payload) =>
-        this.notes.export(payload?.format || 'markdown', payload?.workspace || null),
-
-      /** Capture the active tab: its selection if any, otherwise the link. */
-      'notes:capture': async (_sender, payload) => {
-        const tab = this.tabs?.active;
-        if (!tab) return { ok: false, error: 'No page is open.' };
-        const wc = tab.view.webContents;
-        let selection = '';
-        try {
-          selection = await wc.executeJavaScript('String(window.getSelection())', true);
-        } catch { selection = ''; }
-
-        const note = this.notes.add({
-          kind: selection.trim() ? 'text' : 'link',
-          body: selection.trim(),
-          title: tab.state.title,
-          url: tab.state.displayUrl,
-          tags: payload?.tags,
-          comment: payload?.comment,
-        });
-        this.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
-        return { ok: true, note };
-      },
-
-      /** Screenshot the active tab into a note. */
-      'notes:screenshot': async () => {
-        const tab = this.tabs?.active;
-        if (!tab) return { ok: false, error: 'No page is open.' };
-        try {
-          const image = await tab.view.webContents.capturePage();
-          if (image.isEmpty()) return { ok: false, error: 'The page could not be captured.' };
-          const file = this.notes.saveImage(image.toPNG());
-          if (!file) return { ok: false, error: 'The screenshot could not be saved.' };
-          const note = this.notes.add({
-            kind: 'screenshot',
-            image: file,
-            title: tab.state.title,
-            url: tab.state.displayUrl,
-          });
-          this.notify('Screenshot saved to Notes');
-          return { ok: true, note };
-        } catch (error) {
-          return { ok: false, error: error.message };
-        }
-      },
-
-      /** Summarise a note with Gemini and store the summary alongside it. */
-      'notes:summarise': async (_sender, payload) => {
-        const note = this.notes.get(payload?.id);
-        if (!note) return { ok: false, error: 'That note no longer exists.' };
-        const source = (note.body || '').trim() || note.url;
-        if (!source) return { ok: false, error: 'There is nothing to summarise.' };
-        try {
-          const result = await gemini.generate({
-            prompt: source.slice(0, 40000),
-            system: 'Summarise the following in three or four short bullet points, '
-              + 'each starting with a dash. Plain text only, no headings or bold.',
-          });
-          this.notes.update(note.id, { comment: result.text });
-          return { ok: true, text: result.text };
-        } catch (error) {
-          return { ok: false, error: error.message };
-        }
-      },
-
-      // ---- safety ----------------------------------------------------------
-      'safety:state': () => this.safety.state(),
-      'safety:assess': (_sender, payload) => this.safety.assess(payload?.url || ''),
-      'safety:trust': (_sender, payload) => {
-        this.safety.trust(payload?.host);
-        // Re-open what was blocked, now that it is trusted.
-        if (payload?.url) this.tabs.navigate(this.tabs.activeId, payload.url);
-        return { ok: true };
-      },
-      'safety:untrust': (_sender, payload) => this.safety.untrust(payload?.host),
-      'safety:enabled': (_sender, payload) => this.safety.setEnabled(!!payload?.enabled),
-      'safety:proceed': (_sender, payload) => {
-        // "Continue anyway" for this session only: the assessment is recorded,
-        // but the site is not permanently trusted.
-        this.safety.recordWarning({ host: payload?.host, url: payload?.url, score: 0,
-          risk: 'proceeded', reasons: [] }, 'proceeded');
-        this.sessionAllowed.add(payload?.url || '');
-        if (payload?.url) this.tabs.navigate(this.tabs.activeId, payload.url);
-        return { ok: true };
-      },
-
-      // ---- workspaces (student / legal / shopping) --------------------------
-      /** Task catalogues, so a page never hardcodes the list of what it can do. */
-      'workspace:tasks': (_sender, payload) => (payload?.mode === 'legal'
-        ? { tasks: Object.values(LEGAL_TASKS), disclaimer: LEGAL_DISCLAIMER }
-        : { tasks: Object.values(STUDENT_TASKS) }),
-
-      /**
-       * Readable text of the active page.
-       *
-       * Scripts, styles and nav chrome are stripped in the page itself rather
-       * than sent to the model: they are most of the bytes and none of the
-       * meaning, and the prompt budget is finite.
-       */
-      'workspace:page-text': async () => {
-        const tab = this.tabs?.active;
-        if (!tab) return { ok: false, error: 'No page is open.' };
-        if (tab.state.internalUrl) {
-          return { ok: false, error: 'Open a web page first - this is a browser page.' };
-        }
-        try {
-          const text = await tab.view.webContents.executeJavaScript(`(() => {
-            const drop = 'script,style,noscript,svg,nav,header,footer,aside,iframe,form';
-            const root = document.querySelector('article, main, [role=main]') || document.body;
-            const clone = root.cloneNode(true);
-            clone.querySelectorAll(drop).forEach((node) => node.remove());
-            return (clone.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
-          })()`, true);
-          return {
-            ok: true,
-            text: String(text || '').slice(0, 50000),
-            title: tab.state.title,
-            url: tab.state.displayUrl,
-          };
-        } catch (error) {
-          return { ok: false, error: 'Could not read this page: ' + error.message };
-        }
-      },
-
-      /** Run one Student or Legal task over supplied text. */
-      'workspace:run': async (_sender, payload) => {
-        const catalogue = payload?.mode === 'legal' ? LEGAL_TASKS : STUDENT_TASKS;
-        const task = catalogue[payload?.task];
-        if (!task) return { ok: false, error: 'Unknown task.' };
-        const source = String(payload?.text || '').trim();
-        if (!source) return { ok: false, error: 'There is no text to work from.' };
-
-        this.aiController?.abort();
-        this.aiController = new AbortController();
-        try {
-          const prompt = task.needsOption && payload?.option
-            ? `Target ${task.needsOption}: ${payload.option}\n\n${source}`
-            : source;
-          const result = await gemini.generate({
-            prompt,
-            system: task.system,
-            // Legal work rewards accuracy over latency, so it PREFERS the
-            // stronger model - preferModel, not model, so it still degrades to
-            // the rest of the chain when that one is out of quota rather than
-            // failing the request.
-            preferModel: payload?.mode === 'legal' ? gemini.QUALITY_MODEL : undefined,
-            signal: this.aiController.signal,
-          });
-          return { ok: true, text: result.text, model: result.model, task: task.id };
-        } catch (error) {
-          return { ok: false, error: error.message };
-        }
-      },
-
-      /**
-       * Compare the product pages currently open.
-       *
-       * Detection is deliberately loose - a URL shaped like a product page, or
-       * page text with a price in it - because being too strict here means the
-       * feature silently does nothing on sites we did not anticipate.
-       */
-      'shopping:compare': async () => {
-        const tabs = [...(this.tabs?.tabs.values() || [])]
-          .filter((tab) => !tab.state.internalUrl && /^https?:/.test(tab.state.displayUrl || ''));
-        if (tabs.length < 2) {
-          return { ok: false, error: 'Open at least two product pages in separate tabs first.' };
-        }
-
-        const extracted = [];
-        for (const tab of tabs.slice(0, 5)) {
-          try {
-            const text = await tab.view.webContents.executeJavaScript(`(() => {
-              const drop = 'script,style,noscript,svg,iframe';
-              const clone = document.body.cloneNode(true);
-              clone.querySelectorAll(drop).forEach((node) => node.remove());
-              return (clone.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
-            })()`, true);
-            const body = String(text || '');
-            // Only treat it as a product if there is something price-shaped.
-            const looksLikeProduct = /(?:[\u20B9$£€]\s?\d|\d+\s?(?:INR|USD|EUR|GBP))/i.test(body);
-            if (!looksLikeProduct) continue;
-            extracted.push({
-              title: tab.state.title,
-              url: tab.state.displayUrl,
-              text: body.slice(0, 12000),
-            });
-          } catch { /* a tab that refuses injection is simply skipped */ }
-        }
-
-        if (extracted.length < 2) {
-          return {
-            ok: false,
-            error: 'Could not find two product pages. Open the product pages themselves '
-              + '(not search results) and try again.',
-          };
-        }
-
-        const prompt = extracted
-          .map((item, index) => `--- PRODUCT ${index + 1}: ${item.title}\nURL: ${item.url}\n\n${item.text}`)
-          .join('\n\n');
-
-        try {
-          const result = await gemini.generate({ prompt, system: SHOPPING_SYSTEM });
-          return { ok: true, text: result.text, model: result.model, sources: extracted.map((item) => ({
-            title: item.title, url: item.url,
-          })) };
-        } catch (error) {
-          return { ok: false, error: error.message };
-        }
-      },
-
-      // ---- shields ---------------------------------------------------------
-      'shields:state': () => this.shields.state(),
-      'shields:update': (_sender, payload) => this.shields.update(payload),
-      'shields:site': (_sender, payload) => {
-        this.shields.setSiteEnabled(payload?.host, !!payload?.enabled);
-        // Reload so the change takes effect on what is already on screen.
-        this.tabs.navigateActive('reload');
-        return { ok: true };
-      },
-      'shields:report': () => this.shields.tabReport(this.tabs?.activeId),
-      'shields:refresh': () => this.shields.refresh({ force: true }),
-      // Real per-day, per-category counters for the privacy widget. Returns
-      // `isEmpty` so the widget can show an empty state rather than zeros
-      // that look like a broken blocker.
-      'shields:stats': () => this.shields.stats.summary(),
+      'shields:reset-stats': () => { this.shields.stats.reset(); return this.shields.stats.summary(); },
 
 
       // ---- passwords -------------------------------------------------------
@@ -3429,7 +2990,11 @@ class BrowserApplication {
 
   async #clearData(options = {}) {
     const { history: clearHistory, cookies, cache, downloads: clearDownloads } = options;
-    if (clearHistory) this.history.clear();
+    if (clearHistory) {
+      this.history.clear();
+      // Which sites had trackers blocked reads like history, so it goes too.
+      this.shields.stats.forgetSites();
+    }
     if (clearDownloads) this.downloads.clear();
     if (cookies) {
       await this.session.clearStorageData({

@@ -36,7 +36,7 @@ module.exports = {
     'safety:enabled', 'safety:proceed',
     'modes:state',
     'shields:state', 'shields:update', 'shields:site', 'shields:report', 'shields:refresh',
-    'shields:stats',
+    'shields:stats', 'shields:activity', 'shields:reset-stats',
     'passwords:state', 'passwords:list', 'passwords:save', 'passwords:for-url',
     'passwords:reveal', 'passwords:remove', 'passwords:clear', 'passwords:generate',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',

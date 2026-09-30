@@ -64,7 +64,7 @@ function loadKey() {
   // read here in main and nowhere else.
   if (process.env.GEMINI_API_KEY) return process.env.GEMINI_API_KEY.trim();
   try {
-    return (require('../../main/secure/keys').gemini || '').trim();
+    return (require('../../main/secure/load').keys().gemini || '').trim();
   } catch {
     return '';
   }
