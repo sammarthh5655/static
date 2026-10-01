@@ -271,7 +271,9 @@ function renderPanel(data) {
   if (!data) { host.hidden = true; host.replaceChildren(); return; }
 
   host.hidden = false;
-  host.replaceChildren(
+  // Filtered: replaceChildren draws a null as the text "null", which is how a
+  // panel with no actions and no list used to end in "nullnull".
+  host.replaceChildren(...[
     element('div', { class: 'side-panel-head' }, [
       element('strong', { text: data.name }),
       element('button', {
@@ -332,7 +334,7 @@ function renderPanel(data) {
         onclick: () => invoke('tabs:navigate', { input: data.page }),
       })
       : null,
-  );
+  ].filter(Boolean));
 }
 
 /** The last settings seen, so the rail can redraw without a state push. */

@@ -744,6 +744,40 @@ el.tabs.addEventListener('dragend', () => {
   renderTabs();
 });
 
+/**
+ * Windows never delivers a drop to a window-dragging area (the empty strip
+ * and the title bar are -webkit-app-region: drag): a photo dragged from
+ * Explorer onto the empty tab bar was simply refused. While something from
+ * outside is being dragged over the browser, those areas stop dragging the
+ * window and become drop zones; they go back the moment the drag ends.
+ */
+let dropTimer = null;
+const endDropping = () => { clearTimeout(dropTimer); document.body.classList.remove('dropping'); };
+for (const type of ['dragenter', 'dragover']) {
+  document.addEventListener(type, (event) => {
+    if (local.dragId || !canOpen(event)) return;
+    document.body.classList.add('dropping');
+    // dragleave is unreliable across the native drag regions: a quiet
+    // moment without dragover means the drag has gone.
+    clearTimeout(dropTimer);
+    dropTimer = setTimeout(endDropping, 700);
+  }, true);
+}
+for (const type of ['drop', 'dragend']) document.addEventListener(type, endDropping, true);
+// Dropped anywhere else in the chrome (the toolbar, the title bar): a new tab too.
+document.addEventListener('dragover', (event) => {
+  if (local.dragId || !canOpen(event) || event.defaultPrevented) return;
+  if (event.target.closest('input, textarea')) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+});
+document.addEventListener('drop', (event) => {
+  if (local.dragId || event.defaultPrevented || !canOpen(event)) return;
+  if (event.target.closest('input, textarea')) return;
+  event.preventDefault();
+  openDropped(event);
+});
+
 // Links, images and files dropped on the + button or the empty strip open in a new tab.
 for (const target of [el.newtab, document.querySelector('.strip-drag'), document.querySelector('.strip')]) {
   if (!target) continue;

@@ -98,6 +98,32 @@ async function run(browser) {
     check('a dropped link still opens in a new tab, once', browser.tabs.list().length === before + 1 && tabUrls().some((u) => u.startsWith('https://example.com/dropped')), tabUrls().join(' '));
 
     newest();
+    // 4b. The empty part of the tab bar normally drags the window, and Windows
+    //     never delivers a drop there. During a drag from outside it must take drops.
+    const region = () => chrome.executeJavaScript(`getComputedStyle(document.querySelector('.strip-drag')).webkitAppRegion || getComputedStyle(document.querySelector('.strip-drag')).getPropertyValue('-webkit-app-region')`);
+    const idle = await region();
+    await chrome.executeJavaScript(`(() => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array([1])], 'x.png', { type: 'image/png' }));
+      document.querySelector('.toolbar').dispatchEvent(new DragEvent('dragenter', { dataTransfer: data, bubbles: true, cancelable: true }));
+    })()`);
+    const during = await region();
+    check('while a file is dragged in, the empty tab bar takes drops instead of moving the window', idle === 'drag' && during === 'no-drag', idle + ' -> ' + during);
+    before = browser.tabs.list().length;
+    await chrome.executeJavaScript(`(() => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(PNG.toString('base64'))}), (c) => c.charCodeAt(0));
+      const data = new DataTransfer();
+      data.items.add(new File([bytes], 'onto the strip.png', { type: 'image/png' }));
+      const zone = document.querySelector('.strip-drag');
+      zone.dispatchEvent(new DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true }));
+      zone.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true }));
+    })()`);
+    await until(() => browser.tabs.list().length === before + 1);
+    check('a photo dropped on the empty tab bar opens in one new tab', browser.tabs.list().length === before + 1, before + ' -> ' + browser.tabs.list().length);
+    await wait(900);
+    check('and afterwards the bar drags the window again', (await region()) === 'drag');
+    newest();
+
     // 5. A file dropped onto a page: never file://, a new tab beside it instead.
     const page = browser.tabs.active;
     before = browser.tabs.list().length;

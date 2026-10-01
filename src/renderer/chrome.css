@@ -124,6 +124,29 @@ body.mac .window-controls { display: none; }
 }
 
 .strip-drag { flex: 1; align-self: stretch; -webkit-app-region: drag; }
+/* While a file or link is dragged in from outside, the empty strip and the
+   title bar take drops instead of dragging the window (see chrome.js). */
+body.dropping .strip-drag,
+body.dropping .titlebar,
+body.dropping .titlebar-drag { -webkit-app-region: no-drag; }
+body.dropping .strip-drag {
+  margin: 4px 6px 6px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  position: relative;
+}
+body.dropping .strip-drag::after {
+  content: 'Drop to open in a new tab';
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+}
 
 .tabs { display: flex; align-items: flex-end; gap: 2px; overflow: hidden; }
 
