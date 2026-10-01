@@ -31,7 +31,10 @@ class Organizer {
     this.aiBusy = true; this.onChange();
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 45000);
     try {
-      const result = await this.ai.generate({ model: 'gemini-3-flash-preview', system, prompt, retries: 0,
+      // The whole model chain, not one pinned model: pinned, the organizer
+      // failed outright whenever that model was busy or out of its free
+      // allowance, while the next model along could have answered.
+      const result = await this.ai.generate({ system, prompt, retries: 0,
         temperature: .2, signal: controller.signal });
       return typeof result === 'string' ? result : result.text;
     } catch { throw new Error('Gemini could not finish. Your local suggestions are still available. Try again shortly.'); }

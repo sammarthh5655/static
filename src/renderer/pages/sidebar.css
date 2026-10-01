@@ -102,6 +102,66 @@ body.sidebar {
 .side-turn.is-ai .side-text { white-space: pre-wrap; line-height: 1.55; }
 .side-meta { font-size: 10px; color: var(--text-faint); }
 
+/* Waiting for an answer: the words themselves shimmer, so the sidebar looks
+   alive without a spinner competing with the page beside it. */
+.side-turn.is-working .side-text {
+  background: linear-gradient(100deg, var(--text-faint) 30%, var(--accent) 50%, var(--text-faint) 70%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: side-shimmer 1.6s linear infinite;
+}
+@keyframes side-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+
+/* No answer: said plainly, in its own quiet card, with the way forward. */
+.side-turn.is-failed {
+  padding: 9px 11px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, var(--border-soft));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface));
+  animation: side-fail-in 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.side-turn.is-failed .side-text { color: var(--text-dim); font-size: 12px; }
+.side-fail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warn);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.side-fail-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+@keyframes side-fail-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } }
+
+.side-retry {
+  margin-top: 4px;
+  padding: 4px 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, transform 140ms ease;
+}
+.side-retry:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.side-retry:active:not(:disabled) { transform: scale(0.97); }
+.side-retry:disabled { opacity: 0.45; cursor: default; }
+.side-retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .side-turn.is-working .side-text { animation: none; background: none; color: var(--text-faint); }
+  .side-turn.is-failed { animation: none; }
+}
+
 .side-turn-tools { display: flex; gap: 6px; margin-top: 2px; }
 .side-tool-small {
   padding: 0;

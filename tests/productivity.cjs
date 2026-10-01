@@ -100,7 +100,8 @@ async function run(browser) {
       return { text: JSON.stringify({ groups: [{ name: 'Research bundle', category: 'Research', ids: tabs.map(t => t.id).concat('unknown') }] }) }; } };
     try {
       await org.analyze(true);
-      assert.equal(options.model, 'gemini-3-flash-preview');
+      // Not pinned to one model: the chain falls back when one is busy.
+      assert.equal(options.model, undefined);
       assert.equal(options.prompt.includes('unsaved'), false); assert.equal(options.prompt.includes('?q='), false);
       assert.equal(org.plan.source, 'gemini'); assert.equal(org.plan.groups.flatMap(g => g.ids).includes('unknown'), false);
       org.ai.generate = async () => { throw new Error('fake service failure'); };

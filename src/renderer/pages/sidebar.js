@@ -78,9 +78,21 @@ function renderActions() {
 
 /* ---- transcript ---------------------------------------------------------- */
 
-function addTurn(role, text, meta) {
-  turns.push({ role, text, meta });
+function addTurn(role, text, meta, extra) {
+  turns.push({ role, text, meta, ...extra });
   renderTranscript();
+}
+
+/**
+ * A request that did not get an answer.
+ *
+ * Shown AS a failure, with a way to try again, rather than as if the error
+ * text were the assistant's reply - "Gemini is busy" set in the same type as
+ * an answer read like the assistant saying something odd. Failed turns are
+ * never sent back as history either: they are not something the model said.
+ */
+function addFailure(error, retry) {
+  addTurn('ai', error?.message || 'The assistant could not answer.', null, { failed: true, retry });
 }
 
 function renderTranscript() {
@@ -93,13 +105,36 @@ function renderTranscript() {
   }
 
   transcript.replaceChildren(...turns.map((turn) => {
-    const node = element('div', { class: 'side-turn is-' + turn.role });
-    if (turn.meta) node.appendChild(element('div', { class: 'side-meta', text: turn.meta }));
+    const working = turn.meta === 'working';
+    const node = element('div', {
+      class: 'side-turn is-' + turn.role + (working ? ' is-working' : '') + (turn.failed ? ' is-failed' : ''),
+    });
+    if (turn.failed) {
+      node.appendChild(element('div', { class: 'side-meta side-fail-head' }, [
+        element('span', { class: 'side-fail-dot', 'aria-hidden': 'true' }),
+        element('span', { text: 'No answer this time' }),
+      ]));
+    } else if (turn.meta && !working) {
+      node.appendChild(element('div', { class: 'side-meta', text: turn.meta }));
+    }
     // textContent, never innerHTML: model output is untrusted text and this
     // page has a strict CSP precisely so a model cannot inject markup.
     node.appendChild(element('div', { class: 'side-text', text: turn.text }));
 
-    if (turn.role === 'ai') {
+    if (turn.failed && turn.retry) {
+      const again = element('button', { class: 'side-retry', text: 'Try again' });
+      again.disabled = busy;
+      again.addEventListener('click', () => {
+        if (busy) return;
+        // Take the failed attempt out, question and all: the retry asks it
+        // afresh, and the transcript should read as one clean exchange.
+        const at = turns.indexOf(turn);
+        const withQuestion = at > 0 && turns[at - 1].role === 'you';
+        if (at !== -1) turns.splice(withQuestion ? at - 1 : at, withQuestion ? 2 : 1);
+        turn.retry();
+      });
+      node.appendChild(element('div', { class: 'side-turn-tools' }, [again]));
+    } else if (turn.role === 'ai' && !working) {
       const tools = element('div', { class: 'side-turn-tools' });
       const copy = element('button', { class: 'side-tool-small', text: 'Copy' });
       copy.addEventListener('click', () => navigator.clipboard?.writeText(turn.text));
@@ -127,6 +162,8 @@ function setBusy(on) {
   $('#send').disabled = on;
   input.disabled = on;
   renderActions();
+  // "Try again" on a failed turn follows the same rule as everything else.
+  renderTranscript();
 }
 
 /**
@@ -163,7 +200,7 @@ async function summarise(format, label) {
       result.truncated ? result.model + ' · page was long, summary may be partial' : result.model);
   } catch (error) {
     turns.pop();
-    addTurn('ai', error.message);
+    addFailure(error, () => summarise(format, label));
   }
   setBusy(false);
 }
@@ -180,13 +217,16 @@ async function summarise(format, label) {
 async function ask(question) {
   if (busy || !question) return;
   setBusy(true);
-  addTurn('you', question);
-  addTurn('ai', 'Thinking…', 'working');
 
+  // Taken BEFORE the question is added: main sends the question itself, and
+  // including it here as well sent every question to the model twice.
   const history = turns
-    .filter((turn) => turn.meta !== 'working' && turn.text)
+    .filter((turn) => turn.meta !== 'working' && !turn.failed && turn.text)
     .slice(-8)
     .map((turn) => ({ role: turn.role === 'you' ? 'user' : 'model', text: turn.text }));
+
+  addTurn('you', question);
+  addTurn('ai', 'Thinking…', 'working');
 
   try {
     let result = await invoke('ai:ask-page', { prompt: question, history });
@@ -211,7 +251,7 @@ async function ask(question) {
       result.usedPage ? result.model : result.model + ' · answered without the page');
   } catch (error) {
     turns.pop();
-    addTurn('ai', error.message);
+    addFailure(error, () => ask(question));
   }
   setBusy(false);
 }
@@ -416,12 +456,14 @@ $('#rail-edit')?.addEventListener('click', () => {
 $('#customise-done')?.addEventListener('click', () => { $('#customise').hidden = true; });
 
 // The permission line must follow the page, so it is re-read whenever the
-// active tab or its URL changes.
+// active tab or its URL changes - and again when a load finishes, because
+// while one is in flight main judges the page being left as well.
 let lastUrl = null;
 onState((state) => {
   const url = state.active?.url || '';
-  if (url !== lastUrl) {
-    lastUrl = url;
+  const key = url + (state.active?.loading ? ' loading' : '');
+  if (key !== lastUrl) {
+    lastUrl = key;
     refreshPermission();
   }
   // Highlight the mode the active tab is currently on.

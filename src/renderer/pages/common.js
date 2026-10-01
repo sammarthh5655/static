@@ -15,7 +15,17 @@
 const bridge = window.browser;
 if (!bridge) throw new Error('Browser bridge unavailable on this page');
 
-const invoke = (channel, payload) => bridge.invoke(channel, payload);
+/**
+ * Electron wraps every error thrown in main as "Error invoking remote method
+ * 'ai:ask-page': Error: …", and pages that showed `error.message` printed that
+ * plumbing to the person. Main writes its messages to be read, so pass on
+ * just the message.
+ */
+const invoke = (channel, payload) => bridge.invoke(channel, payload).catch((error) => {
+  const message = String(error?.message || error || '')
+    .replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+  throw new Error(message || 'Something went wrong.');
+});
 
 /**
  * Subscribe to pushed app state; calls back immediately with current state.
