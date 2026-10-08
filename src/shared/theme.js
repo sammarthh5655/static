@@ -586,6 +586,11 @@ const ICONS = {
   split: { outline: 'M3 4h18v16H3ZM12 4v16', fill: null },
   // A drawing pin, for pinned tabs.
   pin: { outline: 'M9 3h6l-1 6.5 3.5 3.5v1.5h-11V13L10 9.5zM12 14.5V21', fill: null },
+  // A tab playing sound, and one that has been silenced.
+  volume: { outline: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11', fill: null },
+  muted: { outline: 'M4 9.5h3.5L12 5.5v13l-4.5-4H4ZM16 9.5l5 5M21 9.5l-5 5', fill: null },
+  // Search among the open tabs: a tab with a magnifier over its corner.
+  tab_search: { outline: 'M10 19H3V8h18v2.5M3 8l2-4h6l2 4M16 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM21 21l-2.9-2.9', fill: null },
   import: { outline: 'M12 3v12M7 10l5 5 5-5M4 21h16', fill: null },
   doc: { outline: 'M6 3h9l4 4v14H6ZM14 3v5h5M9 13h7M9 17h7', fill: null },
   chat: { outline: 'M4 5h16v11H9l-5 4Z', fill: null },

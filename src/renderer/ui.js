@@ -144,6 +144,13 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       root.append(header);
       continue;
     }
+    // Every open tab, with a box to search them (renderer/tabsearch-panel.js).
+    if (item?.tabsearch && window.tabSearchPanel) {
+      root.classList.add('menu-tabsearch');
+      root.setAttribute('aria-label', 'Search tabs');
+      root.append(window.tabSearchPanel(item, { close: closeMenu }));
+      continue;
+    }
     if (!item || item.separator) {
       const divider = document.createElement('div');
       divider.className = 'menu-divider';
@@ -399,7 +406,10 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
   document.body.append(root);
 
   // Position after insertion so the menu has real dimensions to clamp against.
-  const box = root.getBoundingClientRect();
+  // Its layout size, not its bounding box: the entrance starts the menu
+  // scaled to 98%, and measuring that hung right-aligned menus a few pixels
+  // short of their button's edge.
+  const box = { width: root.offsetWidth, height: root.offsetHeight };
   const margin = 8;
   let left = align === 'right' ? anchor.right - box.width : anchor.left;
   let top = anchor.bottom + 4;
@@ -423,7 +433,7 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
   openMenu = { root, onClose, onOutside, passive, width: window.innerWidth, height: window.innerHeight };
   // A passive menu (autofill suggestions) does not take the keyboard from the
   // page; the down arrow in the field moves into it (see focusMenu).
-  if (!passive) (root.querySelector('.menu-field input') || root.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
+  if (!passive) (root.querySelector('.menu-field input, .tabsearch-input') || root.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
   return root;
 }
 

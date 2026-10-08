@@ -189,6 +189,7 @@ class Tabs {
         url: tab.state.displayUrl,
         favicon: tab.state.favicon,
         loading: tab.state.loading,
+        audible: tab.state.audible, muted: tab.state.muted,
         pinned: tab.pinned, groupId: tab.groupId, workspaceId: tab.workspaceId,
         splitWith: tab.splitWith || null, splitSide: tab.splitSide || null,
         createdAt: tab.createdAt, lastActiveAt: tab.lastActiveAt,
@@ -258,6 +259,9 @@ class Tabs {
         canGoForward: false,
         security: 'internal',
         loadError: null,
+        // Sound: playing right now, and silenced by the person.
+        audible: false,
+        muted: false,
       },
     };
     this.tabs.set(id, tab);
@@ -335,6 +339,18 @@ class Tabs {
 
     wc.on('page-favicon-updated', (_event, icons) => {
       tab.state.favicon = Array.isArray(icons) ? icons[0] || null : null;
+      this.onChange();
+    });
+
+    // Chromium says when a page starts and stops making sound (it holds
+    // "playing" a couple of seconds past the last sound, so a pause between
+    // tracks does not make the speaker blink). Read back from the contents
+    // rather than trusting the event alone: older builds sent no flag.
+    wc.on('audio-state-changed', (event) => {
+      if (wc.isDestroyed()) return;
+      const audible = typeof event?.audible === 'boolean' ? event.audible : wc.isCurrentlyAudible();
+      if (audible === tab.state.audible) return;
+      tab.state.audible = audible;
       this.onChange();
     });
 
@@ -478,6 +494,21 @@ class Tabs {
       else this.create({}); // never leave the window with zero tabs
     }
     this.onChange();
+  }
+
+  /**
+   * Silence a tab, or let it be heard again. The page keeps playing either
+   * way - only what reaches the speakers changes - so unmuting picks up
+   * wherever the video or call has got to.
+   */
+  setMuted(id, muted) {
+    const tab = this.tabs.get(id);
+    const wc = tab?.view.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    wc.setAudioMuted(!!muted);
+    tab.state.muted = wc.isAudioMuted();
+    this.onChange();
+    return true;
   }
 
   /** Drag-to-reorder: move `id` to absolute position `to` in the strip. */

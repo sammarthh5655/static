@@ -70,6 +70,11 @@ function hydrate(item) {
       })),
     };
   }
+  // The tab search list sends its rows' actions itself, and needs main's
+  // answer back (closing a tab answers with the list as it now is).
+  if (item && item.tabsearch) {
+    return { ...item, run: (act) => (act ? invoke(act.channel, act.payload) : Promise.resolve(null)) };
+  }
   if (!item || item.separator || item.heading || item.brand) return item;
   // "Add tab to group": its menu opens the next one in the same place. The
   // overlay stays up for it; if no menu follows, it steps aside after all.
@@ -98,6 +103,20 @@ function hydrate(item) {
   };
 }
 
+/**
+ * Wait, briefly, for this view's viewport to reach the size main has just
+ * given it. Usually it already has; but straight after a tab's hover card
+ * the view goes lane, corner, whole window in quick succession, and a menu
+ * placed against a size that is about to change is closed by the resize
+ * that follows (ui.js dismisses a menu whose window really changed size).
+ */
+async function settled(size) {
+  if (!size || !size.width) return;
+  for (let i = 0; i < 15 && (window.innerWidth !== size.width || window.innerHeight !== size.height); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 16));
+  }
+}
+
 /** True while one menu is being swapped for another. */
 let replacing = false;
 
@@ -105,6 +124,8 @@ let replacing = false;
 async function renderMenu(payload) {
   const items = (payload?.items || []).map(hydrate);
   if (!items.length) { window.ui.closeMenu(); return; }
+  // A menu and a tab's hover card never share the overlay.
+  window.tabPreview?.hide();
   // Dismiss first, quietly: a menu being REPLACED has not been closed, and
   // telling main it had would both shrink the overlay under the replacement
   // and answer a question main has only just asked (see #prompt).
@@ -114,7 +135,7 @@ async function renderMenu(payload) {
   // Size the overlay to the window BEFORE building the menu, and wait for that
   // to land: a 1x1 view has nowhere to paint a menu.
   const passive = !!payload.passive;
-  await invoke('menu:state', { open: true, passive });
+  await settled(await invoke('menu:state', { open: true, passive }));
 
   window.ui.menu(items, {
     anchor: payload.anchor,

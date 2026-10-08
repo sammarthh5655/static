@@ -19,6 +19,7 @@ $('#searchSuggestions').addEventListener('change', (e) => update({ searchSuggest
 $('#behavior').addEventListener('change', (e) => update({ newTabBehavior: e.target.value }));
 $('#onStartup').addEventListener('change', (e) => update({ onStartup: e.target.value }));
 $('#bookmarksBar').addEventListener('change', (e) => update({ bookmarksBar: e.target.checked }));
+$('#tabPreviews').addEventListener('change', (e) => update({ tabPreviews: e.target.checked }));
 
 // Appearance. Every one of these feeds shared/theme.js, so a change repaints
 // the chrome and every open internal page through the pushed state.
@@ -219,6 +220,7 @@ onState((state) => {
   $('#behavior').value = s.newTabBehavior || 'newtab';
   $('#onStartup').value = s.onStartup || 'restore';
   $('#bookmarksBar').checked = !!s.bookmarksBar;
+  $('#tabPreviews').checked = s.tabPreviews !== false;
   if (document.activeElement !== homepage) homepage.value = s.homepage || '';
 
   mountPlanetarium(catalog, s.theme);

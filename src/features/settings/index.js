@@ -30,6 +30,8 @@ const DEFAULTS = {
   tabLayout: 'horizontal',
   /** Vertical tabs folded down to favicons. */
   verticalTabsCollapsed: false,
+  /** Rest the pointer on a tab for a moment: a card with a picture of the page. */
+  tabPreviews: true,
 
   // Appearance. Every one of these feeds shared/theme.js#cssVariables, which
   // is the only place that turns them into actual CSS.
@@ -165,6 +167,7 @@ class Settings {
     if (!['on', 'autohide', 'off'].includes(next.sidebarMode)) next.sidebarMode = DEFAULTS.sidebarMode;
     if (!['horizontal', 'vertical'].includes(next.tabLayout)) next.tabLayout = DEFAULTS.tabLayout;
     if (typeof next.verticalTabsCollapsed !== 'boolean') next.verticalTabsCollapsed = DEFAULTS.verticalTabsCollapsed;
+    if (typeof next.tabPreviews !== 'boolean') next.tabPreviews = DEFAULTS.tabPreviews;
     if (!ACCENTS[next.accent]) next.accent = DEFAULTS.accent;
     next.fontSize = clampSize(next.fontSize, DEFAULTS.fontSize);
     next.accentCustom = normalizeHex(next.accentCustom) || '';
@@ -227,6 +230,7 @@ class Settings {
       else if (key === 'onStartup' && ['restore', 'newtab', 'homepage'].includes(value)) next[key] = value;
       else if (key === 'tabLayout' && ['horizontal', 'vertical'].includes(value)) next[key] = value;
       else if (key === 'verticalTabsCollapsed' && typeof value === 'boolean') next[key] = value;
+      else if (key === 'tabPreviews' && typeof value === 'boolean') next[key] = value;
       else if (key === 'homepage' && typeof value === 'string' && value.length <= 16384) next[key] = resolveInput(value, next.searchEngine);
       else if (key === 'customPlanets') next[key] = normalisePlanets(value);
       else if (key === 'theme' && (THEMES[value] || value === 'custom' ||

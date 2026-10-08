@@ -35,6 +35,8 @@ const ACCELERATORS = [
   accel('tab:next', 'Next tab', 'Tab', { mod: !isMac, alt: isMac }),
   accel('tab:previous', 'Previous tab', 'Tab', { mod: !isMac, alt: isMac, shift: true }),
   accel('tab:reopen', 'Reopen closed tab', 't', { mod: true, shift: true }),
+  // Chrome's key for the same list, so hands that know it already know this.
+  accel('tab:search', 'Search tabs', 'a', { mod: true, shift: true }),
 
   // Ctrl+J is Downloads in every browser, so the sidebar has its own key.
   accel('sidebar:toggle', 'AI sidebar', '.', { mod: true }),

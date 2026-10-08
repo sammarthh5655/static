@@ -13,7 +13,18 @@ let picked = new Set();
 
 $('#new-icon').append(icon('plus', { size: 16 }));
 $('#fold').append(icon('back', { size: 16 }));
+$('#search').append(icon('tab_search', { size: 16 }));
 $('#new').addEventListener('click', () => invoke('tabs:new', {}));
+// Every open tab, searchable: main draws the list in the overlay, beside this panel.
+$('#search').addEventListener('click', () => {
+  hidePreview();
+  const box = $('#search').getBoundingClientRect();
+  invoke('tabs:search', { anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } });
+});
+invoke('ui:shortcuts').then((list) => {
+  const key = (list || []).find((entry) => entry.id === 'tab:search');
+  if (key) $('#search').title = 'Search tabs (' + key.display + ')';
+}).catch(() => {});
 $('#fold').addEventListener('click', () =>
   invoke('settings:update', { verticalTabsCollapsed: !state?.settings?.verticalTabsCollapsed }));
 
@@ -95,20 +106,72 @@ function tabGlyph(tab) {
   return glyph;
 }
 
+/** "id:muted" for each tab that showed a speaker at the last redraw. */
+let sounding = new Set();
+
+/**
+ * A speaker whose waves pulse in turn while the tab plays, or the struck-out
+ * one once it is muted - the same one the strip along the top draws.
+ */
+function speakerGlyph(muted, size) {
+  if (muted) return icon('muted', { size });
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('speaker');
+  for (const [d, cls] of [['M4 9.5h3.5L12 5.5v13l-4.5-4H4Z', 'cone'], ['M15.5 9a4 4 0 0 1 0 6', 'wave wave-1'], ['M18 6.5a7.5 7.5 0 0 1 0 11', 'wave wave-2']]) {
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('class', cls);
+    svg.append(path);
+  }
+  // Redrawn on every change; the waves keep their beat across redraws.
+  svg.style.setProperty('--wave-phase', -(Date.now() % 1190) + 'ms');
+  return svg;
+}
+
+/** Mute or unmute with one click: a speaker on the row, a badge on a pinned square. */
+function soundButton(tab, { badge = false } = {}) {
+  const label = tab.muted ? 'Unmute tab' : 'Mute tab';
+  const button = element('button', {
+    class: (badge ? 'vt-sound-badge' : 'vt-sound') + (tab.muted ? ' is-muted' : ' is-playing')
+      + (sounding.has(tab.id + ':' + !!tab.muted) ? '' : ' is-new'),
+    title: label, 'aria-label': label, 'aria-pressed': String(!!tab.muted), draggable: 'false',
+  }, [speakerGlyph(!!tab.muted, badge ? 10 : 15)]);
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    invoke('tabs:mute', { ids: [tab.id], muted: !tab.muted });
+  });
+  return button;
+}
+
+/** With hover cards on, the card says it all; a tooltip on top would only cover it. */
+const tip = (text) => (state?.settings?.tabPreviews === false ? { title: text } : {});
+
 function row(tab, group, visible) {
   const sleeping = state.organizer?.sleeping?.includes(tab.id);
+  const sound = !!(tab.audible || tab.muted);
   const node = element('div', {
     class: 'vt-tab' + (tab.active ? ' active' : '') + (tab.splitSide ? ' split' : '') + (group ? ' grouped' : '')
-      + (sleeping ? ' sleeping' : '') + (picked.has(tab.id) ? ' picked' : ''),
-    draggable: 'true', 'data-id': tab.id, title: tab.title || tab.url || '',
+      + (sleeping ? ' sleeping' : '') + (picked.has(tab.id) ? ' picked' : '') + (sound ? ' has-sound' : ''),
+    draggable: 'true', 'data-id': tab.id, ...tip(tab.title || tab.url || ''),
     role: 'tab', 'aria-selected': String(!!tab.active),
+    'aria-label': (tab.title || 'New tab') + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''),
   });
   if (group) node.style.setProperty('--group-color', group.color);
 
   const close = element('button', { class: 'vt-close', title: 'Close tab', 'aria-label': 'Close tab' }, [icon('close', { size: 12 })]);
   close.addEventListener('click', (event) => { event.stopPropagation(); invoke('tabs:close', { id: tab.id }); });
 
-  node.append(tabGlyph(tab), element('span', { class: 'vt-title', text: tab.title || 'New tab' }), close);
+  const glyph = tabGlyph(tab);
+  // Folded to icons, the speaker becomes a badge on the icon, as on a pinned square.
+  if (sound) glyph.append(soundButton(tab, { badge: true }));
+  node.append(glyph, element('span', { class: 'vt-title', text: tab.title || 'New tab' }));
+  if (sound) node.append(soundButton(tab));
+  node.append(close);
   wire(node, tab, visible);
   return node;
 }
@@ -117,9 +180,11 @@ function row(tab, group, visible) {
 function pinnedSquare(tab, visible) {
   const node = element('div', {
     class: 'vt-pin' + (tab.active ? ' active' : '') + (picked.has(tab.id) ? ' picked' : ''),
-    draggable: 'true', 'data-id': tab.id, title: (tab.title || tab.url || 'New tab') + ' (pinned)',
+    draggable: 'true', 'data-id': tab.id, ...tip((tab.title || tab.url || 'New tab') + ' (pinned)'),
     role: 'tab', 'aria-selected': String(!!tab.active),
+    'aria-label': (tab.title || 'New tab') + ' (pinned)' + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''),
   }, [tabGlyph(tab)]);
+  if (tab.audible || tab.muted) node.append(soundButton(tab, { badge: true }));
   wire(node, tab, visible);
   return node;
 }
@@ -182,7 +247,75 @@ function render() {
     nodes.push(row(tab, group, visible));
   }
   $('#list').replaceChildren(...nodes);
+  sounding = new Set(visible.filter((t) => t.audible || t.muted).map((t) => t.id + ':' + !!t.muted));
+  // The tab under the pointer may have just closed.
+  if (hover.id && !visible.some((t) => t.id === hover.id)) hidePreview();
 }
+
+/* ---- hover previews -------------------------------------------------------
+   The same cards as along the top, coming out to the right of the list:
+   rest on a tab for half a second, then move from tab to tab and the card
+   follows at once. A click, a drag, a scroll or leaving the list puts it
+   away (main/application.js#tabPreview draws it in the overlay). */
+const PREVIEW_DELAY_MS = 500;
+const hover = { id: null, timer: 0, leave: 0, shown: false, asking: 0, warmUntil: 0, pressed: null };
+
+function hoverTab(id) {
+  clearTimeout(hover.leave);
+  if (id !== hover.pressed) hover.pressed = null;
+  if (state?.settings?.tabPreviews === false || dragId || id === hover.pressed) return;
+  if (id === hover.id && (hover.shown || hover.timer)) return;
+  clearTimeout(hover.timer);
+  hover.id = id;
+  const warm = hover.shown || Date.now() < hover.warmUntil;
+  hover.timer = setTimeout(() => { hover.timer = 0; showPreview(id); }, warm ? 0 : PREVIEW_DELAY_MS);
+}
+
+async function showPreview(id) {
+  const node = document.querySelector(`.vt-tab[data-id="${CSS.escape(id)}"], .vt-pin[data-id="${CSS.escape(id)}"]`);
+  if (!node || hover.id !== id || dragId) return;
+  const box = node.getBoundingClientRect();
+  hover.asking++;
+  const shown = await invoke('tabs:preview', { id, anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } })
+    .catch(() => false).finally(() => { hover.asking--; });
+  if (hover.id === id) hover.shown = !!shown;
+}
+
+function hidePreview({ soon = false } = {}) {
+  clearTimeout(hover.timer);
+  hover.timer = 0;
+  clearTimeout(hover.leave);
+  const away = () => {
+    // A card still on its way counts as up: main has not answered yet, and
+    // would otherwise draw it after this, with nothing left to put it away.
+    if (hover.shown || hover.asking) {
+      hover.warmUntil = Date.now() + 400;
+      invoke('tabs:preview', { id: null }).catch(() => {});
+    }
+    hover.shown = false;
+    hover.id = null;
+  };
+  if (soon) hover.leave = setTimeout(away, 90);
+  else away();
+}
+
+document.addEventListener('pointerover', (event) => {
+  const node = event.target.closest?.('.vt-tab, .vt-pin');
+  if (node) hoverTab(node.dataset.id);
+  else hidePreview({ soon: true });
+});
+// Out of the panel altogether (into the page, or the card's own lane).
+document.addEventListener('pointerout', (event) => {
+  if (!event.relatedTarget) { hover.pressed = null; hidePreview({ soon: true }); }
+});
+document.addEventListener('pointerdown', (event) => {
+  hover.pressed = event.target.closest?.('.vt-tab, .vt-pin')?.dataset.id || null;
+  hidePreview();
+}, true);
+document.addEventListener('wheel', () => hidePreview(), { passive: true });
+document.addEventListener('dragstart', () => hidePreview(), true);
+document.addEventListener('contextmenu', () => hidePreview(), true);
+window.addEventListener('blur', () => hidePreview());
 
 /* ---- drag: reorder, group, and drop links ---------------------------------
    The same rules as the strip along the top: onto a group's header or any of

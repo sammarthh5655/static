@@ -127,6 +127,43 @@ body { --drop-colour: var(--accent); }
 .vt-close:hover { background: var(--surface-hover); color: var(--text); }
 .vt-list.drop-new { box-shadow: inset 0 -3px 0 var(--accent); }
 
+/* Sound: a speaker on the row, its waves pulsing in turn; struck out once
+   muted. One click toggles. A pinned square (or a row folded to its icon)
+   wears it as a badge on the icon's corner. */
+.vt-sound {
+  width: 24px; height: 24px; flex: none; display: grid; place-items: center; border-radius: 7px;
+  color: var(--accent); filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));
+  transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+.vt-sound:hover { background: var(--surface-hover); color: var(--text); }
+.vt-sound:active { transform: scale(.88); }
+.vt-sound.is-muted { color: var(--text-dim); filter: none; }
+.vt-sound.is-muted:hover { color: var(--accent); }
+.vt-sound.is-new, .vt-sound-badge.is-new { animation: vt-sound-in 240ms cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes vt-sound-in { from { transform: scale(.4); } }
+.speaker path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* Timed from the theme, so the waves stand still when animations are off. */
+.speaker .wave { animation: vt-wave calc(var(--motion-base, 170ms) * 7) ease-in-out infinite; animation-delay: var(--wave-phase, 0ms); }
+.speaker .wave-2 { animation-delay: calc(var(--wave-phase, 0ms) + var(--motion-base, 170ms) * 1.6); }
+@keyframes vt-wave { 0%, 100% { opacity: .35; } 45% { opacity: 1; } }
+.vt-icon, .vt-pin { position: relative; }
+.vt-sound-badge {
+  position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; padding: 0;
+  display: grid; place-items: center; border-radius: 50%;
+  color: var(--bg); background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-strip, var(--bg)), 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.vt-pin .vt-sound-badge { right: 5px; bottom: 4px; }
+.vt-sound-badge.is-muted { color: var(--text); background: var(--surface-active, var(--surface)); box-shadow: 0 0 0 2px var(--bg-strip, var(--bg)); }
+.vt-sound-badge svg { width: 10px; height: 10px; }
+.vt-sound-badge .speaker path, .vt-sound-badge svg path { stroke-width: 2.6; }
+.vt-tab .vt-icon .vt-sound-badge { display: none; }
+body.collapsed .vt-tab .vt-icon .vt-sound-badge { display: grid; }
+body.collapsed .vt-sound { display: none; }
+.vt-search svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
+.vt-search:hover { color: var(--accent); }
+body.collapsed .vt-search svg { transform: none; }
+
 .vt-foot { padding: 6px 8px 8px; border-top: 1px solid var(--border-soft, var(--border)); }
 .vt-workspace {
   width: 100%; height: 30px; border-radius: 9px; text-align: left; padding: 0 10px;

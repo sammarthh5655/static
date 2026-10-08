@@ -43,6 +43,7 @@ const feedback = require('../features/feedback');
 const importer = require('../features/importer');
 const { Autofill, fillValues } = require('../features/autofill');
 const { kindOf, luhn } = require('../shared/autofill-fields');
+const { siteOf } = require('../shared/tabsearch');
 const os = require('node:os');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
   require('../features/workspaces');
@@ -80,6 +81,31 @@ function chromeHeight(settings) {
 /** Width of the vertical tab list, open and folded to favicons. */
 const VERTICAL_TABS_WIDTH = 248;
 const VERTICAL_TABS_FOLDED = 56;
+
+/**
+ * Tab hover previews. The card's size is fixed (overlay.css draws it at
+ * exactly this), so main can make room for it without measuring anything.
+ * The picture is the top of the page at 16:9, kept at twice the card's
+ * width so it stays sharp on a high-density screen, and is reused for a few
+ * seconds rather than taken again on every hover.
+ */
+const PREVIEW_CARD = { width: 280, height: 238 };
+const PREVIEW_SHOT_WIDTH = 560;
+const PREVIEW_FRESH_MS = 3000;
+const PREVIEW_KEEP = 40;
+// How long a picture may take before it is given up on (see #snapshot).
+const PREVIEW_CAPTURE_MS = 1500;
+// How long a page sits still on screen before its picture is taken, so a
+// tab already has one by the time it is in the background (see #settleSnapshot).
+const PREVIEW_SETTLE_MS = 900;
+
+/**
+ * A tab's favicon, for the overlay to show: the page chose it, so only a web
+ * or inline image address gets through - never a file:// path or a script.
+ */
+function safeFavicon(url) {
+  return typeof url === 'string' && url.length < 100000 && /^(https?:|data:image\/)/i.test(url) ? url : null;
+}
 
 /**
  * Top-level application object: owns the window, the chrome UI view, all
@@ -155,6 +181,11 @@ class BrowserApplication {
     // Whether the omnibox dropdown is showing, which changes the chrome's
     // height so the list is not clipped.
     this.suggestionsOpen = false;
+    // The tab hover card on show, if any: { id, lane } (see #tabPreview).
+    this.preview = null;
+    // Pictures of tabs for those cards, newest last: id -> { data, url, at }.
+    // In memory only, and never more than PREVIEW_KEEP of them.
+    this.thumbs = new Map();
   }
 
   async start() {
@@ -738,6 +769,12 @@ class BrowserApplication {
       extensions: this.extensions,
       getEngine: () => this.settings.value.searchEngine,
       onSelected: (id) => {
+        // The tab coming on screen has its picture taken once it settles, for
+        // its hover card later. (Not the one being left: it is taken off screen
+        // in the same moment, and a capture started then waits for it to come
+        // back - see #settleSnapshot.)
+        this.#hidePreview();
+        this.#settleSnapshot();
         const chosen = this.tabs?.tabs.get(id);
         if (chosen && !chosen.state.internalUrl) this.lastWebTabId = id;
         if (this.findBar && this.findTabId && this.findTabId !== id) this.closeFind();
@@ -750,6 +787,10 @@ class BrowserApplication {
         this.attachShortcuts(contents);
         this.attachScriptlets(contents);
         contents.on('context-menu', (_event, params) => this.openPageMenu(contents, params));
+        // A new page in the tab on screen: its hover card's picture is retaken.
+        contents.on('did-stop-loading', () => {
+          if (this.tabs?.active?.view.webContents === contents) this.#settleSnapshot();
+        });
         // The last few page warnings and errors, in memory only, so a bug
         // report can include them if - and only if - the user ticks the box.
         contents.on('console-message', (event) => {
@@ -2052,8 +2093,10 @@ class BrowserApplication {
 
     // Re-add the overlay so it stays the topmost child: adding a tab view
     // appends it above earlier children. Its size depends on whether a menu is
-    // currently open (see setOverlayInteractive).
+    // currently open (see setOverlayInteractive). A hover card was placed for
+    // the old layout, so it goes; the pointer brings it back.
     if (this.overlay) {
+      this.#hidePreview();
       this.window.contentView.addChildView(this.overlay);
       this.overlay.setBounds(this.overlayInteractive
         ? { x: 0, y: 0, width, height }
@@ -2520,6 +2563,40 @@ class BrowserApplication {
         this.#showMenu(items, this.#windowAnchor(sender, payload?.anchor), 'left');
         return true;
       },
+      // The tab search list, from the button at the end of either tab list.
+      'tabs:search': (sender, payload) => this.openTabSearch(sender, payload?.anchor),
+      /**
+       * A tab closed from inside the tab search list. The list stays open,
+       * so it is handed back fresh - closing the active tab picks another,
+       * and closing the last one opens a new one.
+       */
+      'tabs:search-close': (_sender, payload) => {
+        const id = String(payload?.id || '');
+        if (!this.tabs.tabs.has(id)) return this.#tabSearchEntries();
+        this.tabs.close(id);
+        // Whatever tab was put on screen in its place went on top of the
+        // overlay; the open list goes back above it, keyboard and all.
+        if (this.overlayInteractive && this.overlay && !this.overlay.webContents.isDestroyed()) {
+          this.window.contentView.addChildView(this.overlay);
+          if (!this.overlayPassive) this.overlay.webContents.focus();
+        }
+        return this.#tabSearchEntries();
+      },
+      /**
+       * Mute or unmute: the speaker on a tab, or the tab menu for a whole
+       * selection. Without `muted` it flips - all muted becomes all heard.
+       */
+      'tabs:mute': (_sender, payload) => {
+        const ids = this.#tabIds(Array.isArray(payload?.ids) ? payload.ids : [payload?.id]);
+        if (!ids.length) return false;
+        const muted = typeof payload?.muted === 'boolean'
+          ? payload.muted
+          : !ids.every((id) => this.tabs.tabs.get(id).state.muted);
+        for (const id of ids) this.tabs.setMuted(id, muted);
+        return muted;
+      },
+      // The pointer has rested on a tab (or left the tab list: no id).
+      'tabs:preview': (sender, payload) => this.#tabPreview(sender, payload),
       // Several tabs at once, from a selection. Only ids that are open count.
       'tabs:reload': (_sender, payload) => {
         for (const id of this.#tabIds(payload?.ids)) {
@@ -2560,7 +2637,10 @@ class BrowserApplication {
       },
       'menu:state': (_sender, payload) => {
         this.setOverlayInteractive(!!payload?.open, { passive: !!payload?.passive });
-        return true;
+        // The size the overlay is now, so it can wait for its own viewport to
+        // catch up before placing a menu (see overlay.js#renderMenu).
+        const { width, height } = this.overlay.getBounds();
+        return { width, height };
       },
       /**
        * A click outside a passive menu closes it AND reaches whatever was
@@ -2716,6 +2796,12 @@ class BrowserApplication {
           if (payload.tabLayout === 'vertical') {
             this.notify('Tabs are down the side now: whole titles, tidy groups, more room for the page. Right-click the tab list to move them back.');
           }
+        }
+        // Previews off: no card, and no pictures of pages kept for one.
+        if (next.tabPreviews === false) {
+          clearTimeout(this.thumbTimer);
+          this.thumbs.clear();
+          this.#hidePreview();
         }
         this.layout(); // bookmarks bar toggle changes the chrome height
         this.push();
@@ -3819,6 +3905,8 @@ class BrowserApplication {
       this.shields.stats.forgetSites();
       // So do the engine's recent answers: they are what was typed.
       this.searchSuggest.clear();
+      // The pictures on tab hover cards are of pages visited, too.
+      this.thumbs.clear();
     }
     if (clearDownloads) this.downloads.clear();
     if (cookies) {
@@ -4149,6 +4237,7 @@ class BrowserApplication {
       case 'tab:reopen':
         this.tabs.reopenClosed?.((id) => this.productivity?.organizer.groups.find((g) => g.id === id) || null);
         break;
+      case 'tab:search': this.openTabSearch(); break;
 
       case 'omnibox:focus': this.chrome?.webContents.send('ui:focus-address'); break;
       case 'page:reload': this.tabs.navigateActive('reload'); break;
@@ -4258,6 +4347,11 @@ class BrowserApplication {
     // straight through to the chrome and the page. The view stays attached
     // either way - see the note above this method.
     if (interactive) {
+      // A menu takes the overlay from a hover card; the card just goes.
+      if (this.preview) {
+        this.preview = null;
+        this.overlay.webContents.send('ui:tab-preview', null);
+      }
       // RE-ADD before resizing, not just resize. addChildView moves an
       // existing child to the END of the child list, which is what puts it on
       // top. Without this the menu opened BEHIND the page: selecting or
@@ -4270,8 +4364,9 @@ class BrowserApplication {
       if (!passive) this.overlay.webContents.focus();
     } else {
       // A 1x1 corner when idle, so clicks pass straight through to the chrome
-      // and the page below. The view stays attached either way.
-      this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+      // and the page below. The view stays attached either way. (A hover
+      // card on show keeps its lane: this may be a menu that never opened.)
+      this.overlay.setBounds(this.preview ? this.preview.lane : { x: 0, y: 0, width: 1, height: 1 });
       this.#promptClosed?.();
       // A menu can open from F10 while a web tab owns focus, so chrome never
       // gets a blur event. Explicitly reset its trigger on every dismissal.
@@ -4286,6 +4381,234 @@ class BrowserApplication {
     const payload = this.pendingMenu;
     this.pendingMenu = null;
     return payload || null;
+  }
+
+  /* ---- tab search ---------------------------------------------------------
+   * Every open tab in one list, drawn in the overlay like any menu: a box to
+   * type in, and the tabs that match. The list is sent whole and filtered in
+   * the overlay as each letter is typed (shared/tabsearch.js), so typing
+   * never waits on a round trip. Choosing a row sends the same tabs:select
+   * any tab click sends; its close button closes the tab and the list
+   * carries on with what is left.
+   */
+
+  /** Open the list under the button that asked, or under its button when a key did. Pressed again, it closes. */
+  openTabSearch(sender = null, anchor = null) {
+    if (!this.overlay || this.overlay.webContents.isDestroyed() || !this.tabs) return false;
+    if (this.overlayInteractive && this.lastMenu?.items?.some((item) => item?.tabsearch)) {
+      this.#closeMenu();
+      return false;
+    }
+    const where = anchor
+      ? { anchor: this.#windowAnchor(sender, anchor), align: sender === this.vtabs?.webContents ? 'left' : 'right' }
+      : this.#tabSearchAnchor();
+    this.#hidePreview();
+    this.#showMenu([{
+      tabsearch: {
+        tabs: this.#tabSearchEntries(),
+        placeholder: 'Search your tabs',
+        shortcut: ACCEL.get('tab:search')?.display || '',
+      },
+    }], where.anchor, where.align);
+    return true;
+  }
+
+  /**
+   * Where the list opens from the keyboard: under the search button at the
+   * right-hand end of the strip, or at the top of the tab list down the side.
+   * Both sit at fixed places, so there is nothing to measure.
+   */
+  #tabSearchAnchor() {
+    const { width } = this.window.getContentBounds();
+    const immersive = !!(this.htmlFullscreen || this.windowFullscreen);
+    const at = (x, y) => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 });
+    if (immersive) return { anchor: at(width - 12, 8), align: 'right' };
+    if (this.settings.value.tabLayout === 'vertical' && this.vtabs && !this.vtabs.webContents.isDestroyed()) {
+      const side = this.vtabs.getBounds();
+      return { anchor: at(side.x + 8, side.y + 46), align: 'left' };
+    }
+    return { anchor: at(width - 8, TITLEBAR_HEIGHT + TABSTRIP_HEIGHT - 2), align: 'right' };
+  }
+
+  /**
+   * The rows of the tab search list: most recently used first, the tab you
+   * are on at the top, as Chrome orders it. Data only - it crosses IPC - and
+   * every action names a channel main checks again when it arrives.
+   */
+  #tabSearchEntries() {
+    const organizer = this.productivity?.organizer;
+    const workspaces = organizer?.store.data.workspaces || [];
+    const sleeping = organizer?.sleeping || new Set();
+    return this.tabs.list()
+      .map((tab) => ({ tab, record: this.tabs.tabs.get(tab.id) }))
+      .sort((a, b) => Number(b.tab.active) - Number(a.tab.active) || (b.record.lastActiveAt || 0) - (a.record.lastActiveAt || 0))
+      .map(({ tab }) => {
+        const group = tab.groupId ? organizer?.groups.find((g) => g.id === tab.groupId) : null;
+        const url = tab.url || '';
+        return {
+          id: tab.id,
+          title: String(tab.title || (url ? url : 'New tab')).slice(0, 300),
+          url: url.slice(0, 2048),
+          site: siteOf(url),
+          favicon: safeFavicon(tab.favicon),
+          active: !!tab.active, pinned: !!tab.pinned,
+          audible: !!tab.audible, muted: !!tab.muted,
+          sleeping: sleeping.has(tab.id),
+          // Only worth saying once there is more than one workspace to be in.
+          workspace: workspaces.length > 1 ? workspaces.find((w) => w.id === tab.workspaceId)?.name || '' : '',
+          group: group ? { name: group.name, color: group.color } : null,
+          select: { channel: 'tabs:select', payload: { id: tab.id } },
+          close: { channel: 'tabs:search-close', payload: { id: tab.id } },
+        };
+      });
+  }
+
+  /* ---- tab hover previews -------------------------------------------------
+   * Rest the pointer on a tab and a card comes up under it (beside it, down
+   * the side): the title, the site, and a picture of the page.
+   *
+   * The card is drawn by the overlay, but NOT as a menu: a menu makes the
+   * overlay cover the whole window, which would put it under the pointer,
+   * take the tab's hover away and close the card again - a flicker loop. The
+   * overlay is instead sized to a "lane" beside the tab list that the card
+   * slides along, and it never takes the keyboard. Moving into the lane means
+   * leaving the tabs, so the card goes; a click there is passed through.
+   */
+  #tabPreview(sender, payload) {
+    const id = typeof payload?.id === 'string' ? payload.id : '';
+    const tab = id ? this.tabs?.tabs.get(id) : null;
+    if (!tab || this.settings.value.tabPreviews === false || !this.overlay || this.overlay.webContents.isDestroyed()) {
+      this.#hidePreview();
+      return false;
+    }
+    // A menu owns the overlay while it is open; a card never covers one.
+    if (this.overlayInteractive) return false;
+    const anchor = this.#windowAnchor(sender, payload?.anchor);
+    const side = sender === this.vtabs?.webContents;
+    const { width, height } = this.window.getContentBounds();
+    const card = PREVIEW_CARD;
+    const clamp = (value, low, high) => Math.round(Math.max(low, Math.min(value, high)));
+    let lane;
+    let x;
+    let y;
+    if (side) {
+      const list = this.vtabs.getBounds();
+      lane = { x: list.x + list.width, y: list.y, width: Math.min(card.width + 32, Math.max(0, width - list.x - list.width)), height: list.height };
+      x = 10;
+      y = clamp(anchor.top - lane.y - 6, 8, lane.height - card.height - 8);
+    } else {
+      const top = Math.round(anchor.bottom);
+      lane = { x: 0, y: top, width, height: Math.min(card.height + 32, Math.max(0, height - top)) };
+      x = clamp(anchor.left, 8, width - card.width - 8);
+      y = 6;
+    }
+    if (lane.width < card.width || lane.height < 60) return false;
+    this.preview = { id, lane };
+    // Re-added so it is above the page, sized to the lane, and NOT focused.
+    this.window.contentView.addChildView(this.overlay);
+    this.overlay.setBounds(lane);
+    const data = this.#previewCard(tab);
+    this.overlay.webContents.send('ui:tab-preview', { ...data, x, y, side: side ? 'right' : 'below', lane: { x: lane.x, y: lane.y } });
+    // The picture follows as soon as it is taken; the card waits with a
+    // shimmer meanwhile rather than holding the whole card back.
+    if (data.pending) {
+      this.#snapshot(tab).catch(() => null).then((thumb) => {
+        if (this.preview?.id !== id || this.overlay.webContents.isDestroyed()) return;
+        this.overlay.webContents.send('ui:tab-preview', { id, update: true, thumb: thumb || null, pending: false });
+      });
+    }
+    return true;
+  }
+
+  /** What a hover card says about a tab, and the picture already to hand. */
+  #previewCard(tab) {
+    const organizer = this.productivity?.organizer;
+    const sleeping = !!organizer?.sleeping.has(tab.id);
+    const url = tab.state.displayUrl || '';
+    const kept = this.thumbs.get(tab.id);
+    const usable = kept && kept.url === url ? kept : null;
+    // Only a tab on screen can be photographed now; any other shows the
+    // picture taken when it was last on screen, if its page has not changed.
+    const live = !sleeping && this.window.contentView.children.includes(tab.view) && !tab.view.webContents.isDestroyed();
+    const fresh = usable && Date.now() - usable.at < PREVIEW_FRESH_MS;
+    const group = tab.groupId ? organizer?.groups.find((g) => g.id === tab.groupId) : null;
+    return {
+      id: tab.id,
+      title: String(tab.state.title || url || 'New tab').slice(0, 300),
+      site: siteOf(url) || 'New tab',
+      favicon: safeFavicon(tab.state.favicon),
+      audible: !!tab.state.audible, muted: !!tab.state.muted,
+      loading: !!tab.state.loading, sleeping,
+      group: group ? { name: group.name, color: group.color } : null,
+      thumb: sleeping ? null : usable?.data || null,
+      pending: live && !fresh,
+    };
+  }
+
+  /**
+   * Photograph a tab that is on screen, for its hover card: the top of the
+   * page at the card's shape, shrunk and kept as a small JPEG. Anything off
+   * screen answers with the last picture of the same page, if there is one.
+   */
+  async #snapshot(tab) {
+    if (!tab || this.settings?.value.tabPreviews === false) return null;
+    const wc = tab.view.webContents;
+    const url = tab.state.displayUrl || '';
+    const kept = this.thumbs.get(tab.id);
+    const fallback = kept && kept.url === url ? kept.data : null;
+    if (wc.isDestroyed() || wc.isCrashed() || !this.window?.contentView.children.includes(tab.view)) return fallback;
+    if (kept && kept.url === url && Date.now() - kept.at < PREVIEW_FRESH_MS) return kept.data;
+    const bounds = tab.view.getBounds();
+    if (bounds.width < 40 || bounds.height < 40) return fallback;
+    const rect = { x: 0, y: 0, width: bounds.width, height: Math.min(bounds.height, Math.round(bounds.width * 9 / 16)) };
+    // A tab taken off screen while its picture is being taken leaves the
+    // capture waiting until it is next shown - possibly much later, on a
+    // different page, or after previews were switched off. So it gets a
+    // moment, and whatever it brings back is checked again before it is kept.
+    let timer = 0;
+    const image = await Promise.race([
+      wc.capturePage(rect).catch(() => null),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(null), PREVIEW_CAPTURE_MS); }),
+    ]).finally(() => clearTimeout(timer));
+    if (!image || image.isEmpty() || !this.tabs?.tabs.has(tab.id)) return fallback;
+    if (this.settings.value.tabPreviews === false || (tab.state.displayUrl || '') !== url) return null;
+    const small = image.getSize().width > PREVIEW_SHOT_WIDTH ? image.resize({ width: PREVIEW_SHOT_WIDTH, quality: 'good' }) : image;
+    const data = 'data:image/jpeg;base64,' + small.toJPEG(82).toString('base64');
+    // Newest last, so the oldest is the first to go; closed tabs go first of all.
+    this.thumbs.delete(tab.id);
+    this.thumbs.set(tab.id, { data, url, at: Date.now() });
+    for (const id of this.thumbs.keys()) if (!this.tabs.tabs.has(id)) this.thumbs.delete(id);
+    while (this.thumbs.size > PREVIEW_KEEP) this.thumbs.delete(this.thumbs.keys().next().value);
+    return data;
+  }
+
+  /**
+   * Take the picture of the tab on screen once it has settled: loaded, and
+   * looked at for a moment. Only a tab on screen can be photographed, and the
+   * moment it is left is already too late, so this is what gives a tab in the
+   * background a picture on its card. One timer for the window: only the tab
+   * on show ever needs it, and switching again starts it over.
+   */
+  #settleSnapshot() {
+    clearTimeout(this.thumbTimer);
+    if (this.settings?.value.tabPreviews === false) return;
+    this.thumbTimer = setTimeout(() => {
+      const tab = this.tabs?.active;
+      const win = this.window;
+      if (!tab || !win || win.isDestroyed() || win.isMinimized() || !win.isVisible()) return;
+      // Still loading: the end of the load starts this again.
+      if (tab.state.loading || this.productivity?.organizer.sleeping.has(tab.id)) return;
+      this.#snapshot(tab).catch(() => {});
+    }, PREVIEW_SETTLE_MS);
+  }
+
+  /** Put the hover card away and give the overlay back its idle corner. */
+  #hidePreview() {
+    if (!this.preview) return;
+    this.preview = null;
+    if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
+    if (!this.overlayInteractive) this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+    this.overlay.webContents.send('ui:tab-preview', null);
   }
 
   /** Window controls for the custom title bar. */

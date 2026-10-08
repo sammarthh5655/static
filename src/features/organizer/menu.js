@@ -44,6 +44,7 @@ function tabMenu({ id, ids, organizer, layout, bookmarked, canReopen, accel }) {
   const groups = liveGroups(organizer, tab.workspaceId);
   const sleeping = ids.every((one) => organizer.sleeping.has(one));
   const pinned = ids.every((one) => manager.tabs.get(one)?.pinned);
+  const muted = ids.every((one) => manager.tabs.get(one)?.state?.muted);
   const others = visible.filter((t) => !ids.includes(t.id) && !t.pinned).length;
   const right = visible.slice(position + 1).filter((t) => !t.pinned).length;
   const split = tab.splitWith && manager.tabs.has(tab.splitWith);
@@ -68,6 +69,9 @@ function tabMenu({ id, ids, organizer, layout, bookmarked, canReopen, accel }) {
     // The copy sits beside the original: pinned if it is, in its group if it has one.
     many ? null : { label: 'Duplicate', action: act('tabs:new', { url: tab.state.displayUrl || undefined, index, groupId: tab.groupId || null, pinned: !!tab.pinned }) },
     { label: pinned ? plural(n, 'Unpin', 'Unpin # tabs') : plural(n, 'Pin', 'Pin # tabs'), icon: 'pin', action: act('organizer:pin', { ids, pinned: !pinned }) },
+    // A mixed selection is muted all together: the one that says "mute" wins.
+    { label: muted ? plural(n, 'Unmute tab', 'Unmute # tabs') : plural(n, 'Mute tab', 'Mute # tabs'), icon: muted ? 'volume' : 'muted',
+      action: act('tabs:mute', { ids, muted: !muted }) },
     tab.active && !many ? null : sleeping
       ? { label: plural(n, 'Wake tab', 'Wake # tabs'), action: act('organizer:wake', { ids }) }
       : { label: plural(n, 'Sleep tab', 'Sleep # tabs'), action: act('organizer:sleep', { ids }) },

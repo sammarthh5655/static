@@ -320,6 +320,55 @@ body.dropping .strip-drag::after {
 .tab-group-chip.chip-target { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-tone) 40%, transparent), 0 4px 14px color-mix(in srgb, var(--group-tone) 50%, transparent); }
 .strip-tool[hidden] { display: none; }
 .tabs { overflow-x: auto; scrollbar-width: none; min-width: 0; }
+
+/* ---- sound ----------------------------------------------------------------
+   A speaker on a tab making sound, its waves pulsing in turn; struck out
+   once muted. One click toggles. On a pinned tab it is a badge on the
+   corner of the favicon, ringed in the strip's colour so it reads as one. */
+.tab-sound {
+  width: 22px; height: 22px; flex: none; margin: 0 -3px;
+  display: grid; place-items: center;
+  border: 0; border-radius: 6px; padding: 0;
+  background: transparent; color: var(--accent);
+  -webkit-app-region: no-drag;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease);
+}
+.tab-sound.is-new, .tab-sound-badge.is-new { animation: sound-in var(--motion-slow) cubic-bezier(.3, 1.6, .5, 1); }
+.tab-sound:hover { background: var(--surface-active); color: var(--text); }
+.tab-sound:active { transform: scale(.88); }
+.tab-sound.is-muted { color: var(--text-dim); }
+.tab-sound.is-muted:hover { color: var(--accent); }
+.tab-sound.is-playing { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent)); }
+@keyframes sound-in { from { transform: scale(.4); } }
+.speaker .wave { animation: sound-wave calc(var(--motion-base) * 7) ease-in-out infinite; animation-delay: var(--wave-phase, 0ms); }
+.speaker .wave-2 { animation-delay: calc(var(--wave-phase, 0ms) + var(--motion-base) * 1.6); }
+@keyframes sound-wave { 0%, 100% { opacity: .35; } 45% { opacity: 1; } }
+
+.tab-sound-badge {
+  position: absolute; right: 5px; bottom: 5px;
+  width: 15px; height: 15px; padding: 0;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%;
+  color: var(--bg);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-strip), 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent);
+  -webkit-app-region: no-drag;
+}
+.tab.pinned.active .tab-sound-badge, .tab.pinned:hover .tab-sound-badge { box-shadow: 0 0 0 2px var(--tab-active), 0 0 8px color-mix(in srgb, var(--accent) 55%, transparent); }
+.tab-sound-badge.is-muted { color: var(--text); background: var(--surface-active); box-shadow: 0 0 0 2px var(--bg-strip); }
+.tab-sound-badge .icon-svg { stroke-width: 2.4; }
+.tab-sound-badge .speaker path { stroke-width: 2.6; }
+
+/* Squeezed tabs making sound: the speaker stands in for the icon, and a
+   tab in the background gives up its close button (chrome.js marks them). */
+.tab.narrow.has-sound > :first-child { display: none; }
+.tab.narrow.has-sound:not(.active) .close { display: none; }
+
+/* Tab search: the last thing on the strip, where Chrome keeps it. */
+.strip-search { align-self: center; width: 30px; height: 28px; margin: 0 2px 4px 0; color: var(--text-dim); -webkit-app-region: no-drag; }
+.strip-search:hover:not(:disabled) { color: var(--accent); }
+.strip-search .icon-svg { transition: transform var(--motion-base) cubic-bezier(.3, 1.6, .5, 1); }
+.strip-search:hover .icon-svg { transform: scale(1.1) rotate(-6deg); }
 .tabs::-webkit-scrollbar { display: none; }
 
 /* ---- toolbar (48px) ------------------------------------------------------ */
@@ -767,6 +816,8 @@ body.vertical-tabs .strip { display: none; }
 /* Asked for less motion: groups, pins and drops change without moving. */
 @media (prefers-reduced-motion: reduce) {
   .chip-count, .tab.drop-before::before, .tab.drop-after::before { animation: none; }
+  .tab-sound, .tab-sound-badge, .speaker .wave { animation: none; }
+  .strip-search:hover .icon-svg { transform: none; }
   .tab-group-chip, .menu-swatch-btn, .menu-swatch-btn .icon-svg { transition: none; }
   .tab-group-chip.chip-target, .menu-swatch-btn:hover { transform: none; }
 }

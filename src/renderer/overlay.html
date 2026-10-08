@@ -2,15 +2,21 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <!-- img-src takes http(s) for the favicons in tab search and on tab hover
+       cards, the same images the tab strip already shows; pictures of pages
+       arrive as data: URLs main made itself. Scripts stay 'self' only. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'">
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https: http:; connect-src 'none'">
   <title>static menus</title>
   <link rel="stylesheet" href="chrome.css">
   <link rel="stylesheet" href="overlay.css">
 </head>
 <body class="overlay">
   <script src="../shared/theme.js"></script>
+  <script src="../shared/tabsearch.js"></script>
   <script src="ui.js"></script>
+  <script src="tabsearch-panel.js"></script>
+  <script src="tabpreview.js"></script>
   <script src="overlay.js"></script>
 </body>
 </html>

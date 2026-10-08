@@ -289,9 +289,12 @@ async function run(browser) {
     await until(() => tab(weather).pinned);
     await wait(400);
     let pins = await chrome().executeJavaScript(`[...document.querySelectorAll('.tab')].map((n) => ({ id: n.dataset.id, pinned: n.classList.contains('pinned'),
-      w: Math.round(n.getBoundingClientRect().width), title: !!n.querySelector('.title'), close: !!n.querySelector('.close'), tip: n.title }))`);
+      w: Math.round(n.getBoundingClientRect().width), title: !!n.querySelector('.title'), close: !!n.querySelector('.close'),
+      tip: n.title || n.getAttribute('aria-label') }))`);
     check('pinned tabs sit first, in the order they were pinned', pins[0].id === maps && pins[1].id === weather && pins.slice(2).every((p) => !p.pinned), JSON.stringify(pins.map((p) => p.id.slice(0, 4) + (p.pinned ? '*' : ''))));
     check('as small squares: icon only, no title or close button', pins.slice(0, 2).every((p) => p.w >= 34 && p.w <= 42 && !p.title && !p.close), JSON.stringify(pins.slice(0, 2)));
+    // A tooltip with hover cards off; with them on, the card says it (and
+    // the name is still read out to a screen reader).
     check('the title is in the tooltip', /Maps/.test(pins[0].tip), pins[0].tip);
     check('a pinned tab leaves its group', tab(maps).groupId === null && !organizer.groups.some((g) => g.id === trips.id));
     await shoot('tabgroups-pinned', browser.chrome, stripRect());

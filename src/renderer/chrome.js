@@ -16,7 +16,7 @@ const $ = (id) => document.getElementById(id);
 const el = {
   titlebar: $('titlebar'), appMenu: $('app-menu'), windowControls: $('window-controls'),
   windowTitle: $('window-title'),
-  tabs: $('tabs'), newtab: $('newtab'),
+  tabs: $('tabs'), newtab: $('newtab'), tabSearch: $('tab-search'),
   back: $('back'), forward: $('forward'), reload: $('reload'), home: $('home'),
   address: $('address'), security: $('security'), star: $('star'), key: $('key'),
   suggestions: $('suggestions'), bookmarks: $('bookmarks'),
@@ -35,6 +35,8 @@ const local = {
   dragId: null,
   // Tabs picked with Ctrl/Cmd-click or Shift-click, to act on together.
   picked: new Set(),
+  // "id:muted" for each tab showing a speaker at the last redraw.
+  sounding: new Set(),
 };
 
 const invoke = (channel, payload) => window.browser.invoke(channel, payload).catch((error) => {
@@ -80,6 +82,7 @@ function buildChrome() {
   setIcon(el.key, 'key');
   setIcon(el.newtab, 'plus');
   setIcon(el.overflow, 'menu');
+  el.tabSearch.append(icon('tab_search', { size: 17 }));
   el.appMenu.append(icon('menu', { size: 16 }));
 
   // Window controls: our own glyphs, themed to the app.
@@ -372,26 +375,91 @@ function tabIcon(tab, size = 16) {
   return img;
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * A speaker whose two sound waves pulse in turn while the tab plays, or the
+ * struck-out one of a muted tab. Drawn here rather than from the icon set
+ * because the waves have to be separate paths to move on their own.
+ */
+function speakerGlyph(muted, size) {
+  if (muted) return window.ui.icon('muted', { size });
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('icon-svg', 'speaker');
+  for (const [d, cls] of [['M4 9.5h3.5L12 5.5v13l-4.5-4H4Z', 'cone'], ['M15.5 9a4 4 0 0 1 0 6', 'wave wave-1'], ['M18 6.5a7.5 7.5 0 0 1 0 11', 'wave wave-2']]) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '1.8');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('class', cls);
+    svg.append(path);
+  }
+  return svg;
+}
+
+/**
+ * The speaker on a tab that is making sound, or has been muted: one click
+ * silences it or lets it be heard again. A pinned tab, which is only its
+ * icon, wears the same thing as a small badge on the corner instead.
+ */
+function soundButton(tab, { badge = false } = {}) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = (badge ? 'tab-sound-badge' : 'tab-sound') + (tab.muted ? ' is-muted' : ' is-playing');
+  button.title = tab.muted ? 'Unmute tab' : 'Mute tab';
+  button.setAttribute('aria-label', button.title);
+  button.setAttribute('aria-pressed', String(!!tab.muted));
+  button.draggable = false;
+  // The strip is redrawn on every change; only a speaker that has just
+  // appeared pops in, and the waves keep their beat across redraws.
+  if (!local.sounding.has(tab.id + ':' + !!tab.muted)) button.classList.add('is-new');
+  const glyph = speakerGlyph(!!tab.muted, badge ? 10 : 15);
+  glyph.style.setProperty('--wave-phase', -(Date.now() % 1190) + 'ms');
+  button.append(glyph);
+  button.addEventListener('click', (event) => {
+    // A press on the speaker is not a press on the tab: no switching to it.
+    event.stopPropagation();
+    invoke('tabs:mute', { ids: [tab.id], muted: !tab.muted });
+  });
+  return button;
+}
+
 function tabNode(tab, organizer, visible, group) {
   const sleeping = organizer.sleeping.includes(tab.id);
+  const sound = !!(tab.audible || tab.muted);
   const node = document.createElement('div');
   node.className = 'tab' + (tab.active ? ' active' : '') + (tab.pinned ? ' pinned' : '')
     + (tab.splitSide ? ' split-' + tab.splitSide : '') + (sleeping ? ' sleeping' : '')
-    + (group ? ' grouped' : '') + (local.picked.has(tab.id) ? ' picked' : '');
+    + (group ? ' grouped' : '') + (local.picked.has(tab.id) ? ' picked' : '')
+    + (sound ? ' has-sound' : '');
   node.draggable = true;
   node.dataset.id = tab.id;
-  node.title = (tab.title || 'New tab') + (tab.pinned ? ' (pinned)' : '') + (sleeping ? ' - sleeping' : '');
+  // With hover cards on, the card says all this and more; a tooltip on top
+  // of it would only cover it.
+  if (state.settings?.tabPreviews === false) {
+    node.title = (tab.title || 'New tab') + (tab.pinned ? ' (pinned)' : '') + (sleeping ? ' - sleeping' : '');
+  }
   node.setAttribute('role', 'tab');
   node.setAttribute('aria-selected', String(!!tab.active));
+  node.setAttribute('aria-label', (tab.title || 'New tab') + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''));
   node.append(tabIcon(tab));
 
   // A pinned tab is a small square with just its icon, as in Chrome: no
-  // title, no close button. Its title is in the tooltip.
+  // title, no close button. Its title is in the tooltip; sound is a badge.
+  if (tab.pinned && sound) node.append(soundButton(tab, { badge: true }));
   if (!tab.pinned) {
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = (sleeping ? '◌ ' : '') + (tab.title || 'New tab');
     node.append(title);
+    if (sound) node.append(soundButton(tab));
 
     const close = document.createElement('button');
     close.className = 'close';
@@ -497,7 +565,24 @@ function renderTabs() {
     const chip = wrap.querySelector('.tab-group-chip');
     wrap.style.minWidth = (chip.offsetWidth + 2 + wrap.querySelectorAll('.tab').length * 58) + 'px';
   }
+  markNarrowTabs();
+  local.sounding = new Set(visible.filter((t) => t.audible || t.muted).map((t) => t.id + ':' + !!t.muted));
+  // The tab under the pointer may have just closed.
+  if (hover.id && !state.tabs.some((t) => t.id === hover.id)) hidePreview();
 }
+
+/**
+ * A crowded strip squeezes tabs down to 56px, where an icon, a speaker and a
+ * close button cannot all fit. There the speaker takes the icon's place, as
+ * in Chrome, and a tab in the background gives up its close button (middle
+ * click still closes it). Only tabs making sound change at all.
+ */
+function markNarrowTabs() {
+  for (const node of el.tabs.querySelectorAll('.tab.has-sound:not(.pinned)')) {
+    node.classList.toggle('narrow', node.offsetWidth < 96);
+  }
+}
+new ResizeObserver(() => markNarrowTabs()).observe(el.tabs);
 
 function renderToolbar() {
   const active = state.active || {};
@@ -754,6 +839,78 @@ function commit(input) {
 /* ---- events -------------------------------------------------------------- */
 
 el.newtab.addEventListener('click', () => act('tab:new'));
+// Every open tab, searchable. Main draws the list in the overlay.
+el.tabSearch.addEventListener('click', () => {
+  hidePreview();
+  invoke('tabs:search', { anchor: anchorRect(el.tabSearch) });
+});
+
+/* ---- hover previews -------------------------------------------------------
+   Rest the pointer on a tab for half a second and its card comes up under
+   it: the title, the site and a picture of the page (drawn by the overlay;
+   see main/application.js#tabPreview). Once a card is up, moving along the
+   strip carries it to each tab at once rather than waiting again, as in
+   Chrome. A click, a drag, a scroll or leaving the tabs puts it away, and
+   it stays away from a tab just clicked until the pointer moves on. */
+
+const PREVIEW_DELAY_MS = 500;
+const hover = { id: null, timer: 0, leave: 0, shown: false, asking: 0, warmUntil: 0, pressed: null };
+const previewsOn = () => state.settings?.tabPreviews !== false;
+
+function hoverTab(id) {
+  clearTimeout(hover.leave);
+  if (id !== hover.pressed) hover.pressed = null;
+  if (!previewsOn() || local.dragId || menuOpenFor || id === hover.pressed) return;
+  if (id === hover.id && (hover.shown || hover.timer)) return;
+  clearTimeout(hover.timer);
+  hover.id = id;
+  const warm = hover.shown || Date.now() < hover.warmUntil;
+  hover.timer = setTimeout(() => { hover.timer = 0; showPreview(id); }, warm ? 0 : PREVIEW_DELAY_MS);
+}
+
+async function showPreview(id) {
+  const node = el.tabs.querySelector(`.tab[data-id="${CSS.escape(id)}"]`);
+  if (!node || hover.id !== id || local.dragId) return;
+  hover.asking++;
+  const shown = await invoke('tabs:preview', { id, anchor: anchorRect(node) }).finally(() => { hover.asking--; });
+  // Requests reach main in order, so a later hide has already won; only
+  // remember the card if this is still the tab being hovered.
+  if (hover.id === id) hover.shown = !!shown;
+}
+
+/** Put the card away - now, or after a moment in case the pointer is only crossing a gap. */
+function hidePreview({ soon = false } = {}) {
+  clearTimeout(hover.timer);
+  hover.timer = 0;
+  clearTimeout(hover.leave);
+  const away = () => {
+    // A card still on its way counts as up: main has not answered yet, and
+    // would otherwise draw it after this, with nothing left to put it away.
+    if (hover.shown || hover.asking) {
+      hover.warmUntil = Date.now() + 400;
+      invoke('tabs:preview', { id: null });
+    }
+    hover.shown = false;
+    hover.id = null;
+  };
+  if (soon) hover.leave = setTimeout(away, 90);
+  else away();
+}
+
+el.tabs.addEventListener('pointerover', (event) => {
+  const node = event.target.closest('.tab');
+  if (node) hoverTab(node.dataset.id);
+  else hidePreview({ soon: true });
+});
+el.tabs.addEventListener('pointerleave', () => { hover.pressed = null; hidePreview({ soon: true }); });
+el.tabs.addEventListener('pointerdown', (event) => {
+  hover.pressed = event.target.closest('.tab')?.dataset.id || null;
+  hidePreview();
+}, true);
+el.tabs.addEventListener('wheel', () => hidePreview(), { passive: true });
+el.tabs.addEventListener('dragstart', () => hidePreview(), true);
+el.tabs.addEventListener('contextmenu', () => hidePreview(), true);
+window.addEventListener('blur', () => hidePreview());
 /**
  * Organise in one click, right here.
  *
@@ -1092,6 +1249,8 @@ buildChrome();
 invoke('ui:shortcuts').then((list) => {
   shortcuts = new Map();
   for (const entry of list || []) if (!shortcuts.has(entry.id)) shortcuts.set(entry.id, entry);
+  // The key as this platform writes it: Ctrl+Shift+A, or ⇧⌘A on a Mac.
+  if (accel('tab:search')) el.tabSearch.title = 'Search tabs (' + accel('tab:search') + ')';
   return invoke('app:state');
 }).then((payload) => {
   if (payload) { state = payload; render(); }
