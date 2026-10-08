@@ -404,13 +404,22 @@ function wallpaperList() {
  * then kept for as long as the page is open.
  */
 let pageWallpaper = null;
+let pageWallpaperDraw = null;
 async function resolveWallpaper(config) {
   const { wallpapers } = await wallpaperList();
   const byId = (id) => wallpapers.find((w) => w.id === id) || null;
   if (config.wallpaperMode === 'launch' && state.launchWallpaper) return byId(state.launchWallpaper);
   if (config.wallpaperMode === 'newtab') {
-    if (!pageWallpaper || !pageWallpaperFits(config)) pageWallpaper = await invoke('wallpapers:random', {}).catch(() => null);
-    return pageWallpaper;
+    if (pageWallpaper && pageWallpaperFits(config)) return pageWallpaper;
+    // One draw at a time. State arrives in bursts as a page opens, and two
+    // draws in flight meant main handed out two wallpapers for one tab - so
+    // the next tab could land on the one this tab drew but never showed.
+    if (!pageWallpaperDraw) {
+      pageWallpaperDraw = invoke('wallpapers:random', { previous: pageWallpaper?.id || '' })
+        .catch(() => null)
+        .then((entry) => { pageWallpaper = entry; pageWallpaperDraw = null; return entry; });
+    }
+    return pageWallpaperDraw;
   }
   return byId(config.backgroundValue);
 }
@@ -434,7 +443,7 @@ function paintWallpaper(layer, entry) {
     img.decoding = 'async';
     // Built-in wallpapers ship with the app; ones from the wallpaper service
     // arrive as full https addresses.
-    const source = /^https:\/\//.test(entry.file) ? entry.file : '../assets/' + entry.file;
+    const source = window.wallpaperPicker.imageOf(entry, 'file');
     img.src = source;
     layer.classList.remove('is-ready');
     img.onload = () => {

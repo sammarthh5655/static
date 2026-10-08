@@ -79,6 +79,9 @@ test('settings name, clean and cap user planets, and fall back when one is delet
   assert.equal(next.customPlanets[0].glow, 1);
   assert.equal(next.customPlanets[0].glass, 0);
   assert.equal(next.customPlanets[0].wallpaper, '');
+  const random = settings.update({ customPlanets: [{ name: 'Vesper', primary: '#8b7cf0', wallpaper: 'random' }] });
+  assert.equal(random.customPlanets[0].wallpaper, 'random', 'a planet can bring a different wallpaper on every tab');
+  settings.update({ customPlanets: next.customPlanets });
   settings.update({ theme: 'planet-aurelia' });
   assert.equal(settings.value.theme, 'planet-aurelia');
   settings.update({ customPlanets: [] });

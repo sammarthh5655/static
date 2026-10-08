@@ -81,8 +81,9 @@ const DEFAULTS = {
  */
 /**
  * A user's planet, cleaned: every field checked, the id derived from the name
- * when missing, colours as hex, the dials clamped. A wallpaper must be one of
- * the built-in set.
+ * when missing, colours as hex, the dials clamped. A wallpaper must be one in
+ * the catalogue, or 'random': a planet that brings a different wallpaper on
+ * every new tab.
  */
 function normalisePlanet(def, taken = new Set()) {
   if (!def || typeof def !== 'object') return null;
@@ -110,7 +111,7 @@ function normalisePlanet(def, taken = new Set()) {
     glow: clamp(def.glow, 0.5),
     glass: clamp(def.glass, 0.3),
     light: !!def.light,
-    wallpaper: typeof def.wallpaper === 'string' && wallpapers.find(def.wallpaper) ? def.wallpaper : '',
+    wallpaper: def.wallpaper === 'random' || (typeof def.wallpaper === 'string' && wallpapers.find(def.wallpaper)) ? def.wallpaper : '',
   };
 }
 

@@ -2403,7 +2403,18 @@ class BrowserApplication {
       'feedback:reveal': () => { if (this.lastFeedbackFolder) shell.openPath(this.lastFeedbackFolder); return !!this.lastFeedbackFolder; },
       'wallpapers:random': (_sender, payload) => {
         const tab = this.settings.value.newTab;
-        return wallpapers.pick(tab.wallpaperPool, tab.wallpaperFavourites, String(payload?.previous || ''));
+        // "A different one on every new tab" means different from the last
+        // few tabs too, not merely random: two tabs landing on the same photo,
+        // or flicking between the same two, reads as the setting not working.
+        // Each page asks once, so main remembers what it handed out lately -
+        // up to half the pool, so a small category never becomes a fixed loop.
+        const size = wallpapers.poolOf(tab.wallpaperPool, tab.wallpaperFavourites).length;
+        const keep = Math.max(1, Math.min(4, Math.floor(size / 2)));
+        const recent = (this.recentRandomWallpapers || []).slice(-keep);
+        if (payload?.previous) recent.push(String(payload.previous).slice(0, 120));
+        const entry = wallpapers.pick(tab.wallpaperPool, tab.wallpaperFavourites, recent);
+        if (entry) this.recentRandomWallpapers = [...recent, entry.id].slice(-4);
+        return entry;
       },
       'split:resize': (_sender, payload) => {
         const bounds = this.tabs.bounds;

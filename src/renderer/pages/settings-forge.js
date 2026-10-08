@@ -7,11 +7,13 @@
  * what you see here is exactly what the browser will wear. Nothing is saved
  * until "Add to the solar system"; editing an existing planet saves over it.
  */
-const { $, element, invoke, onState } = window.page;
+const { $, element, icon, invoke, onState } = window.page;
+const picker = window.wallpaperPicker;
 
 let settings = {};
 let editing = null;
 let light = false;
+let catalog = { categories: [], wallpapers: [] };
 
 const inputs = {
   name: $('#forge-name'),
@@ -23,6 +25,47 @@ const inputs = {
   glass: $('#forge-glass'),
   wallpaper: $('#forge-wallpaper'),
 };
+
+/* "Wallpaper it brings" is picked by looking: a grid of the photos, with None
+   and "Random on every new tab" first. The hidden input is still the form
+   value draft() reads, so saving works exactly as it did. */
+const wallpapers = picker.build({ element, icon }, {
+  label: 'Wallpaper it brings',
+  compact: true,
+  value: '',
+  extras: [
+    { value: '', kind: 'none', label: 'None', sub: 'Keeps your wallpaper' },
+    { value: picker.RANDOM, kind: 'random', label: 'Random on every new tab', sub: 'A different photo each time' },
+  ],
+  onPick: (value) => {
+    inputs.wallpaper.value = value;
+    inputs.wallpaper.dispatchEvent(new Event('input'));
+  },
+});
+$('#forge-wallpaper-picker').append(wallpapers.node);
+wallpapers.node.querySelector('.wp-grid').setAttribute('aria-labelledby', 'forge-wallpaper-label');
+
+/* The little browser in the preview wears the wallpaper too; a planet that
+   brings a random one shows a few of them taking turns. */
+const mockWall = element('div', { class: 'forge-mock-wall' });
+$('.forge-mock-page').prepend(mockWall);
+let mockWallpaper = null;
+let stopMock = () => {};
+function paintWallpaper(value) {
+  wallpapers.set(value);
+  const entry = catalog.wallpapers.find((w) => w.id === value);
+  $('#forge-wallpaper-name').textContent = value === picker.RANDOM ? 'Random on every new tab'
+    : entry ? 'Photo by ' + entry.credit.by : 'None';
+  const key = value + ':' + catalog.wallpapers.length;
+  if (key === mockWallpaper) return;
+  mockWallpaper = key;
+  stopMock();
+  stopMock = () => {};
+  mockWall.replaceChildren();
+  if (value === picker.RANDOM) stopMock = picker.slideshow({ element }, mockWall, catalog.wallpapers);
+  else if (entry) stopMock = picker.slideshow({ element }, mockWall, [entry]);
+  $('#forge-preview').classList.toggle('has-wallpaper', value === picker.RANDOM || !!entry);
+}
 
 function draft() {
   return {
@@ -61,6 +104,7 @@ function paint() {
   for (const button of $('#forge-light').querySelectorAll('[data-light]')) {
     button.classList.toggle('is-on', (button.dataset.light === 'light') === light);
   }
+  paintWallpaper(def.wallpaper);
 }
 
 /** A palette that hangs together: hues from one wheel, not four random picks. */
@@ -122,7 +166,8 @@ async function save() {
     const next = await invoke('settings:update', { customPlanets: list });
     const saved = at >= 0 ? next.customPlanets[at] : next.customPlanets[next.customPlanets.length - 1];
     const patch = { theme: saved.id };
-    if (saved.wallpaper) patch.newTab = { background: 'wallpaper', backgroundValue: saved.wallpaper, wallpaperMode: 'fixed' };
+    const newTab = picker.planetNewTab(saved.wallpaper);
+    if (newTab) patch.newTab = newTab;
     await invoke('settings:update', patch);
     say(saved.name + (at >= 0 ? ' saved.' : ' has joined the solar system. The browser is wearing it now.'));
     load(null);
@@ -141,6 +186,16 @@ function renderMade() {
       const planet = window.theme.forgePlanet(def);
       const orb = element('span', { class: 'forge-made-orb' });
       orb.style.background = orbFill(planet.palette);
+      // What it brings to the new tab, at a glance.
+      const brought = catalog.wallpapers.find((w) => w.id === def.wallpaper);
+      let wall = null;
+      if (def.wallpaper === picker.RANDOM) {
+        wall = element('span', { class: 'forge-made-wall is-random', title: 'Brings a random wallpaper on every new tab' }, [icon('shuffle', { size: 12 })]);
+      } else if (brought) {
+        wall = element('span', { class: 'forge-made-wall', title: 'Brings a photo by ' + brought.credit.by });
+        wall.style.setProperty('background-color', brought.tone);
+        wall.style.setProperty('background-image', picker.cssUrl(picker.imageOf(brought)));
+      }
       let armed = null;
       const remove = element('button', { type: 'button', class: 'danger', text: 'Delete' });
       remove.addEventListener('click', async () => {
@@ -156,11 +211,13 @@ function renderMade() {
       return element('div', { class: 'forge-made-item' + (settings.theme === def.id ? ' is-worn' : '') }, [
         orb,
         element('strong', { text: def.name }),
+        wall,
         element('button', {
           type: 'button', text: settings.theme === def.id ? 'Wearing' : 'Wear',
           onclick: () => {
             const patch = { theme: def.id };
-            if (def.wallpaper) patch.newTab = { background: 'wallpaper', backgroundValue: def.wallpaper, wallpaperMode: 'fixed' };
+            const newTab = picker.planetNewTab(def.wallpaper);
+            if (newTab) patch.newTab = newTab;
             invoke('settings:update', patch).catch((e) => say(e.message));
           },
         }),
@@ -182,15 +239,13 @@ $('#forge-shuffle').addEventListener('click', surprise);
 $('#forge-apply').addEventListener('click', save);
 $('#forge-cancel').addEventListener('click', () => { load(null); say(''); });
 
-invoke('wallpapers:catalog').then(({ categories, wallpapers }) => {
-  for (const category of categories) {
-    const group = element('optgroup', { label: category.name });
-    for (const w of wallpapers.filter((item) => item.category === category.id)) {
-      group.append(element('option', { value: w.id, text: w.credit.by + ' (' + category.name + ')' }));
-    }
-    inputs.wallpaper.append(group);
-  }
-}).catch(() => {});
+picker.onCatalog(invoke, (result) => {
+  catalog = result || catalog;
+  wallpapers.setData(catalog);
+  mockWallpaper = null;
+  paint();
+  renderMade();
+});
 
 onState((state) => {
   settings = state.settings || {};

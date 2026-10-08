@@ -56,7 +56,9 @@ function mountPlanetarium(catalog, currentTheme) {
       onPick: (id) => {
         const made = (latestSettings.customPlanets || []).find((planet) => planet.id === id);
         const patch = { theme: id };
-        if (made?.wallpaper) patch.newTab = { background: 'wallpaper', backgroundValue: made.wallpaper, wallpaperMode: 'fixed' };
+        // The wallpaper it brings, or a different one on every new tab.
+        const newTab = window.wallpaperPicker?.planetNewTab(made?.wallpaper);
+        if (newTab) patch.newTab = newTab;
         update(patch);
       },
     },

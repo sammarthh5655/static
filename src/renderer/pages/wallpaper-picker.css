@@ -1,0 +1,180 @@
+/* ---- the wallpaper picker ---------------------------------------------------
+   Shared by Settings -> Appearance -> Wallpaper and the forge (see
+   wallpaper-picker.js). Every duration is built from the theme's --motion-*
+   variables, so turning animations off in Static stills all of it. */
+
+.wp { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+/* Category tabs: one row that scrolls sideways rather than wrapping into a
+   ragged second line; the far edge fades to say there is more. */
+.wp-tabs {
+  display: flex; gap: 5px; overflow-x: auto; overflow-y: hidden; padding: 2px 28px 4px 12px; margin-left: -12px;
+  scrollbar-width: none; mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 28px), transparent);
+}
+.wp-tabs::-webkit-scrollbar { display: none; }
+.wp-tab {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border-soft); cursor: pointer; font: inherit; font-size: 12px; color: var(--text-dim);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  transition: color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease), background var(--motion-fast) var(--ease);
+}
+.wp-tab em { font-style: normal; font-size: 10.5px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.wp-tab:hover { color: var(--text); border-color: var(--border); }
+.wp-tab[aria-selected="true"] {
+  color: var(--text); border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 20%, var(--surface)), color-mix(in srgb, var(--accent-alt) 10%, var(--surface)));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.wp-tab[aria-selected="true"] em { color: var(--accent); }
+
+/* The picker is its own window onto the photos, so a long catalogue never
+   pushes the rest of the page a screen further down. The padding keeps the
+   ring around a chosen tile clear of the edges. The height limit is on this
+   wrapper, never on the grid: a grid with one squeezes its rows to fit. */
+.wp-scroll {
+  position: relative; max-height: 430px; overflow-y: auto; overscroll-behavior: contain;
+  padding: 6px 8px 10px 6px; margin: -6px -8px -10px -6px; scroll-padding: 34px 0 10px;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.wp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 12px; }
+.wp.is-compact .wp-scroll { max-height: 262px; }
+.wp.is-compact .wp-grid { grid-template-columns: repeat(auto-fill, minmax(94px, 1fr)); gap: 9px; }
+
+/* Category headings stay pinned while their photos scroll under them. */
+.wp-group {
+  grid-column: 1 / -1; position: sticky; top: -6px; z-index: 3;
+  display: flex; align-items: center; gap: 8px; margin: 6px -2px -2px; padding: 6px 2px 5px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+  background: color-mix(in srgb, var(--bg-raised) 90%, transparent); backdrop-filter: blur(10px);
+}
+.wp-group em { font-style: normal; font-weight: 500; letter-spacing: 0; color: var(--text-faint); opacity: 0.8; }
+.wp-group::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border-soft), transparent); }
+
+.wp-tile {
+  position: relative; aspect-ratio: 16 / 10; padding: 0; overflow: hidden; cursor: pointer;
+  border: 0; border-radius: 12px; background: var(--surface); color: inherit; font: inherit;
+  box-shadow: 0 4px 12px var(--shadow-colour);
+  transition: transform var(--motion-base) var(--ease), box-shadow var(--motion-base) var(--ease);
+  animation: wp-in var(--motion-slow) var(--ease) backwards;
+  /* A quick ripple across the grid; with animations off the step is zero. */
+  animation-delay: calc(var(--i, 0) * var(--motion-fast) / 7);
+  /* So the words on None and Random can fit themselves to the tile. */
+  container-type: inline-size;
+}
+@keyframes wp-in { from { opacity: 0; transform: translateY(8px) scale(0.97); } }
+.wp-tile img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block;
+  opacity: 0; transform: scale(1.08);
+  transition: opacity calc(var(--motion-slow) * 1.3) ease, transform calc(var(--motion-slow) * 2) var(--ease);
+}
+.wp-tile.is-loaded img { opacity: 1; transform: scale(1); }
+.wp-tile:hover { transform: translateY(-3px); box-shadow: 0 12px 26px var(--shadow-colour-strong); }
+.wp-tile:hover img { transform: scale(1.06); }
+.wp-tile:active { transform: translateY(-1px) scale(0.98); }
+.wp-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* The photographer, small, only when you are looking at that photo. */
+.wp-by {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 16px 9px 6px;
+  font-size: 10.5px; font-weight: 500; line-height: 1.2; color: #fff; text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.66));
+  opacity: 0; transform: translateY(6px);
+  transition: opacity var(--motion-base) var(--ease), transform var(--motion-base) var(--ease);
+}
+.wp-tile:hover .wp-by, .wp-tile:focus-visible .wp-by { opacity: 1; transform: none; }
+.wp.is-compact .wp-by { font-size: 10px; padding: 12px 7px 5px; }
+
+/* The chosen one: a ring in the planet's accent and a tick that pops in. */
+.wp-tile.is-chosen {
+  box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--accent), 0 10px 26px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.wp-tile.is-chosen::after {
+  content: ''; position: absolute; left: 7px; top: 7px; z-index: 3; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>') center / 12px no-repeat;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 2px color-mix(in srgb, var(--bg-raised) 70%, transparent);
+  animation: wp-pop calc(var(--motion-slow) * 1.4) cubic-bezier(.3, 1.5, .5, 1) both;
+}
+@keyframes wp-pop { from { transform: scale(0); } }
+
+.wp-heart {
+  position: absolute; top: 6px; right: 6px; z-index: 2; width: 24px; height: 24px; border-radius: 50%;
+  display: grid; place-items: center; color: #fff; background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px); opacity: 0; transform: scale(0.8);
+  transition: opacity var(--motion-fast) ease, transform var(--motion-base) var(--ease), color var(--motion-fast) ease;
+}
+.wp-heart svg { width: 13px; height: 13px; }
+.wp-tile:hover .wp-heart, .wp-tile:focus-visible .wp-heart, .wp-tile.is-favourite .wp-heart { opacity: 1; transform: none; }
+.wp-tile.is-favourite .wp-heart { color: #ff5d8f; }
+.wp-tile.is-favourite .wp-heart path { fill: currentColor; }
+.wp-heart:hover { transform: scale(1.14); }
+
+/* ---- "None" and "Random" ---- */
+.wp-extra { display: grid; place-items: center; text-align: center; }
+.wp-extra-face { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 10px; }
+.wp-extra-face strong { font-size: 11.5px; font-weight: 600; line-height: 1.2; text-wrap: balance; }
+.wp-extra-face small { font-size: 10px; line-height: 1.3; opacity: 0.8; text-wrap: balance; }
+/* A small tile keeps just the name; the rest is still read out. */
+@container (max-width: 160px) {
+  .wp-extra-face small { display: none; }
+  .wp-extra-face strong { font-size: 10.5px; }
+  .wp-extra-glyph { width: 26px; height: 26px; }
+}
+@container (max-width: 124px) {
+  .wp-extra-face { gap: 2px; padding: 4px 6px; }
+  .wp-extra-face strong { font-size: 10px; line-height: 1.15; }
+  .wp-extra-glyph { width: 22px; height: 22px; margin-bottom: 0; }
+  .wp-extra-glyph svg { width: 14px; height: 14px; }
+}
+.wp-extra-glyph {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 2px;
+  transition: transform calc(var(--motion-slow) * 1.6) var(--ease);
+}
+
+.wp-extra.is-none {
+  color: var(--text-dim);
+  background: repeating-linear-gradient(135deg, transparent 0 8px, color-mix(in srgb, var(--border) 45%, transparent) 8px 9px), var(--field);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.wp-extra.is-none .wp-extra-glyph { background: var(--surface); border: 1px solid var(--border-soft); }
+.wp-extra.is-none:hover { color: var(--text); }
+.wp-extra.is-none:hover .wp-extra-glyph { transform: rotate(90deg); }
+.wp-extra.is-none.is-chosen { box-shadow: inset 0 0 0 1px transparent, 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--accent); }
+
+/* Random shows four photos from four corners of the catalogue, washed in the
+   planet's own colours; hovering shuffles them a little. */
+.wp-extra.is-random { color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.45); }
+.wp-mosaic { position: absolute; inset: 0; z-index: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; }
+.wp-mosaic i {
+  background-size: cover; background-position: center;
+  transition: transform calc(var(--motion-slow) * 2) var(--ease), filter var(--motion-slow) ease;
+}
+.wp-extra.is-random::before {
+  content: ''; position: absolute; inset: 0; z-index: 1;
+  background:
+    radial-gradient(90% 90% at 50% 45%, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.58)),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 62%, transparent), color-mix(in srgb, var(--accent-alt) 52%, transparent));
+  transition: opacity var(--motion-base) ease;
+}
+.wp-extra.is-random .wp-extra-glyph { background: rgba(255, 255, 255, 0.18); backdrop-filter: blur(6px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28); }
+.wp-extra.is-random:hover::before { opacity: 0.86; }
+.wp-extra.is-random:hover .wp-extra-glyph { transform: rotate(180deg); }
+.wp-extra.is-random:hover .wp-mosaic i:nth-child(1) { transform: translate(4%, 6%) scale(1.12); }
+.wp-extra.is-random:hover .wp-mosaic i:nth-child(2) { transform: translate(-5%, 4%) scale(1.1); }
+.wp-extra.is-random:hover .wp-mosaic i:nth-child(3) { transform: translate(5%, -4%) scale(1.1); }
+.wp-extra.is-random:hover .wp-mosaic i:nth-child(4) { transform: translate(-4%, -6%) scale(1.12); }
+
+/* ---- the slideshow behind previews ---- */
+.wp-slide {
+  position: absolute; inset: 0; background-size: cover; background-position: center;
+  opacity: 0; transition: opacity calc(var(--motion-slow) * 3.5) ease;
+}
+.wp-slide.is-on { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wp-tile, .wp-tile.is-chosen::after { animation: none; }
+  .wp-tile:hover, .wp-tile:hover img, .wp-extra:hover .wp-extra-glyph, .wp-extra.is-random:hover .wp-mosaic i { transform: none; }
+}
+@media (forced-colors: active) {
+  .wp-tile.is-chosen { outline: 3px solid Highlight; outline-offset: 2px; }
+}

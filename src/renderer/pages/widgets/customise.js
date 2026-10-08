@@ -24,11 +24,12 @@ const PRESETS = {
   everything: { name: 'Everything', widgets: ['clock', 'privacy', 'notes', 'reading', 'shortcuts', 'recent', 'downloads'], blurb: 'Every widget out' },
 };
 
-const MODES = [
-  { id: 'fixed', label: 'This one', hint: 'The wallpaper you pick stays.' },
-  { id: 'newtab', label: 'Every tab', hint: 'A different wallpaper on every new tab.' },
-  { id: 'launch', label: 'Every launch', hint: 'A new wallpaper each time Static starts.' },
-];
+// The wallpaper modes, image addresses and catalogue are shared with
+// Settings -> Appearance -> Wallpaper (wallpaper-picker.js), so the two
+// describe the same choice in the same words. This panel is narrow, so it
+// uses each mode's short label.
+const PICKER = window.wallpaperPicker;
+const MODES = PICKER.MODES.map((mode) => ({ id: mode.id, label: mode.short, hint: mode.hint }));
 
 const SIZES = [
   { id: 'compact', label: 'Compact' },
@@ -36,11 +37,8 @@ const SIZES = [
   { id: 'large', label: 'Large' },
 ];
 
-let catalogPromise = null;
-window.browser?.on?.('wallpapers:changed', () => { catalogPromise = null; });
 function catalog(ctx) {
-  if (!catalogPromise) catalogPromise = ctx.invoke('wallpapers:catalog').catch(() => ({ categories: [], wallpapers: [] }));
-  return catalogPromise;
+  return PICKER.catalog(ctx.invoke);
 }
 
 function remember(key, value) {
@@ -128,8 +126,7 @@ function build(ctx, { getLayout, setLayout, onExit }) {
       'aria-label': 'Wallpaper by ' + entry.credit.by,
     });
     button.style.backgroundColor = entry.tone;
-    const thumb = /^https:\/\//.test(entry.thumb) ? entry.thumb : '../assets/' + entry.thumb;
-    const img = ctx.element('img', { src: thumb, alt: '', loading: 'lazy', decoding: 'async' });
+    const img = ctx.element('img', { src: PICKER.imageOf(entry), alt: '', loading: 'lazy', decoding: 'async' });
     img.addEventListener('load', () => button.classList.add('is-loaded'));
     const heart = ctx.element('span', { class: 'studio-heart', role: 'button', tabindex: '0', title: 'Favourite', 'aria-label': 'Favourite' },
       [ctx.icon('heart', { size: 14 })]);

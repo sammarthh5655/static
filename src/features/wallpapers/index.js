@@ -126,10 +126,17 @@ function poolOf(pool, favourites = []) {
   return all;
 }
 
-/** A random wallpaper from the pool, avoiding `previous` when there is a choice. */
+/**
+ * A random wallpaper from the pool, avoiding `previous` when there is a
+ * choice. `previous` is one id, or the last few shown (oldest first): if
+ * avoiding them all leaves nothing, at least the most recent is avoided.
+ */
 function pick(pool, favourites, previous, random = Math.random) {
   const list = poolOf(pool, favourites);
-  const options = list.length > 1 ? list.filter((w) => w.id !== previous) : list;
+  const recent = [].concat(previous || []).filter(Boolean);
+  let options = list.filter((w) => !recent.includes(w.id));
+  if (!options.length) options = list.filter((w) => w.id !== recent[recent.length - 1]);
+  if (!options.length) options = list;
   return options[Math.floor(random() * options.length)] || null;
 }
 

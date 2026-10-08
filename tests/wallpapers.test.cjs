@@ -23,6 +23,14 @@ test('a random pick never repeats the one on screen when there is a choice', () 
   for (let i = 0; i < 50; i++) assert.notEqual(wallpapers.pick('space', [], first.id).id, first.id);
 });
 
+test('a random pick avoids the last few shown, and never gets stuck', () => {
+  const space = wallpapers.poolOf('space', []).map((w) => w.id);
+  const recent = space.slice(0, 4);
+  for (let i = 0; i < 50; i++) assert.ok(!recent.includes(wallpapers.pick('space', [], recent).id));
+  // Every one of them recent: still a pick, and not the very last one.
+  for (let i = 0; i < 20; i++) assert.notEqual(wallpapers.pick('space', [], space).id, space[space.length - 1]);
+});
+
 test('random from favourites uses only favourites, or everything if there are none', () => {
   const [a, b] = wallpapers.catalog().wallpapers;
   for (let i = 0; i < 20; i++) assert.ok([a.id, b.id].includes(wallpapers.pick('favourites', [a.id, b.id], '').id));

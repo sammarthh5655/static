@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;self&#39;; style-src &#39;self&#39;; img-src &#39;self&#39; data:">
+<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;self&#39;; style-src &#39;self&#39;; img-src &#39;self&#39; data: https://*.supabase.co">
 <title>Settings - Static</title>
 <link rel="stylesheet" href="pages.css">
 <link rel="stylesheet" href="settings.css">
+<link rel="stylesheet" href="wallpaper-picker.css">
 <link rel="stylesheet" href="import-panel.css">
 </head>
 <body class="settings-page">
@@ -123,7 +124,11 @@
                 </div>
                 <button type="button" id="forge-shuffle" class="forge-shuffle">Surprise me</button>
               </div>
-              <label class="forge-field"><span>Wallpaper it brings</span><select id="forge-wallpaper"><option value="">None</option></select></label>
+              <div class="forge-field forge-wallpaper">
+                <span id="forge-wallpaper-label">Wallpaper it brings <em id="forge-wallpaper-name">None</em></span>
+                <input type="hidden" id="forge-wallpaper" value="">
+                <div id="forge-wallpaper-picker"></div>
+              </div>
               <div class="forge-actions">
                 <button type="button" id="forge-cancel" class="forge-cancel" hidden>Cancel editing</button>
                 <button type="button" id="forge-apply" class="primary">Add to the solar system</button>
@@ -162,6 +167,13 @@
         <div class="control right">
           <input id="bookmarksBar" type="checkbox" class="toggle" role="switch">
         </div>
+      </div>
+    </div><h2>Wallpaper</h2><div class="card wallpaper-card">
+      <!-- The new tab's wallpaper, chosen by looking at it: the same picker
+           as the forge's, and the same choices as the new tab's Customise
+           panel (see settings-wallpaper.js). -->
+      <div class="field wallpaper-field" data-keywords="wallpaper background photo picture image random shuffle different every new tab each launch start category favourites">
+        <div id="wallpaper-settings" class="wallpaper-settings"></div>
       </div>
     </div><h2>Typography & color</h2><div class="card"><div class="field"><div><label>Typeface</label><div class="hint">Your font, across the entire browser.</div></div><div class="control right"><select id="font" aria-label="Typeface"></select></div></div><div class="field"><div><label>Text size</label><div class="hint">10 to 22 pixels, scaled by the density setting.</div></div><div class="control right"><input id="fontSize" type="number" min="10" max="22" step="0.5" aria-label="Text size"></div></div><div class="field"><div><label>Density</label><div class="hint">Choose how much room each control has.</div></div><div class="control right"><select id="density" aria-label="Density"></select></div></div><div class="field"><div><label>Accent color</label><div class="hint">Used for active items, buttons and focus rings.</div></div><div class="control right"><select id="accent" aria-label="Accent color"></select></div></div><div class="field"><div><label>Custom accent</label><div class="hint">Choose a color, then select Custom above.</div></div><div class="control right"><input id="accentCustom" type="color" aria-label="Custom accent"></div></div></div></section>
 <section class="settings-section" data-section="content" aria-label="Content" hidden><div class="card">
@@ -368,10 +380,12 @@
 <script src="widgets/planetarium.js"></script>
 <script src="../../shared/modes.js"></script>
 <script src="common.js"></script>
+<script src="wallpaper-picker.js"></script>
 <script src="settings-navigation.js"></script>
 <script src="settings.js"></script>
 <script src="settings-profiles.js"></script>
 <script src="settings-forge.js"></script>
+<script src="settings-wallpaper.js"></script>
 <script src="import-panel.js"></script>
 <script src="settings-import.js"></script>
 </body>
