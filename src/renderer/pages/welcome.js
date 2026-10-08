@@ -3,37 +3,50 @@
 /**
  * First launch.
  *
- * One question per screen, every optional step skippable, and the whole flow
+ * One question per screen, and only the questions that need the person: which
+ * world to wear, and - when there is another browser on this computer - what
+ * to bring from it. Every optional step is skippable and the whole flow
  * dismissible. The renderer makes no decisions: the step list, which step is
- * current, what each card says and whether the assistant can be offered all
- * come from the main process.
+ * current, and whether there is anything to import all come from main.
+ * Finishing opens browser://guide, which shows what setup no longer asks.
  *
  * The motion here is deliberate. This is the first thing anyone sees, so it
  * has to feel like the product rather than a form: a drifting starfield that
- * leans away from the pointer, a panel that tilts toward it, cards that light
- * up under the cursor and ripple where they are clicked, and a staged rise as
- * each step arrives. All of it is CSS and one canvas - no library, nothing the
+ * leans away from the pointer, a panel that tilts toward it, and a staged rise
+ * as each step arrives. All of it is CSS and one canvas - no library, nothing the
  * strict CSP has to accommodate, and everything switched off for anyone who
- * has asked for reduced motion.
+ * has asked for reduced motion or turned Static's animations off.
  */
 
 const { invoke, $, element } = window.page;
 
-const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+/**
+ * Motion is off when the system asks for less, or Static's own animations
+ * switch is off - setup can be run again from Settings by someone who turned
+ * it off long ago.
+ */
+let animationsOff = false;
+const still = () => reducedQuery.matches || animationsOff;
 
 let state = null;
 
 /** What each step says above its choices. */
 const LEDE = {
-  welcome: 'A browser that blocks what you did not ask for, and keeps what you are doing to yourself. Setting up takes about a minute, and you can change any of it later.',
-  profile: 'This sets your homepage and theme to something sensible. Everything stays editable in Settings.',
+  welcome: 'A browser that blocks what you did not ask for, and keeps what you are doing to yourself.',
   theme: 'Every planet is a full colour scheme. Hover to see one named, click to wear it - the browser changes straight away, and you can change it again whenever you like.',
-  import: 'Bring your bookmarks and history from the browser you used before. Nothing is changed there, and you can skip this and do it later from Settings.',
-  homepage: 'What you see when you open a new tab. Widgets can be added, removed and rearranged later.',
-  privacy: 'How much Static blocks by default. You can change this per site from the shield in the toolbar.',
-  ai: 'The assistant can summarise a page you are reading and answer questions about it.',
+  import: 'Bring your bookmarks and history from the browser you used before. Nothing is changed there, and you can do this later from Settings instead.',
   done: '',
 };
+
+/** What this run brought over from another browser, for the last screen. */
+let imported = null;
+
+/** Set by the starfield once it runs; a planet choice calls it. */
+let recolourStars = () => {};
+/** Set by the starfield; starts it again when motion is switched back on. */
+let wakeStars = () => {};
 
 /* ---- starfield ----------------------------------------------------------- */
 
@@ -44,7 +57,6 @@ const LEDE = {
  * animation is a layout cost on every frame, and this has to stay free.
  */
 function startStars() {
-  if (reduced) return;
   const canvas = $('#stars');
   const ctx = canvas.getContext('2d');
   let width = 0;
@@ -75,15 +87,19 @@ function startStars() {
   // The accent, read from the theme rather than hard-coded, so the field
   // matches whatever the user has chosen.
   const accent = () => {
-    const value = getComputedStyle(document.body).getPropertyValue('--accent').trim();
+    const value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
     return value || '#47baff';
   };
   let colour = accent();
+  recolourStars = () => { colour = accent(); };
 
   let frame = 0;
+  let running = false;
   const draw = () => {
-    frame++;
     ctx.clearRect(0, 0, width, height);
+    // Stopped rather than paused: a still page costs nothing per frame.
+    if (still()) { running = false; return; }
+    frame++;
     // Pointer position in canvas space, for the lean.
     const px = pointer.x * width;
     const py = pointer.y * height;
@@ -123,21 +139,22 @@ function startStars() {
     pointer.x = event.clientX / innerWidth;
     pointer.y = event.clientY / innerHeight;
   });
-  // The theme can change under us (a profile choice does exactly that).
-  const observer = new MutationObserver(() => { colour = accent(); });
-  observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
-
   resize();
-  requestAnimationFrame(draw);
+  wakeStars = () => {
+    if (running || still()) return;
+    running = true;
+    requestAnimationFrame(draw);
+  };
+  wakeStars();
 }
 
 /* ---- panel tilt ---------------------------------------------------------- */
 
 /** The panel leans a degree or two toward the pointer. Subtle on purpose. */
 function startTilt() {
-  if (reduced) return;
   const panel = $('#panel');
   addEventListener('pointermove', (event) => {
+    if (still()) return;
     const x = event.clientX / innerWidth - 0.5;
     const y = event.clientY / innerHeight - 0.5;
     panel.style.setProperty('--tilt-y', (x * 3).toFixed(2));
@@ -166,45 +183,6 @@ function stagger(container) {
   }
 }
 
-/** A choice card. The whole card is the button. */
-function choice(item, chosen, onPick) {
-  const card = element('button', {
-    class: 'welcome-choice' + (chosen ? ' is-chosen' : ''),
-    onclick: (event) => {
-      if (!reduced) {
-        // A ripple from the exact point that was clicked.
-        const box = card.getBoundingClientRect();
-        const size = Math.max(box.width, box.height) * 2;
-        const ripple = element('span', { class: 'ripple' });
-        ripple.style.setProperty('width', size + 'px');
-        ripple.style.setProperty('height', size + 'px');
-        ripple.style.setProperty('left', (event.clientX - box.left) + 'px');
-        ripple.style.setProperty('top', (event.clientY - box.top) + 'px');
-        card.append(ripple);
-        setTimeout(() => ripple.remove(), 640);
-      }
-      onPick(item.id);
-    },
-  }, [
-    element('div', { class: 'welcome-choice-head' }, [
-      element('span', { class: 'welcome-choice-name', text: item.name }),
-      // Stated in words as well as colour, so the selection is readable
-      // without relying on the accent being visible.
-      chosen ? element('span', { class: 'welcome-choice-mark', text: 'Chosen' }) : null,
-    ]),
-    element('div', { class: 'welcome-choice-summary', text: item.summary }),
-  ]);
-
-  if (!reduced) {
-    card.addEventListener('pointermove', (event) => {
-      const box = card.getBoundingClientRect();
-      card.style.setProperty('--mx', (event.clientX - box.left) + 'px');
-      card.style.setProperty('--my', (event.clientY - box.top) + 'px');
-    });
-  }
-  return card;
-}
-
 /** A feature line with its own pulsing dot. */
 function feature(index, title, rest) {
   const dot = element('span', { class: 'welcome-dot' });
@@ -218,21 +196,21 @@ function feature(index, title, rest) {
   ]);
 }
 
-/** Pick, then move on - choosing is the answer, so it should not need two clicks. */
-async function pickAndAdvance(channel, id) {
-  try {
-    const chosen = await invoke(channel, { id });
-    // Advancing returns a fresh state, which would drop any warning the choice
-    // came back with. Carry it over so a partly-applied choice still says so.
-    const next = { ...(await invoke('onboarding:next')), warning: chosen.warning || null };
-    await transition(next);
-    if (next.warning) show(next.warning);
-  } catch (error) {
-    show(error.message);
-  }
+/* ---- step bodies --------------------------------------------------------- */
+
+/** How long setup is, said plainly, so the first screen sets expectations. */
+function lengthNote() {
+  const questions = state.steps.filter((step) => step.optional).length;
+  const words = ['', 'one quick choice', 'two quick choices', 'three quick choices'];
+  return 'Setting up is ' + (words[questions] || questions + ' quick choices')
+    + ', then a short look around. You can change any of it later.';
 }
 
-/* ---- step bodies --------------------------------------------------------- */
+/** The planet's name as the planetarium knows it, built-in or forged. */
+function planetName(id) {
+  const planet = (state.planets || []).find((item) => item.id === id);
+  return planet ? planet.name : '';
+}
 
 function body() {
   const box = element('div');
@@ -243,23 +221,18 @@ function body() {
         'including on YouTube, using filter lists updated on this device.'),
       feature(1, 'Nothing leaves your machine',
         'history, notes and passwords are stored locally and encrypted by your system.'),
-      feature(2, 'Tools that stay out of the way',
-        'focus sessions, tab groups and an assistant you have to ask.'),
+      feature(2, 'Yours to shape',
+        'planets, wallpapers, tab groups, split view, and an assistant you have to ask.'),
     ]);
     box.append(list);
-    return box;
-  }
-
-  if (state.stepId === 'profile') {
-    box.append(element('div', { class: 'welcome-choices' },
-      state.profiles.map((profile) => choice(
-        profile, state.chosen.profile === profile.id,
-        (id) => pickAndAdvance('onboarding:profile', id)))));
+    box.append(element('p', { class: 'welcome-note', text: lengthNote() }));
     return box;
   }
 
   if (state.stepId === 'import') {
-    if (window.importPanel) box.append(window.importPanel.build({ element, invoke }));
+    if (window.importPanel) {
+      box.append(window.importPanel.build({ element, invoke, onDone: (result) => { imported = result; } }));
+    }
     return box;
   }
 
@@ -272,49 +245,19 @@ function body() {
       const view = window.planetarium.build({ element, icon: window.page.icon }, {
         planets: state.planets,
         current: state.chosen.theme || state.currentTheme,
-        onPick: (id) => { invoke('onboarding:theme', { id }).catch((e) => show(e.message)); },
+        onPick: (id) => {
+          // Kept in step with main without re-rendering, so the planetarium
+          // is not rebuilt under the pointer that just chose.
+          invoke('onboarding:theme', { id })
+            .then((next) => { state = next; })
+            .catch((e) => show(e.message));
+        },
       });
       host.append(view.node);
     } else {
       host.append(element('p', { class: 'welcome-note',
         text: 'Themes are not available in this build.' }));
     }
-    return box;
-  }
-
-  if (state.stepId === 'homepage') {
-    box.append(element('div', { class: 'welcome-choices' },
-      state.layouts.map((layout) => choice(
-        layout, state.chosen.layout === layout.id,
-        (id) => pickAndAdvance('onboarding:layout', id)))));
-    return box;
-  }
-
-  if (state.stepId === 'privacy') {
-    box.append(element('div', { class: 'welcome-choices' },
-      state.privacyLevels.map((level) => choice(
-        level, state.chosen.privacy === level.id,
-        (id) => pickAndAdvance('onboarding:privacy', id)))));
-    return box;
-  }
-
-  if (state.stepId === 'ai') {
-    if (!state.aiAvailable) {
-      // Say so rather than offering something that would fail on first use.
-      box.append(element('p', { class: 'welcome-note',
-        text: 'The assistant is not available in this build, so there is nothing to decide here.' }));
-      return box;
-    }
-    box.append(element('div', { class: 'welcome-choices' }, [
-      choice({ id: 'on', name: 'Ask before reading a page',
-        summary: 'The assistant can read the page you are on, but only when you ask it to, and it tells you each time.' },
-      state.chosen.aiEnabled === true, () => pickAndAdvance('onboarding:ai', 'on')),
-      choice({ id: 'off', name: 'Keep it switched off',
-        summary: 'No page content is ever read. You can switch this on later in Settings.' },
-      state.chosen.aiEnabled === false, () => pickAndAdvance('onboarding:ai', 'off')),
-    ]));
-    box.append(element('p', { class: 'welcome-note',
-      text: 'Either way, pages on banking and health sites are never read without a separate confirmation.' }));
     return box;
   }
 
@@ -332,36 +275,30 @@ function body() {
   })()]));
 
   const summary = [];
-  if (state.chosen.profile) {
-    const profile = state.profiles.find((item) => item.id === state.chosen.profile);
-    if (profile) summary.push(['Profile', profile.name]);
+  const world = planetName(state.chosen.theme || state.currentTheme);
+  if (world) {
+    // A skipped world is still a world - whichever the browser is already
+    // wearing - so it is named, and said to be left alone rather than chosen.
+    // Not "the default": someone re-running setup may be wearing another.
+    const passed = !state.chosen.theme && state.skipped.includes('theme');
+    summary.push(['Your world', passed ? world + ', left as it was' : world]);
   }
-  if (state.chosen.layout) {
-    const layout = state.layouts.find((item) => item.id === state.chosen.layout);
-    if (layout) summary.push(['Homepage', layout.name]);
+  if (imported) {
+    const parts = [];
+    if (imported.bookmarks) parts.push(imported.bookmarks + (imported.bookmarks === 1 ? ' bookmark' : ' bookmarks'));
+    if (imported.history) parts.push(imported.history + (imported.history === 1 ? ' page' : ' pages') + ' of history');
+    if (imported.homepage) parts.push('your homepage');
+    summary.push(['Brought over', (parts.join(', ') || 'nothing new') + (imported.from ? ' from ' + imported.from : '')]);
   }
-  if (state.chosen.privacy) {
-    const level = state.privacyLevels.find((item) => item.id === state.chosen.privacy);
-    if (level) summary.push(['Privacy', level.name]);
-  }
-  if (state.chosen.aiEnabled !== null) {
-    summary.push(['Assistant', state.chosen.aiEnabled ? 'On, and it asks first' : 'Off']);
-  }
-
   box.append(element('ul', { class: 'welcome-list' },
-    summary.length
-      ? summary.map(([label, value], index) => feature(index, label + ':', value))
-      : [feature(0, 'Nothing was changed', 'Static is running on its defaults.')]));
+    summary.map(([label, value], index) => feature(index, label, value))));
 
-  // Honest about what was passed over, rather than implying it was answered.
-  if (state.skipped.length) {
-    box.append(element('p', { class: 'welcome-note',
-      text: 'You skipped ' + state.skipped.length
-        + (state.skipped.length === 1 ? ' step' : ' steps')
-        + '. Those settings are on their defaults and are in Settings whenever you want them.' }));
-  }
-  box.append(element('p', { class: 'welcome-note',
-    text: 'All of this is in Settings, and you can run this setup again from there.' }));
+  // The one line that stands in for every question this no longer asks.
+  box.append(element('p', { class: 'welcome-defaults' }, [
+    element('span', { text: 'Everything else starts on sensible defaults - your homepage, standard shields and the assistant - and all of it is in ' }),
+    element('strong', { text: 'Settings' }),
+    element('span', { text: '.' }),
+  ]));
   return box;
 }
 
@@ -379,26 +316,27 @@ function render() {
   })));
 
   $('#title').textContent = state.stepTitle;
+  // The last screen is a moment rather than a form, and is laid out as one.
+  $('#panel').classList.toggle('is-finale', state.stepId === 'done');
   $('#lede').textContent = LEDE[state.stepId] || '';
 
   const next = body();
   $('#body').replaceChildren(next);
-  // Stagger the step's own content, and the choices within it, so the screen
-  // assembles rather than appearing.
+  // Stagger the step's own content, so the screen assembles rather than
+  // appearing.
   stagger(next);
-  const choices = next.querySelector('.welcome-choices');
-  if (choices) stagger(choices);
 
   const back = $('#back');
   back.disabled = state.step === 0;
 
+  // On the last step the quiet button is the way past the tour, so finishing
+  // never forces a guide on anyone who would rather just browse.
   const skip = $('#skip');
-  skip.hidden = !state.canSkip;
+  skip.hidden = !state.canSkip && !state.isLast;
+  skip.textContent = state.isLast ? 'Skip the tour' : 'Skip this';
 
   const button = $('#next');
-  button.textContent = state.isLast ? 'Start browsing' : 'Continue';
-  // The profile step is the one real question, so Continue waits for it.
-  button.disabled = state.stepId === 'profile' && !state.chosen.profile;
+  button.textContent = state.isLast ? 'Show me around' : 'Continue';
 }
 
 /**
@@ -409,7 +347,7 @@ function render() {
  */
 async function transition(nextState) {
   const panel = $('#panel');
-  if (reduced) { state = nextState; render(); return; }
+  if (still()) { state = nextState; render(); return; }
   panel.classList.add('is-leaving');
   // Short enough that the flow never feels gated on an animation - the whole
   // out-and-in reads as one motion rather than a wait.
@@ -428,17 +366,42 @@ async function step(channel) {
 }
 
 $('#back').addEventListener('click', () => step('onboarding:back'));
-$('#skip').addEventListener('click', () => step('onboarding:skip'));
-$('#next').addEventListener('click', async () => {
-  if (state && state.isLast) {
-    try { await invoke('onboarding:complete'); } catch (error) { show(error.message); }
-    return;
-  }
-  step('onboarding:next');
+/** Finish setup: into the guide, unless the tour was skipped. */
+async function finish(tour) {
+  try { await invoke('onboarding:complete', { tour }); } catch (error) { show(error.message); }
+}
+
+$('#skip').addEventListener('click', () => {
+  if (state && state.isLast) return finish(false);
+  return step('onboarding:skip');
 });
+$('#next').addEventListener('click', () => {
+  if (state && state.isLast) return finish(true);
+  return step('onboarding:next');
+});
+
+// Follow the theme, so choosing a planet recolours this page as well as the
+// browser around it: the choice is seen where it was made.
+window.page.onState((app) => {
+  recolourStars();
+  animationsOff = app?.settings?.animations === false;
+  applyMotion();
+});
+
+/** The page's CSS stands still under one class, whichever switch asked. */
+function applyMotion() {
+  document.body.classList.toggle('is-still', still());
+  if (still()) {
+    $('#panel').style.setProperty('--tilt-x', '0');
+    $('#panel').style.setProperty('--tilt-y', '0');
+  }
+  wakeStars();
+}
+reducedQuery.addEventListener('change', applyMotion);
 
 startStars();
 startTilt();
+applyMotion();
 step('onboarding:state');
 
 })();

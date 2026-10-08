@@ -117,6 +117,7 @@ const DESTINATIONS = [
   { title: 'New tab page', hint: 'Widgets, wallpaper and layout', page: 'browser://newtab', terms: ['widget', 'wallpaper', 'new tab', 'homepage', 'clock'] },
   { title: 'AI chat', hint: 'Your conversations with the assistant', page: 'browser://ai', terms: ['ai', 'gemini', 'chat', 'assistant'] },
   { title: 'Resources and Game Mode', hint: 'Memory, CPU and sleeping tabs', page: 'browser://resources', terms: ['performance', 'memory', 'ram', 'cpu', 'game', 'resources'] },
+  { title: 'Guide to Static', hint: 'A short tour of the main features', page: 'browser://guide', terms: ['guide', 'tour', 'help', 'features', 'getting started', 'introduction'] },
   { title: 'Licences and credits', hint: 'Open-source software Static is built on', page: 'browser://licences', terms: ['licence', 'license', 'credits', 'open source', 'legal'] },
 ];
 

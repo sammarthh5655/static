@@ -292,14 +292,15 @@ class BrowserApplication {
       getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
     });
 
-    // First launch. Onboarding writes THROUGH settings and shields rather than
-    // to any store of its own, so a preset cannot set a value those modules
-    // would reject. Whether the assistant can be offered is read here rather
-    // than assumed, so the flow never offers something that would fail.
+    // First launch. Onboarding writes THROUGH settings rather than to any
+    // store of its own, so a choice cannot set a value Settings would reject.
+    // Whether there is another browser to import from is read from the disk
+    // rather than assumed, so "Bring your stuff" is only asked when it can
+    // actually bring something - a bookmark or a visit, not just a profile
+    // folder. `importRoots` is a probe's stand-in folders.
     this.onboarding = new Onboarding(this.dir, {
       settings: this.settings,
-      shields: this.shields,
-      aiAvailable: gemini.hasKey(),
+      canImport: () => importer.hasData(this.importRoots || null),
       onChange: () => this.push(),
     });
     // An incognito window is not a place to set anything up.
@@ -1624,10 +1625,11 @@ class BrowserApplication {
     if (!this.tabs || this.incognito) return;
     // A guest profile deliberately remembers nothing.
     if (this.profiles?.active?.guest) { this.sessionStore.save({ tabs: [] }); return; }
-    // The profile picker and the welcome flow are moments, not places. A
+    // The profile picker, the welcome flow and the guide that follows it are
+    // moments, not places. A
     // window showing only them (closed, or left by choosing a profile) keeps
     // the last session as it was: saving it would throw those tabs away.
-    const moment = (tab) => /^browser:\/\/(welcome|profiles)/.test(tab.url || '');
+    const moment = (tab) => /^browser:\/\/(welcome|profiles|guide)/.test(tab.url || '');
     const open = this.tabs.list();
     if (open.length && open.every(moment)) return;
     const tabs = open
@@ -2107,8 +2109,10 @@ class BrowserApplication {
         // to re-run something with no stated consequence.
         onboarding: this.onboarding ? {
           completed: this.onboarding.completed,
-          profile: this.onboarding.data.profile,
-          privacy: this.onboarding.data.privacy,
+          theme: this.onboarding.data.theme,
+          // Only profiles set up before setup was shortened have these.
+          profile: this.onboarding.data.profile || '',
+          privacy: this.onboarding.data.privacy || '',
         } : null,
       },
       catalog: {
@@ -2977,18 +2981,19 @@ class BrowserApplication {
       'onboarding:next': () => this.#onboardingState(this.onboarding.next()),
       'onboarding:back': () => this.#onboardingState(this.onboarding.back()),
       'onboarding:skip': () => this.#onboardingState(this.onboarding.skip()),
-      'onboarding:profile': (_sender, payload) => this.#onboardingState(this.onboarding.chooseProfile(String(payload?.id || ''))),
-      'onboarding:layout': (_sender, payload) => this.#onboardingState(this.onboarding.chooseLayout(String(payload?.id || ''))),
       'onboarding:theme': (_sender, payload) => this.#onboardingState(this.onboarding.chooseTheme(String(payload?.id || ''))),
-      'onboarding:privacy': (_sender, payload) => this.#onboardingState(this.onboarding.choosePrivacy(String(payload?.id || ''))),
-      'onboarding:ai': (_sender, payload) => this.#onboardingState(this.onboarding.chooseAI(payload?.id === 'on')),
       /**
        * Finish or dismiss. Both mark it complete and then leave the welcome
        * page, because a setup flow you cannot get out of is a trap.
+       *
+       * Finishing opens the guide to Static, which is where the things setup
+       * no longer asks about are shown instead. `tour: false` is the "skip
+       * the tour" on the last step, and goes straight to a new tab.
        */
-      'onboarding:complete': (_sender, _payload) => {
+      'onboarding:complete': (_sender, payload) => {
         const state = this.onboarding.complete();
-        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://newtab');
+        const next = payload?.tour === false ? 'browser://newtab' : 'browser://guide?from=setup';
+        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, next);
         return state;
       },
       'onboarding:restart': () => {

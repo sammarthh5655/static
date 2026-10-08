@@ -11,6 +11,20 @@ const RENDERER_ROOT = pathToFileURL(path.join(__dirname, '..', '..', 'renderer')
 const NEW_TAB = 'browser://newtab';
 
 /**
+ * The browser:// address of one of our own pages, from the file it loaded
+ * from - or null for anything else, including a file of ours that is not an
+ * allowlisted page.
+ */
+function pageFromFile(url) {
+  const pages = RENDERER_ROOT + '/pages/';
+  if (!url || !url.startsWith(pages)) return null;
+  const match = /^([a-z]+)\.html(?:[?#]|$)/.exec(url.slice(pages.length));
+  if (!match || !internalPage('browser://' + match[1])) return null;
+  const file = new URL(url);
+  return { page: match[1], url: 'browser://' + match[1] + file.search + file.hash };
+}
+
+/**
  * Owns every web tab and the single active-view slot inside the window.
  *
  * Design notes (read before modifying):
@@ -280,6 +294,18 @@ class Tabs {
     const sync = () => {
       if (wc.isDestroyed()) return;
       tab.state.url = wc.getURL();
+      // Back and Forward load a page without going through navigate(), so the
+      // browser:// name a tab was given can belong to the page it has just
+      // left. From Help to the guide and back, it is read again from the file
+      // (only one of our own pages, by the same allowlist navigate() uses).
+      // From one of our pages back to a website it is dropped altogether, or
+      // the website would sit under an internal address and padlock.
+      const loaded = pageFromFile(tab.state.url);
+      if (loaded) {
+        if (internalPage(tab.state.internalUrl || '') !== loaded.page) tab.state.internalUrl = loaded.url;
+      } else if (tab.state.internalUrl && tab.state.url && tab.state.url !== 'about:blank') {
+        tab.state.internalUrl = null;
+      }
       // Internal pages keep showing their browser:// URL, never the file path.
       tab.state.displayUrl = tab.state.internalUrl || tab.state.url;
       tab.state.canGoBack = wc.navigationHistory.canGoBack();

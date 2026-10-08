@@ -72,8 +72,27 @@ function cards(list) {
 
 /* ---- sections ------------------------------------------------------------ */
 
+/**
+ * The way back into the tour that follows setup. A banner rather than one
+ * more card, because it is the one thing on this page that shows rather
+ * than tells.
+ */
+function tourBanner() {
+  return element('button', {
+    type: 'button', class: 'help-tour',
+    onclick: () => invoke('tabs:navigate', { input: 'browser://guide' }),
+  }, [
+    element('span', { class: 'help-tour-mark' }, [element('img', { src: '../assets/static-mark.svg', alt: '' })]),
+    element('span', { class: 'help-tour-text' }, [
+      element('strong', { text: 'Take the tour' }),
+      element('span', { text: 'Themes, Shields, passwords, the assistant, tabs and modes - a card each, with a button that takes you there.' }),
+    ]),
+    icon('chevron_right', { size: 18 }),
+  ]);
+}
+
 function start() {
-  return [...header('Getting started', 'A few things worth knowing on your first day.'), cards(GUIDE)];
+  return [...header('Getting started', 'A few things worth knowing on your first day.'), tourBanner(), cards(GUIDE)];
 }
 
 function whatsNew() {

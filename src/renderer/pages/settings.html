@@ -5,6 +5,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; script-src &#39;self&#39;; style-src &#39;self&#39;; img-src &#39;self&#39; data: https://*.supabase.co">
 <title>Settings - Static</title>
 <link rel="stylesheet" href="pages.css">
+<link rel="stylesheet" href="widgets/planetarium.css">
 <link rel="stylesheet" href="settings.css">
 <link rel="stylesheet" href="wallpaper-picker.css">
 <link rel="stylesheet" href="import-panel.css">
@@ -54,9 +55,16 @@
       <div class="field">
         <div>
           <label for="rerun-setup">Run first-time setup again</label>
-          <div class="hint" id="setup-state">Choose a profile, homepage layout and privacy level in a few steps.</div>
+          <div class="hint" id="setup-state">Choose a world and bring your things from another browser, in a minute.</div>
         </div>
         <div class="control"><button id="rerun-setup" type="button">Run setup</button></div>
+      </div>
+      <div class="field">
+        <div>
+          <label>Guide to Static</label>
+          <div class="hint">A card each for themes, Shields, passwords, the assistant, tabs and modes.</div>
+        </div>
+        <div class="control"><button data-open-page="browser://guide" type="button">Take the tour</button></div>
       </div>
     </div></section>
 <section class="settings-section" data-section="profiles" aria-label="Profiles" hidden>

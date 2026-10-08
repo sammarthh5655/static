@@ -8,7 +8,7 @@ const path = require('node:path');
 // running unit tests may be older.
 let sqlite = null;
 try { sqlite = require('node:sqlite'); } catch { /* skip the database tests */ }
-const { detect, read, chromiumTime } = require('../src/features/importer');
+const { detect, read, hasData, chromiumTime } = require('../src/features/importer');
 
 function fakeChrome(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'static-import-test-'));
@@ -53,4 +53,38 @@ test('only profiles the browser really has can be read', (t) => {
   const root = fakeChrome(t);
   assert.throws(() => read('chrome', '../../Windows', { chrome: root }), /not found/);
   assert.throws(() => read('netscape', 'Default'), /Unknown browser/);
+});
+
+const ONLY = (id, root) => ({ chrome: '/nope', edge: '/nope', brave: '/nope', opera: '/nope', vivaldi: '/nope', firefox: '/nope', [id]: root });
+
+test('a browser with bookmarks has something to bring', (t) => {
+  assert.equal(hasData(ONLY('chrome', fakeChrome(t))), true);
+});
+
+test('no browser, or one opened but never used, has nothing to bring', (t) => {
+  assert.equal(hasData(ONLY('chrome', '/nope')), false);
+  // A profile folder with an empty bookmarks file and no visits: the kind a
+  // browser leaves after being opened once.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'static-import-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'Default'));
+  fs.writeFileSync(path.join(root, 'Default', 'Bookmarks'), JSON.stringify({ roots: { bookmark_bar: { type: 'folder', children: [] } } }));
+  if (sqlite) {
+    const db = new sqlite.DatabaseSync(path.join(root, 'Default', 'History'));
+    db.exec('CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, last_visit_time INTEGER, hidden INTEGER)');
+    db.close();
+    assert.equal(hasData(ONLY('chrome', root)), false);
+  }
+  assert.equal(detect(ONLY('chrome', root)).length, 1, 'it is still a browser that is there');
+});
+
+test('history alone is something to bring', { skip: !sqlite }, (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'static-import-test-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'Default'));
+  const db = new sqlite.DatabaseSync(path.join(root, 'Default', 'History'));
+  db.exec('CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT, title TEXT, last_visit_time INTEGER, hidden INTEGER)');
+  db.prepare('INSERT INTO urls (url, title, last_visit_time, hidden) VALUES (?, ?, ?, 0)').run('https://visited.example/', 'Visited', 1);
+  db.close();
+  assert.equal(hasData(ONLY('chrome', root)), true);
 });

@@ -156,4 +156,41 @@ function read(browserId, profileId, roots = null) {
   return { bookmarks: chromiumBookmarks(dir), history: chromiumHistory(dir), homepage: chromiumHomepage(dir) };
 }
 
-module.exports = { detect, read, chromiumTime };
+/**
+ * Whether any browser here has something worth bringing over: a bookmark or
+ * a page visited, not merely a profile folder. First-time setup only asks
+ * "Bring your stuff" when this is true, and a browser that was opened once
+ * and never used is not a reason to ask.
+ *
+ * Cheapest first, because setup is waiting on it: the bookmarks file is a
+ * small JSON file, and a history database past a megabyte has visits in it.
+ * Only a small database is copied and opened. One that cannot be read - its
+ * browser is running and holding it - counts as yes: a browser in use is
+ * exactly the one someone has come from.
+ */
+function hasData(roots = null) {
+  const has = (file, sql, bigEnough) => {
+    let size = 0;
+    try { size = fs.statSync(file).size; } catch { return false; }
+    if (size > bigEnough) return true;
+    try { return withCopy(file, (db) => !!db.prepare(sql).get()); } catch { return true; }
+  };
+  for (const browser of detect(roots)) {
+    const spec = [...CHROMIUM, FIREFOX].find((item) => item.id === browser.id);
+    const root = roots?.[browser.id] || path.join(...spec[platformKey]);
+    for (const profile of browser.profiles) {
+      const dir = path.join(root, profile.id);
+      if (browser.kind === 'firefox') {
+        // Firefox ships its own starter bookmarks, so only visits count.
+        if (has(path.join(dir, 'places.sqlite'),
+          "SELECT 1 FROM moz_places WHERE last_visit_date IS NOT NULL AND url LIKE 'http%' LIMIT 1", 64 * 1024 * 1024)) return true;
+        continue;
+      }
+      if (chromiumBookmarks(dir).some((item) => /^https?:/i.test(item.url || ''))) return true;
+      if (has(path.join(dir, 'History'), 'SELECT 1 FROM urls WHERE hidden = 0 LIMIT 1', 1024 * 1024)) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { detect, read, hasData, chromiumTime };

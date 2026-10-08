@@ -211,38 +211,9 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 .theme-stage-head label { display: block; font-size: 13px; }
 .theme-stage-head .hint { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 
-.planetarium { position: relative; min-width: 0; }
 #planetarium-host { min-width: 0; }
-.planetarium-canvas {
-  display: block;
-  width: 100%;
-  border-radius: var(--radius-lg);
-  /* The system sits in its own night sky rather than on the settings card. */
-  background:
-    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
-    var(--bg-strip);
-  cursor: grab;
-  touch-action: none;
-}
-.planetarium-canvas:active { cursor: grabbing; }
-.planetarium-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-
-/* The name and description of whatever is hovered, held steady below the
-   system so the text does not move around with the planets. */
-.planetarium-caption {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-height: 34px;
-  margin-top: 8px;
-  text-align: center;
-}
-.planetarium-name {
-  font-size: 14px;
-  color: var(--caption-tone, var(--text));
-  transition: color 240ms ease;
-}
-.planetarium-blurb { font-size: 11.5px; color: var(--text-dim); }
+/* The planetarium's own look lives in widgets/planetarium.css, shared with
+   the welcome flow. */
 
 /* ---- the forge ----------------------------------------------------------- */
 
@@ -265,9 +236,6 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 
 
 
-@media (prefers-reduced-motion: reduce) {
-  .planetarium-name { transition: none; }
-}
 
 /* ---- profiles ----------------------------------------------------------- */
 .profile-row { align-items: center; }

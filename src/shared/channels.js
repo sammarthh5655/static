@@ -23,7 +23,7 @@ module.exports = {
     'profiles:remove', 'profiles:duplicate', 'profiles:clear-data', 'profiles:set-default',
     'profiles:set-pin', 'profiles:startup', 'profiles:manage', 'profiles:switch',
     'onboarding:state', 'onboarding:next', 'onboarding:back', 'onboarding:skip',
-    'onboarding:profile', 'onboarding:layout', 'onboarding:theme', 'onboarding:privacy', 'onboarding:ai',
+    'onboarding:theme',
     'onboarding:complete', 'onboarding:restart',
     'ai:ask', 'ai:ask-page', 'ai:cancel', 'ai:status', 'ai:page-permission', 'ai:summarise-page', 'ai:explain-selection', 'ai:formats', 'sidebar:toggle', 'sidebar:state', 'sidebar:peek', 'sidebar:panel', 'health:report', 'health:fix', 'sense:current', 'sense:accept', 'sense:snooze', 'sense:silence', 'sense:state', 'sense:enabled',
     'chat:list', 'chat:get', 'chat:new', 'chat:send',

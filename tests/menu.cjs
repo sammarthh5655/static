@@ -52,7 +52,7 @@ async function run(browser) {
       : { error: 'no overlay' };
 
     console.log('  [diag] overlay', JSON.stringify(overlay));
-    check('the menu rendered items', overlay.items >= 4 && overlay.tiles === 8 && overlay.zoom && overlay.footer === 4, JSON.stringify(overlay));
+    check('the menu rendered items', overlay.items >= 4 && overlay.tiles === 8 && overlay.zoom && overlay.footer === 5, JSON.stringify(overlay));
     {
       const fs = require('node:fs');
       const path = require('node:path');

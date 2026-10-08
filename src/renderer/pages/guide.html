@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>A guide to Static</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body class="guide-body">
+  <!-- The same light-in-fog field as the welcome flow, so finishing setup and
+       arriving here read as one continuous moment. -->
+  <div class="guide-aurora" aria-hidden="true">
+    <div class="guide-blob one"></div>
+    <div class="guide-blob two"></div>
+  </div>
+
+  <header class="guide-top">
+    <div class="guide-brand">
+      <img src="../assets/static-mark.svg" alt="">
+      <div><strong>Static</strong><span>A quick look around</span></div>
+    </div>
+    <span class="guide-count" id="count" aria-live="polite"></span>
+    <!-- The exit is always in the same place and always says what it does. -->
+    <button id="skip" class="guide-skip" type="button">Skip the tour</button>
+  </header>
+
+  <main class="guide-track" id="track" tabindex="-1" aria-roledescription="carousel" aria-label="Guide to Static"></main>
+
+  <nav class="guide-nav" aria-label="Guide cards">
+    <button id="prev" class="guide-arrow" type="button" aria-label="Previous card"></button>
+    <div class="guide-dots" id="dots" role="tablist"></div>
+    <button id="next" class="guide-arrow" type="button" aria-label="Next card"></button>
+  </nav>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="../../shared/modes.js"></script>
+  <script src="common.js"></script>
+  <script src="guide.js"></script>
+</body>
+</html>

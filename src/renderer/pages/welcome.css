@@ -209,88 +209,6 @@
 .welcome-panel.is-leaving #body { animation: fall-out 120ms ease forwards; }
 @keyframes fall-out { to { opacity: 0; transform: translateY(-8px); } }
 
-/* ---- choice cards ------------------------------------------------------- */
-
-.welcome-choices { display: flex; flex-direction: column; gap: 9px; }
-
-.welcome-choice {
-  position: relative;
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 14px 17px;
-  border: 1px solid color-mix(in srgb, var(--border-soft) 85%, transparent);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-  overflow: hidden;
-  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
-              border-color 240ms ease, background 240ms ease, box-shadow 240ms ease;
-}
-
-/* A pointer-following highlight. --mx/--my are set on pointermove. */
-.welcome-choice::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%),
-    color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%);
-  opacity: 0;
-  transition: opacity 240ms ease;
-  pointer-events: none;
-}
-.welcome-choice:hover::before { opacity: 1; }
-
-.welcome-choice:hover {
-  transform: translateY(-2px);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
-}
-.welcome-choice:active { transform: translateY(0) scale(0.995); }
-.welcome-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-
-.welcome-choice.is-chosen {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
-              0 12px 40px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-/* The ripple a click leaves behind, positioned at the pointer. */
-.welcome-choice .ripple {
-  position: absolute;
-  border-radius: 50%;
-  transform: translate(-50%, -50%) scale(0);
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 55%, transparent), transparent 70%);
-  animation: ripple 620ms ease-out forwards;
-  pointer-events: none;
-}
-@keyframes ripple { to { transform: translate(-50%, -50%) scale(1); opacity: 0; } }
-
-.welcome-choice-head { display: flex; align-items: center; gap: 10px; }
-.welcome-choice-name { font-size: 14.5px; }
-.welcome-choice-mark {
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-left: auto;
-  padding: 3px 9px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  animation: pop 320ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-@keyframes pop { from { transform: scale(0.7); opacity: 0; } }
-
-.welcome-choice-summary {
-  font-size: 12.5px;
-  color: var(--text-dim);
-  margin-top: 5px;
-  line-height: 1.55;
-}
-
 /* ---- feature list ------------------------------------------------------- */
 
 .welcome-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 14px; }
@@ -326,6 +244,20 @@
   line-height: 1.55;
   margin: 16px 0 0;
 }
+
+/* The one line standing in for every question setup no longer asks. Set apart
+   on a faint rule so it reads as a promise rather than small print. */
+.welcome-defaults {
+  margin: 22px 0 0;
+  padding: 13px 16px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-soft) 85%, transparent);
+}
+.welcome-defaults strong { color: var(--accent); font-weight: 500; }
 
 /* ---- actions ------------------------------------------------------------ */
 
@@ -364,7 +296,12 @@
   font-weight: 500;
   box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 30%, transparent);
 }
+/* The general hover above is more specific than `.primary`, and swapped the
+   gradient for a dark glass - leaving dark text on a dark button exactly
+   where the pointer had just clicked Continue. */
 .welcome-button.primary:hover:not(:disabled) {
+  border-color: transparent;
+  background: linear-gradient(120deg, var(--accent), var(--accent-alt, #2276ef));
   box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 /* A sheen crosses the primary button on hover, once. */
@@ -409,7 +346,9 @@
   place-items: center;
   background: linear-gradient(135deg, var(--accent), var(--accent-alt, #8c7cf0));
   box-shadow: 0 0 46px color-mix(in srgb, var(--accent) 55%, transparent);
-  animation: seal 720ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* Held at its last frame: the staged rise also sets opacity 0 on this
+     node, and without a fill the tick vanished once it had drawn. */
+  animation: seal 720ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes seal {
   0%   { transform: scale(0) rotate(-120deg); opacity: 0; }
@@ -424,6 +363,14 @@
 }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 
+/* Centred, with the seal between the title and what was done: a title at the
+   left and a tick in the middle read as two layouts at once. */
+.welcome-panel.is-finale { text-align: center; padding-block: 34px 28px; }
+.welcome-panel.is-finale h1 { margin-bottom: 18px; }
+.welcome-panel.is-finale .welcome-list { align-items: center; gap: 10px; }
+.welcome-panel.is-finale .welcome-list li { text-align: left; }
+.welcome-panel.is-finale .welcome-defaults { max-width: 520px; margin-inline: auto; }
+
 /* ---- respect the system ------------------------------------------------- */
 
 /* Someone who has asked for less motion gets the design without the movement,
@@ -436,8 +383,7 @@
   .rise,
   .welcome-seal,
   .welcome-seal path,
-  .welcome-error,
-  .welcome-choice .ripple {
+  .welcome-error {
     animation: none !important;
   }
   .rise { opacity: 1; transform: none; }
@@ -446,10 +392,38 @@
   #stars { display: none; }
 }
 
+/* The same stillness when Static's own animations switch is off. A copy
+   rather than a shared selector, because a media query cannot take a class. */
+.welcome-body.is-still .welcome-blob,
+.welcome-body.is-still .welcome-step.is-current::after,
+.welcome-body.is-still .welcome-panel::before,
+.welcome-body.is-still .welcome-dot,
+.welcome-body.is-still .rise,
+.welcome-body.is-still .welcome-seal,
+.welcome-body.is-still .welcome-seal path,
+.welcome-body.is-still .welcome-error {
+  animation: none !important;
+}
+.welcome-body.is-still .rise { opacity: 1; transform: none; }
+.welcome-body.is-still .welcome-seal path { stroke-dashoffset: 0; }
+.welcome-body.is-still .welcome-panel { transform: none !important; }
+.welcome-body.is-still #stars { display: none; }
+
 /* The theme step borrows the Settings planetarium, so choosing a world is the
    same gesture wherever it is done. */
 .welcome-planets { margin: -6px 0 0; }
 .welcome-planets .planetarium-canvas {
   border-radius: 16px;
   background: color-mix(in srgb, var(--bg-strip) 70%, transparent);
+}
+
+/* A window of ordinary laptop height with the sidebar open still fits the
+   world step without a scrollbar: the breathing room gives way first. */
+@media (max-height: 720px) {
+  .welcome-body { padding-block: 14px; }
+  .welcome { gap: 12px; }
+  .welcome-panel { padding: 22px 28px; }
+  .welcome-panel h1 { margin-bottom: 6px; }
+  .welcome-lede { margin-bottom: 12px; }
+  .welcome-planets .planetarium-caption { margin-top: 4px; }
 }

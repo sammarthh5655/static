@@ -29,6 +29,33 @@ body.help { display: grid; grid-template-columns: 250px minmax(0, 1fr); padding:
 .help-main p.bullet { margin: 2px 0; padding-left: 4px; }
 .lede { color: var(--text-dim); margin: 0 0 18px; }
 
+/* The way back into browser://guide, set apart from the cards below it. */
+.help-tour {
+  position: relative; display: flex; align-items: center; gap: 16px; width: 100%;
+  margin: 0 0 14px; padding: 16px 18px; border-radius: 18px; overflow: hidden;
+  text-align: left; font: inherit; color: var(--text); cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+    radial-gradient(100% 120% at 100% 100%, color-mix(in srgb, var(--accent-alt) 16%, transparent), transparent 60%),
+    color-mix(in srgb, var(--surface) 80%, transparent);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease;
+}
+.help-tour:hover { transform: translateY(-2px); box-shadow: 0 16px 40px color-mix(in srgb, var(--accent) 18%, transparent); }
+.help-tour:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.help-tour-mark {
+  flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%;
+  background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  box-shadow: 0 0 26px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.help-tour-mark img { width: 28px; height: 28px; }
+.help-tour-text { flex: 1; min-width: 0; }
+.help-tour-text strong { display: block; font-size: 15px; margin-bottom: 3px; }
+.help-tour-text span { font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
+.help-tour > svg { flex: none; color: var(--accent); transition: transform 200ms ease; }
+.help-tour:hover > svg { transform: translateX(3px); }
+
 .help-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
 .help-card {
   padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border-soft);

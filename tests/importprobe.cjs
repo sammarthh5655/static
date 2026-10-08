@@ -74,8 +74,16 @@ async function run(browser) {
     const fox = await until(() => wc.executeJavaScript(`/Imported 1 bookmarks, 1 history/.test(document.querySelector('.import-status')?.textContent || '') ? 'yes' : ''`));
     check('Firefox imports too', !!fox && browser.bookmarks.list().some((b) => b.title === 'Fox bookmark'));
 
-    const steps = browser.onboarding.state().steps.map((s) => s.id);
-    check('the first-run flow has a "Bring your stuff" step after choosing a profile', steps.indexOf('import') === steps.indexOf('profile') + 1, steps.join(','));
+    // First-run setup asks to bring things over only when there is a browser
+    // to bring them from. Detection is per run, so each restart asks again.
+    browser.onboarding.restart();
+    let steps = browser.onboarding.state().steps.map((s) => s.id);
+    check('the first-run flow has a "Bring your stuff" step after choosing a world', steps.indexOf('import') === steps.indexOf('theme') + 1, steps.join(','));
+    browser.importRoots = { chrome: '/none', firefox: '/none', edge: '/none', brave: '/none', opera: '/none', vivaldi: '/none' };
+    browser.onboarding.restart();
+    steps = browser.onboarding.state().steps.map((s) => s.id);
+    check('and leaves it out when there is no other browser', !steps.includes('import'), steps.join(','));
+    browser.onboarding.complete();
   } catch (error) {
     check('probe completed', false, error.stack || error.message);
   }

@@ -8,6 +8,9 @@
 function build({ element, invoke, onDone }) {
   const box = element('div', { class: 'import-panel' });
   const choice = { browser: null, profile: null, bookmarks: true, history: true, homepage: false };
+  // The chosen browser's name, kept apart from `choice` because that is
+  // exactly what is sent to main.
+  let pickedName = '';
 
   const toggle = (key, label, hint) => {
     const b = element('button', { type: 'button', role: 'switch', class: 'import-switch', 'aria-checked': String(choice[key]) }, [
@@ -29,6 +32,7 @@ function build({ element, invoke, onDone }) {
     const profileSelect = element('select', { class: 'import-profile', 'aria-label': 'Profile' });
     const pickBrowser = (browser, tile) => {
       choice.browser = browser.id;
+      pickedName = browser.name;
       for (const t of tiles.children) t.setAttribute('aria-checked', String(t === tile));
       profileSelect.replaceChildren(...browser.profiles.map((p) => element('option', { value: p.id, text: p.name })));
       choice.profile = browser.profiles[0].id;
@@ -70,7 +74,7 @@ function build({ element, invoke, onDone }) {
       if (choice.history) parts.push(result.history + ' history entries');
       if (result.homepage) parts.push('your homepage');
       status.textContent = 'Imported ' + (parts.join(', ') || 'nothing new') + '.';
-      onDone?.(result);
+      onDone?.({ ...result, from: pickedName });
     } catch (error) {
       status.textContent = String(error.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') +
         ' If that browser is open, close it and try again.';

@@ -166,6 +166,8 @@ function mainMenuItems() {
     { separator: true },
     { footer: [
       { label: 'Help', action: action('tabs:new', { url: 'browser://help' }) },
+      // The tour that follows setup, for whenever someone wants it again.
+      { label: 'Guide', action: action('tabs:new', { url: 'browser://guide' }) },
       { label: 'Send feedback', action: doAction('feedback:open') },
       { label: 'About Static', action: action('tabs:new', { url: 'browser://help#about' }) },
       { label: 'Exit', danger: true, action: action('window:control', { action: 'close' }) },

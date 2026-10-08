@@ -286,16 +286,20 @@ onState((state) => {
   renderModes();
 
   // First-time setup. The line says what was chosen last time, so running it
-  // again is an informed decision rather than a leap.
+  // again is an informed decision rather than a leap. Profiles set up before
+  // setup was shortened also chose a profile and a privacy level.
   const setup = features.onboarding;
   if (setup) {
     const parts = [];
-    if (setup.profile) parts.push(setup.profile + ' profile');
+    const world = (state.catalog?.planets || []).find((planet) => planet.id === setup.theme);
+    if (world) parts.push(world.name + ' as your world');
+    if (setup.profile) parts.push('the ' + setup.profile + ' profile');
     if (setup.privacy) parts.push(setup.privacy + ' privacy');
     $('#setup-state').textContent = setup.completed
       ? (parts.length
-        ? 'You chose the ' + parts.join(' and ') + '. Running setup again lets you change them.'
-        : 'Setup was dismissed without any choices. Static is running on its defaults.')
+        ? 'You chose ' + (parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts.at(-1) : parts[0])
+          + '. Running setup again lets you change that.'
+        : 'Setup finished on the defaults. Running it again lets you choose a world and import from another browser.')
       : 'Setup has not been completed on this profile.';
   }
 
