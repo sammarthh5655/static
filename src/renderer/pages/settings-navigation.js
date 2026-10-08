@@ -45,7 +45,11 @@ function select(id, updateURL = true) {
   document.body.classList.remove('is-searching');
   for (const section of sections) {
     section.hidden = section.dataset.section !== id;
-    for (const child of section.querySelectorAll('[hidden]')) child.hidden = false;
+    // Undo only what a search hid (a section's own children and its fields).
+    // Anything else hidden is hidden on purpose - the import panel's profile
+    // list, the forge's Cancel button - and showing it left an empty dropdown
+    // and a stray button behind every visit.
+    for (const child of section.querySelectorAll(':scope > [hidden], .field[hidden]')) child.hidden = false;
   }
   for (const button of document.querySelectorAll('[data-category]')) {
     const active = button.dataset.category === id;
@@ -53,8 +57,28 @@ function select(id, updateURL = true) {
     if (active) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   }
+  // In a narrow tab the categories are one sideways row (settings.css); keep
+  // the chosen one in sight rather than scrolled off the end of it.
+  showActiveCategory();
   $('.settings-main').scrollTop = 0;
 }
+
+function showActiveCategory() {
+  document.querySelector('.settings-nav-item.active')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+
+// That sideways row has no scrollbar to drag, and most mouse wheels only turn
+// one way, so the wheel scrolls it along.
+const narrow = matchMedia('(max-width: 600px)');
+// Narrowing the window turns the column into the row with the chosen category
+// wherever the column had it, often far off the end; bring it back into view.
+narrow.addEventListener('change', showActiveCategory);
+$('#settings-nav').addEventListener('wheel', (event) => {
+  const nav = event.currentTarget;
+  if (!narrow.matches || Math.abs(event.deltaY) <= Math.abs(event.deltaX) || nav.scrollWidth <= nav.clientWidth) return;
+  nav.scrollLeft += event.deltaY;
+  event.preventDefault();
+}, { passive: false });
 
 /**
  * The words people actually type, mapped to where the answer lives.

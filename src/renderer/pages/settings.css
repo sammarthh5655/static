@@ -52,16 +52,19 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 .settings-page .control button { font-size: 11px; padding: 8px 12px; margin-block: 2px; }
 .settings-page select, .settings-page input[type=text], .settings-page input[type=number] { background: var(--field); border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; color: var(--text); padding: 9px 11px; width: 100%; }
 .settings-page input[type=color] { width: 64px; height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field); cursor: pointer; }
-.settings-page input[type=checkbox].toggle { appearance: none; display: inline-block; vertical-align: middle; width: 34px; height: 19px; padding: 2px; margin: 0; border-radius: var(--radius); background: var(--surface-active); border: 1px solid var(--border); cursor: pointer; transition: background var(--motion-fast); }
-.settings-page input[type=checkbox].toggle:before { content: ''; display: block; width: 13px; height: 13px; background: var(--text-dim); border-radius: var(--radius-sm); transition: transform var(--motion-fast); }
-.settings-page input[type=checkbox].toggle:checked { background: var(--accent); border-color: var(--accent); }
-.settings-page input[type=checkbox].toggle:checked:before { transform: translateX(15px); background: var(--bg); }
 .settings-page input:disabled { opacity: .4; cursor: not-allowed; }
 .settings-page :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .settings-note { max-width: 700px; padding: 0 6px; color: var(--text-dim); font-size: 12px; line-height: 1.8; }
 .settings-page .card > .hint { padding: 20px 22px 0; color: var(--text-dim); }
-.settings-page .checks { padding: 20px 22px; }
-.settings-page .checks input { accent-color: var(--accent); }
+/* What to clear: one tile per kind of data, lit while its switch is on, so
+   the card reads as "these go" at a glance before the button is pressed. */
+.settings-page .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 10px; padding: 20px 22px 6px; }
+.check-tile { display: flex; align-items: center; gap: 14px; padding: 13px 14px 13px 16px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 45%, transparent); cursor: pointer; transition: border-color var(--motion-base) var(--ease), background var(--motion-base) var(--ease); }
+.check-tile:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border-soft)); }
+.check-tile:has(:checked) { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent-alt) 5%, transparent)); }
+.check-tile > span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.check-tile strong { font-size: var(--font-size); font-weight: 500; }
+.check-tile small { font-size: 11px; line-height: 1.5; color: var(--text-dim); }
 .status-badge { font-size: 11px; color: var(--text-dim); padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .status-badge.on { color: var(--accent); border-color: var(--accent-dim); }
 #settings-status:not(:empty) { border: 1px solid var(--accent-dim); padding: 12px 16px; border-radius: var(--radius); margin-bottom: 20px; color: var(--text-dim); }
@@ -81,8 +84,119 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 .settings-page dialog p { color: var(--text-dim); font-size: 12px; line-height: 1.7; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
 @media (max-width: 1050px) { .saved-indicator { display: none; } .settings-main { padding: 28px 24px; } .hero-mark { width: 115px; height: 115px; right: 16px; top: 75px; opacity: .65; } }
-@media (max-width: 800px) { body.settings-page { grid-template-columns: 220px minmax(0, 1fr); } .settings-sidebar { padding-inline: 10px; } .settings-search kbd { display: none; } .settings-nav-item { gap: 11px; font-size: 12px; } .settings-page .field { flex-wrap: wrap; gap: 12px; padding: 16px; } .settings-page .field .control { width: 100%; text-align: left; } .settings-quick { grid-template-columns: 1fr; } .settings-quick button { display: grid; grid-template-columns: 25px 1fr; gap: 4px 12px; padding: 14px; } .settings-quick button > span:first-child { grid-row: span 2; margin: 0; align-self: center; } .hero-mark { opacity: .12; } }
-@media (prefers-reduced-motion: reduce) { .settings-page *, .settings-page *:before { animation-duration: 0ms !important; transition-duration: 0ms !important; } }
+@media (max-width: 800px) { body.settings-page { grid-template-columns: 220px minmax(0, 1fr); } .settings-sidebar { padding-inline: 10px; } .settings-search kbd { display: none; } .settings-nav-item { gap: 11px; font-size: 12px; } .settings-page .field { flex-wrap: wrap; gap: 12px; padding: 16px; } .settings-page .field .control { width: 100%; text-align: left; } .settings-quick { grid-template-columns: 1fr; } .settings-quick button { display: grid; grid-template-columns: 25px 1fr; gap: 4px 12px; padding: 14px; } .settings-quick button > span:first-child { grid-row: span 2; margin: 0; align-self: center; } .hero-mark { opacity: .12; } .settings-page .field:has(> .control > .toggle) { flex-wrap: nowrap; } .settings-page .field > .control:has(> .toggle) { width: auto; } }
+/* A narrow tab - a small window with the sidebar open leaves Settings about
+   370px - has no room for a column of categories beside the content. The
+   categories become one row that scrolls sideways above it instead. */
+@media (max-width: 600px) {
+  body.settings-page { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-sidebar { padding: 12px 12px 0; border-right: 0; border-bottom: 1px solid var(--border); }
+  .settings-brand, .settings-sidebar-foot { display: none; }
+  .settings-search { margin-bottom: 8px; padding: 8px 10px; }
+  /* No scrollbar (the wheel scrolls it, see settings-navigation.js); the far
+     edge fades instead, which says there is more along the row. */
+  #settings-nav { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; flex: none; padding: 0 32px 10px 0; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  .settings-nav-item { width: auto; flex: none; gap: 8px; min-height: 34px; padding: 6px 11px; margin: 0; white-space: nowrap; }
+  .settings-nav-item.active { border-left-width: 1px; padding-left: 11px; }
+  .settings-nav-item.starts-group { margin-top: 0; }
+  .settings-nav-item.starts-group:before { display: none; }
+  .settings-main { padding: 20px 16px 40px; }
+  .settings-header h1 { font-size: 24px; }
+  .settings-hero { padding: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .settings-page *, .settings-page *:before, .settings-page *:after { animation-duration: 0ms !important; transition-duration: 0ms !important; } }
+
+/* ---- switches ---------------------------------------------------------------
+   Every on/off setting is still a real checkbox, only drawn as a switch: the
+   browser keeps Space to toggle, label clicks, focus and `checked` (which
+   settings.js reads), and role="switch" in the markup tells a screen reader
+   it is on/off rather than a tick in a list. Drawn to match the switches on
+   the Shields and Passwords pages.
+
+   ::before is the knob. ::after carries a small mark in the empty half of the
+   track, a bar when on and a ring when off, so the state never rests on
+   colour alone. The accent fill grows out from under the knob and follows it
+   across, because both run on the same timing; the fill's colour fades in via
+   registered properties, which a gradient cannot do on its own. Durations
+   hang off --motion-base, so the Animations setting stills them too. */
+@property --sw-fill-a { syntax: '<color>'; inherits: false; initial-value: transparent; }
+@property --sw-fill-b { syntax: '<color>'; inherits: false; initial-value: transparent; }
+@property --sw-ring { syntax: '<color>'; inherits: false; initial-value: transparent; }
+@property --sw-bar { syntax: '<color>'; inherits: false; initial-value: transparent; }
+
+.settings-page input[type=checkbox].toggle {
+  --sw-w: 40px; --sw-h: 22px; --sw-knob: 16px; --sw-pad: 2px;
+  /* Inner width (less the 1px border each side), less the knob and padding. */
+  --sw-travel: calc(var(--sw-w) - 2px - var(--sw-knob) - var(--sw-pad) * 2);
+  --sw-spring: cubic-bezier(.3, 1.35, .5, 1);
+  --sw-time: calc(var(--motion-base) * 1.4);
+  appearance: none; position: relative; isolation: isolate; display: inline-block; vertical-align: middle; flex: none;
+  width: var(--sw-w); height: var(--sw-h); margin: 0; padding: 0;
+  border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
+  background:
+    linear-gradient(120deg, var(--sw-fill-a), var(--sw-fill-b)) left center / calc(var(--sw-knob) + var(--sw-pad) * 2) 100% no-repeat,
+    var(--surface-active);
+  --sw-shadow: inset 0 1px 2px color-mix(in srgb, var(--shadow-colour) 60%, transparent);
+  box-shadow: var(--sw-shadow);
+  transition:
+    background-size var(--sw-time) var(--sw-spring),
+    --sw-fill-a var(--sw-time) var(--ease), --sw-fill-b var(--sw-time) var(--ease),
+    border-color var(--motion-base) var(--ease), box-shadow var(--motion-base) var(--ease);
+}
+.settings-page input[type=checkbox].toggle::before {
+  content: ''; position: absolute; z-index: 1; top: var(--sw-pad); left: var(--sw-pad);
+  width: var(--sw-knob); height: var(--sw-knob); border-radius: 999px;
+  background: var(--text-faint);
+  box-shadow: 0 1px 2px var(--shadow-colour);
+  transition: transform var(--sw-time) var(--sw-spring), width var(--motion-base) var(--ease), background var(--motion-base) var(--ease);
+}
+.settings-page input[type=checkbox].toggle::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  /* Set here, not on the input: registered properties do not inherit. */
+  --sw-ring: var(--text-faint); --sw-bar: transparent;
+  background:
+    linear-gradient(var(--sw-bar), var(--sw-bar)) 10px center / 2px 8px no-repeat,
+    radial-gradient(circle, transparent 2px, var(--sw-ring) 2.5px, var(--sw-ring) 3.5px, transparent 4px) calc(100% - 7px) center / 8px 8px no-repeat;
+  transition: --sw-ring var(--motion-base) var(--ease), --sw-bar var(--motion-base) var(--ease);
+}
+
+.settings-page input[type=checkbox].toggle:checked {
+  --sw-fill-a: var(--accent); --sw-fill-b: var(--accent-alt);
+  background-size: 100% 100%, auto;
+  border-color: transparent;
+  --sw-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 32%, transparent), inset 0 1px 0 rgba(255, 255, 255, .18);
+  box-shadow: var(--sw-shadow);
+}
+.settings-page input[type=checkbox].toggle:checked::before {
+  transform: translateX(var(--sw-travel)); background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+.settings-page input[type=checkbox].toggle:checked::after { --sw-ring: transparent; --sw-bar: rgba(255, 255, 255, .85); }
+
+/* Hover warms the edge; pressing stretches the knob towards where it is
+   about to go, the way a physical switch gives under a thumb. */
+.settings-page input[type=checkbox].toggle:not(:disabled):hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.settings-page input[type=checkbox].toggle:not(:disabled):not(:checked):hover::before { background: var(--text-dim); }
+.settings-page input[type=checkbox].toggle:not(:disabled):active::before { width: calc(var(--sw-knob) + 4px); }
+.settings-page input[type=checkbox].toggle:checked:not(:disabled):active::before { transform: translateX(calc(var(--sw-travel) - 4px)); }
+.settings-page input[type=checkbox].toggle:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 16%, transparent), var(--sw-shadow);
+}
+.settings-page input[type=checkbox].toggle:disabled { cursor: not-allowed; }
+
+/* High-contrast Windows replaces every colour above with system ones, which
+   would paint the knob the same as the track. Draw it in those colours on
+   purpose instead. */
+@media (forced-colors: active) {
+  .settings-page input[type=checkbox].toggle { forced-color-adjust: none; background: Canvas; border-color: CanvasText; box-shadow: none; }
+  .settings-page input[type=checkbox].toggle::after { --sw-ring: CanvasText; }
+  .settings-page input[type=checkbox].toggle::before { background: CanvasText; box-shadow: none; }
+  .settings-page input[type=checkbox].toggle:checked { background: Highlight; border-color: Highlight; }
+  .settings-page input[type=checkbox].toggle:checked::after { --sw-ring: transparent; --sw-bar: HighlightText; }
+  .settings-page input[type=checkbox].toggle:checked::before { background: HighlightText; }
+  .settings-page input[type=checkbox].toggle:focus-visible { outline-color: CanvasText; }
+}
 
 /* ---- the planetarium ------------------------------------------------------
    The theme is chosen by looking at it. Planets are drawn on a canvas (eleven
@@ -289,3 +403,29 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 @media (prefers-reduced-motion: reduce) { .forge-orb { animation: none; } }
 .import-card { padding-bottom: 14px; }
 .import-card .import-panel { padding: 0 18px; }
+/* The import panel builds its own on/off switches (it is shared with the
+   welcome page). On the first page of Settings they wear the same switch and
+   tile as every other on/off choice here, not an older, flatter one. The
+   numbers match the .toggle switch below, so the knob travels 18px too. */
+.import-card .import-switch { padding: 12px 14px; border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 45%, transparent); transition: border-color var(--motion-base) var(--ease), background var(--motion-base) var(--ease); }
+.import-card .import-switch:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--border-soft)); }
+.import-card .import-switch[aria-checked="true"] { background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 10%, transparent), color-mix(in srgb, var(--accent-alt) 5%, transparent)); }
+.import-card .import-knob {
+  width: 40px; height: 22px; border: 1px solid var(--border); background: var(--surface-active);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--shadow-colour) 60%, transparent);
+  transition: background var(--motion-base) var(--ease), border-color var(--motion-base) var(--ease), box-shadow var(--motion-base) var(--ease);
+}
+.import-card .import-knob::after { width: 16px; height: 16px; background: var(--text-faint); box-shadow: 0 1px 2px var(--shadow-colour); transition: transform calc(var(--motion-base) * 1.4) cubic-bezier(.3, 1.35, .5, 1), background var(--motion-base) var(--ease); }
+/* The same off ring and on bar as the settings switches: never colour alone. */
+.import-card .import-knob::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(circle, transparent 2px, var(--text-faint) 2.5px, var(--text-faint) 3.5px, transparent 4px) calc(100% - 7px) center / 8px 8px no-repeat; }
+.import-card .import-switch[aria-checked="true"] .import-knob { background: linear-gradient(120deg, var(--accent), var(--accent-alt)); border-color: transparent; box-shadow: 0 2px 12px color-mix(in srgb, var(--accent) 32%, transparent), inset 0 1px 0 rgba(255, 255, 255, .18); }
+.import-card .import-switch[aria-checked="true"] .import-knob::before { background: linear-gradient(rgba(255, 255, 255, .85), rgba(255, 255, 255, .85)) 10px center / 2px 8px no-repeat; }
+.import-card .import-switch[aria-checked="true"] .import-knob::after { transform: translateX(18px); background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .35); }
+@media (forced-colors: active) {
+  .import-card .import-knob { forced-color-adjust: none; background: Canvas; border-color: CanvasText; box-shadow: none; }
+  .import-card .import-knob::before { background: radial-gradient(circle, transparent 2px, CanvasText 2.5px, CanvasText 3.5px, transparent 4px) calc(100% - 7px) center / 8px 8px no-repeat; }
+  .import-card .import-knob::after { background: CanvasText; box-shadow: none; }
+  .import-card .import-switch[aria-checked="true"] .import-knob { background: Highlight; border-color: Highlight; }
+  .import-card .import-switch[aria-checked="true"] .import-knob::before { background: linear-gradient(HighlightText, HighlightText) 10px center / 2px 8px no-repeat; }
+  .import-card .import-switch[aria-checked="true"] .import-knob::after { background: HighlightText; }
+}

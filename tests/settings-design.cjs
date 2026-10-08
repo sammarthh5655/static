@@ -69,7 +69,12 @@ async function run(browser) {
   await openMenu();
   assert.equal(await overlay("document.querySelector('.menu-brand img').naturalWidth > 0"), true);
   fs.writeFileSync(path.join(output, 'browser-menu-reference.png'), (await browser.overlay.webContents.capturePage()).toPNG());
-  await overlay("[...document.querySelectorAll('.menu-segment button')].find(button => button.textContent === 'Autohide').click()");
+  // The Sidebar row is a segmented choice of On, Auto and Off (chrome.js
+  // mainMenuItems); "Auto" is the menu's short word for autohide.
+  const sidebarRow = "[...document.querySelectorAll('.menu-segment-row')].find(row => row.querySelector(':scope > span')?.textContent === 'Sidebar')";
+  assert.deepEqual(JSON.parse(await overlay("JSON.stringify([...(" + sidebarRow + ")?.querySelectorAll('.menu-segment button') || []].map(button => button.textContent))")), ['On', 'Auto', 'Off']);
+  assert.equal(await overlay("(" + sidebarRow + ").querySelector('[aria-checked=true]').textContent"), 'On');
+  await overlay("[...(" + sidebarRow + ").querySelectorAll('.menu-segment button')].find(button => button.textContent === 'Auto').click()");
   await until('menu sidebar selection', () => browser.settings.value.sidebarMode === 'autohide');
   const dashboard = browser.tabs.create({ url: 'browser://dashboard' });
   const dashboardWC = browser.tabs.tabs.get(dashboard).view.webContents;
@@ -101,5 +106,8 @@ async function run(browser) {
   fs.writeFileSync(path.join(output, 'settings-reference-compact.png'), (await wc.capturePage()).toPNG());
   browser.settings.update({ theme: 'neptune', sidebarMode: 'on', homepage: 'browser://newtab', bookmarksBar: true }); browser.push();
   console.log('  ok  branded menu, live fonts/colors, settings search, reset confirmation, sidebar modes, keyboard controls, deep links, light and compact layouts');
+  // Every other probe ends the app itself; without this a passing run never
+  // returned. A failure exits through main's catch with code 1.
+  app.exit(0);
 }
 module.exports = { run };
