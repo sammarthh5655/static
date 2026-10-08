@@ -15,6 +15,7 @@ function update(patch) {
 }
 
 $('#engine').addEventListener('change', (e) => update({ searchEngine: e.target.value }));
+$('#searchSuggestions').addEventListener('change', (e) => update({ searchSuggestions: e.target.checked }));
 $('#behavior').addEventListener('change', (e) => update({ newTabBehavior: e.target.value }));
 $('#onStartup').addEventListener('change', (e) => update({ onStartup: e.target.value }));
 $('#bookmarksBar').addEventListener('change', (e) => update({ bookmarksBar: e.target.checked }));
@@ -214,6 +215,7 @@ onState((state) => {
   applying = true;
 
   $('#engine').value = s.searchEngine || 'google';
+  $('#searchSuggestions').checked = s.searchSuggestions !== false;
   $('#behavior').value = s.newTabBehavior || 'newtab';
   $('#onStartup').value = s.onStartup || 'restore';
   $('#bookmarksBar').checked = !!s.bookmarksBar;

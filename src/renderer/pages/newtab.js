@@ -34,6 +34,9 @@ function setMode(next) {
     ? 'Ask Gemini anything…'
     : 'Search the web or press Tab for AI';
   $('#search-icon').replaceChildren(icon(aiMode ? 'sparkle' : 'search', { size: 17 }));
+  // A question for Gemini is not a search, so it gets no search suggestions.
+  if (aiMode) closeSuggestions();
+  else if (queryInput.value.trim() && document.activeElement === queryInput) refreshSuggestions();
   renderHint();
 }
 
@@ -63,15 +66,40 @@ function renderHint() {
 }
 
 queryInput.addEventListener('keydown', (event) => {
+  // Keys mid-composition (Japanese, Chinese, Korean input) belong to the
+  // input method, not to the list.
+  if (event.isComposing) return;
+  const open = suggestionsOpen();
+  if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !aiMode) {
+    event.preventDefault();
+    if (open) moveSelection(event.key === 'ArrowDown' ? 1 : -1);
+    else if (queryInput.value.trim()) refreshSuggestions();
+    return;
+  }
   if (event.key === 'Tab' && !event.shiftKey) {
-    // Tab is the mode switch, not a focus move: this field is the only control
-    // that matters here, so moving focus away is never what is wanted.
+    // With a suggestion chosen, Tab writes it into the box to carry on
+    // typing from - the way a shell completes a word.
+    if (open && suggestions.selected >= 0) {
+      event.preventDefault();
+      fillIn(suggestions.rows[suggestions.selected]);
+      return;
+    }
+    // Otherwise Tab is the mode switch, not a focus move: this field is the
+    // only control that matters here, so moving focus away is never wanted.
     if (!state.ai?.available) return;
     event.preventDefault();
     setMode(!aiMode);
     return;
   }
   if (event.key === 'Escape') {
+    // First Escape puts back what was typed and closes the list; only the
+    // next one leaves AI mode, so one key never undoes two things.
+    if (open) {
+      event.preventDefault();
+      queryInput.value = suggestions.typed;
+      closeSuggestions();
+      return;
+    }
     if (busy) { invoke('ai:cancel'); busy = false; renderHint(); return; }
     if (aiMode) { event.preventDefault(); setMode(false); }
   }
@@ -79,11 +107,353 @@ queryInput.addEventListener('keydown', (event) => {
 
 $('#search').addEventListener('submit', (event) => {
   event.preventDefault();
+  const chosen = suggestionsOpen() && suggestions.selected >= 0 ? suggestions.rows[suggestions.selected] : null;
+  if (chosen) return commitRow(chosen);
   const value = queryInput.value.trim();
   if (!value) return;
   if (aiMode && state.ai?.available) return ask(value);
+  closeSuggestions();
   invoke('tabs:navigate', { input: value });
 });
+
+/* ---- suggestions -----------------------------------------------------------
+ * Live suggestions under the box while typing, in the same order as the
+ * address bar's (shared/suggest.js builds both lists).
+ *
+ * Two sources, at two speeds. History and bookmarks answer at once, on every
+ * keystroke. The search engine is asked once typing pauses, by main - this
+ * page cannot reach the network, and main applies every privacy rule. While
+ * its next answer is on the way, the last one stays up narrowed to what is
+ * typed now, so the list tightens letter by letter instead of collapsing and
+ * growing back.
+ *
+ * Rows are painted into the nodes already there, so a keystroke changes text
+ * in place: only rows the list did not have before animate in, and favicons
+ * are not reloaded on every letter.
+ */
+
+const suggestBox = $('#suggest');
+const suggestions = {
+  typed: '',       // what the person typed, kept while the arrows preview rows
+  rows: [],
+  selected: -1,    // the keyboard's choice; -1 is "what was typed"
+  pages: [],
+  searches: [],    // the engine's latest answer
+  seq: 0,          // bumped on every change, so a late answer is dropped
+  timer: 0,
+  asked: false,
+};
+let lastSuggestSetup = '';
+/** Long enough to skip the middle of a word, short enough to feel live. */
+const REMOTE_DELAY_MS = 120;
+
+const suggestionsOpen = () => !suggestBox.hidden && suggestions.rows.length > 1;
+const remoteOn = () => state.settings?.searchSuggestions !== false && !state.incognito;
+const engineLabel = () => (state.settings?.searchEngine === 'brave' ? 'Brave' : 'Google');
+
+function refreshSuggestions() {
+  const typed = queryInput.value.trim();
+  suggestions.typed = queryInput.value;
+  suggestions.selected = -1;
+  clearTimeout(suggestions.timer);
+  const seq = ++suggestions.seq;
+  if (!typed || aiMode) { closeSuggestions(); return; }
+
+  suggestions.searches = window.suggest.stillMatching(suggestions.searches, typed);
+  invoke('omnibox:suggest', { query: typed }).catch(() => []).then((pages) => {
+    if (seq !== suggestions.seq) return;
+    suggestions.pages = Array.isArray(pages) ? pages : [];
+    renderSuggestions();
+  });
+
+  // Checked here only to save a pointless round trip; main checks again and
+  // is the one that decides.
+  if (!remoteOn() || !window.suggest.remoteAllowed(typed)) { suggestions.searches = []; return; }
+  suggestions.timer = setTimeout(() => {
+    suggestions.asked = true;
+    invoke('search:suggest', { query: typed }).catch(() => null).then((answer) => {
+      if (seq !== suggestions.seq || !answer || answer.stale) return;
+      suggestions.searches = Array.isArray(answer.searches) ? answer.searches : [];
+      renderSuggestions();
+    });
+  }, REMOTE_DELAY_MS);
+}
+
+function closeSuggestions() {
+  suggestions.seq++;
+  clearTimeout(suggestions.timer);
+  // Tell main to drop a request still in flight; nobody will read it.
+  if (suggestions.asked) { suggestions.asked = false; invoke('search:suggest', { query: '' }).catch(() => {}); }
+  hideSuggestions();
+}
+
+/** Take the list down without abandoning the engine's answer on its way. */
+function hideSuggestions() {
+  suggestions.rows = [];
+  suggestions.selected = -1;
+  suggestBox.hidden = true;
+  suggestBox.classList.remove('is-open');
+  $('#search').classList.remove('is-suggesting');
+  queryInput.setAttribute('aria-expanded', 'false');
+  queryInput.removeAttribute('aria-activedescendant');
+}
+
+const rowKey = (row) => row ? row.kind + '\u0000' + (row.query || row.url) : '';
+const rowText = (row) => (row.kind === 'search' ? row.query : row.url);
+
+function renderSuggestions() {
+  const typed = suggestions.typed.trim();
+  // Switched off while the list was up: the engine's rows go at once.
+  if (!remoteOn()) suggestions.searches = [];
+  const chosen = rowKey(suggestions.rows[suggestions.selected]);
+  const rows = window.suggest.mergeSuggestions(typed, {
+    searches: suggestions.searches,
+    pages: suggestions.pages,
+    engine: state.settings?.searchEngine || 'google',
+  });
+  // A single row would only repeat the box back, so the page stays calm -
+  // but the engine may still be about to answer, so nothing is cancelled.
+  if (rows.length < 2 || aiMode || !typed) { hideSuggestions(); return; }
+
+  // An answer landing while the arrows are in use keeps the same row chosen.
+  suggestions.selected = chosen ? rows.findIndex((row) => rowKey(row) === chosen) : -1;
+  suggestions.rows = rows;
+
+  const opening = suggestBox.hidden;
+  let list = suggestBox.querySelector('.suggest-list');
+  if (!list) {
+    list = element('div', { class: 'suggest-list' }, [element('div', { class: 'suggest-glide', 'aria-hidden': 'true' })]);
+    list.addEventListener('mouseleave', () => glideTo(suggestions.selected));
+    suggestBox.replaceChildren(list, element('div', { class: 'suggest-foot' }));
+  }
+  const nodes = [...list.querySelectorAll('.suggest-row')];
+  rows.forEach((row, index) => {
+    let node = nodes[index];
+    if (!node) {
+      node = makeRow(index);
+      // Rows the list did not have before arrive with a short rise; rows it
+      // already had just change their words.
+      if (!opening) node.classList.add('is-new');
+      list.append(node);
+    }
+    paintRow(node, row, typed);
+  });
+  for (const extra of nodes.slice(rows.length)) extra.remove();
+  paintFoot(typed);
+
+  suggestBox.classList.toggle('is-opening', opening);
+  suggestBox.hidden = false;
+  suggestBox.classList.add('is-open');
+  $('#search').classList.add('is-suggesting');
+  queryInput.setAttribute('aria-expanded', 'true');
+  fitSuggestions();
+  showSelection(!opening);
+}
+
+function makeRow(index) {
+  const node = element('div', { class: 'suggest-row', role: 'option', id: 'suggest-' + index });
+  node.style.setProperty('--i', index);
+  node.dataset.index = index;
+  // mousedown would take focus from the box and close the list before the
+  // click lands; keep the box focused and act on the click.
+  node.addEventListener('mousedown', (event) => event.preventDefault());
+  node.addEventListener('click', (event) => {
+    const row = suggestions.rows[Number(node.dataset.index)];
+    if (row) commitRow(row, event);
+  });
+  node.addEventListener('auxclick', (event) => {
+    const row = suggestions.rows[Number(node.dataset.index)];
+    if (event.button === 1 && row?.kind === 'page') { event.preventDefault(); commitRow(row, event); }
+  });
+  node.addEventListener('mouseenter', () => glideTo(Number(node.dataset.index)));
+  node.addEventListener('animationend', () => node.classList.remove('is-new'));
+  return node;
+}
+
+function paintRow(node, row, typed) {
+  // The icon is rebuilt only when it changes, so a favicon is not refetched
+  // and does not flicker on every keystroke.
+  const iconKey = row.kind === 'page' ? 'page:' + row.source + ':' + hostOf(row.url) : row.kind + (row.past ? ':past' : '');
+  if (node.dataset.icon !== iconKey) {
+    node.dataset.icon = iconKey;
+    const glyph = row.kind === 'page'
+      ? (row.source === 'bookmark' ? withBadge(favicon(row.url, 16), 'star') : favicon(row.url, 16))
+      : icon(row.kind === 'go' ? 'forward' : row.past ? 'clock' : 'search', { size: 15 });
+    node.replaceChildren(
+      element('span', { class: 'suggest-icon' }, [glyph]),
+      element('span', { class: 'suggest-text' }),
+      element('span', { class: 'suggest-tail' }),
+    );
+  }
+  node.className = 'suggest-row' + (node.classList.contains('is-new') ? ' is-new' : '') +
+    ' is-' + row.kind + (row.typed ? ' is-typed' : '') + (row.past ? ' is-past' : '');
+
+  const text = node.querySelector('.suggest-text');
+  const tail = node.querySelector('.suggest-tail');
+  if (row.kind === 'page') {
+    text.replaceChildren(
+      element('span', { class: 'suggest-title' }, highlighted(row.title, typed)),
+      element('span', { class: 'suggest-url' }, highlighted(shortUrl(row.url), typed)),
+    );
+    tail.replaceChildren(element('span', { class: 'suggest-tag', text: row.source === 'bookmark' ? 'Bookmark' : 'Visited' }));
+  } else if (row.kind === 'go') {
+    text.replaceChildren(element('span', { class: 'suggest-title' }, highlighted(row.url, typed)));
+    tail.replaceChildren(element('span', { class: 'suggest-tag', text: 'Open' }));
+  } else {
+    text.replaceChildren(element('span', { class: 'suggest-title' }, highlighted(row.query, typed)));
+    tail.replaceChildren(row.typed
+      ? element('span', { class: 'suggest-tag', text: 'Search ' + engineLabel() })
+      : fillButton(row));
+  }
+  node.title = row.kind === 'page' ? row.url : '';
+}
+
+/** Text with the typed part marked - as text nodes, never as markup. */
+function highlighted(value, typed) {
+  const [before, match, after] = window.suggest.highlightParts(value, typed);
+  return [before, match ? element('mark', { class: 'suggest-match', text: match }) : null, after]
+    .filter(Boolean).map((part) => (typeof part === 'string' ? document.createTextNode(part) : part));
+}
+
+function withBadge(node, name) {
+  node.append(element('span', { class: 'suggest-badge' }, [icon(name, { size: 9, filled: true })]));
+  return node;
+}
+
+/** Chrome's little arrow: put this search in the box and keep typing. */
+function fillButton(row) {
+  const button = element('button', {
+    type: 'button', class: 'suggest-fill', title: 'Fill in "' + row.query + '"',
+    'aria-label': 'Fill in ' + row.query, tabindex: '-1',
+  }, [fillArrow()]);
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+  button.addEventListener('click', (event) => { event.stopPropagation(); fillIn(row); });
+  return button;
+}
+
+/** An arrow pointing up and back into the box. Not in the shared icon set. */
+function fillArrow() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '14');
+  svg.setAttribute('height', '14');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M17.5 17.5 7 7M7 15.5V7h8.5');
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.9');
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+
+function shortUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.hostname.replace(/^www\./, '') + (u.pathname === '/' ? '' : u.pathname) + u.search;
+  } catch { return url; }
+}
+
+function paintFoot(typed) {
+  const foot = suggestBox.querySelector('.suggest-foot');
+  let source;
+  if (state.incognito) source = 'Incognito: nothing you type is sent anywhere';
+  else if (!remoteOn()) source = 'From your history and bookmarks';
+  else if (window.suggest.looksLikeAddress(typed)) source = 'Addresses stay on this computer';
+  else if (!window.suggest.remoteAllowed(typed)) source = 'Looks private, so it stays on this computer';
+  else source = 'Suggestions from ' + engineLabel();
+  const keys = suggestions.selected >= 0
+    ? [element('kbd', { text: 'Tab' }), ' to fill in · ', element('kbd', { text: 'Enter' }), ' to go']
+    : [element('kbd', { text: '↑' }), element('kbd', { text: '↓' }), ' to choose · ', element('kbd', { text: 'Esc' }), ' to close'];
+  const local = !remoteOn() || !window.suggest.remoteAllowed(typed);
+  foot.replaceChildren(
+    element('span', { class: 'suggest-source' + (local ? ' is-local' : '') }, [
+      local ? icon('lock', { size: 11 }) : element('span', { class: 'suggest-dot' }),
+      element('span', { text: source }),
+    ]),
+    element('span', { class: 'suggest-keys' }, keys.map((part) => (typeof part === 'string' ? document.createTextNode(part) : part))),
+  );
+}
+
+/** Keep the list on screen in a short window: it scrolls rather than clips. */
+function fitSuggestions() {
+  const box = $('#search').getBoundingClientRect();
+  const room = Math.max(140, window.innerHeight - box.bottom - 24);
+  suggestBox.style.setProperty('--suggest-room', room + 'px');
+}
+
+function moveSelection(step) {
+  const count = suggestions.rows.length;
+  // -1 sits between the last row and the first: arrowing past either end
+  // brings back exactly what was typed.
+  let next = suggestions.selected + step;
+  if (next >= count) next = -1;
+  else if (next < -1) next = count - 1;
+  suggestions.selected = next;
+  queryInput.value = next < 0 ? suggestions.typed : rowText(suggestions.rows[next]);
+  const end = queryInput.value.length;
+  queryInput.setSelectionRange(end, end);
+  showSelection(true);
+  paintFoot(suggestions.typed.trim());
+}
+
+function showSelection(animate) {
+  const rows = suggestBox.querySelectorAll('.suggest-row');
+  rows.forEach((node, index) => {
+    node.classList.toggle('is-selected', index === suggestions.selected);
+    node.setAttribute('aria-selected', index === suggestions.selected ? 'true' : 'false');
+  });
+  if (suggestions.selected >= 0) queryInput.setAttribute('aria-activedescendant', 'suggest-' + suggestions.selected);
+  else queryInput.removeAttribute('aria-activedescendant');
+  glideTo(suggestions.selected, animate);
+  rows[suggestions.selected]?.scrollIntoView({ block: 'nearest' });
+}
+
+/**
+ * One highlight that slides between rows, under the keyboard's choice or the
+ * pointer. A single moving shape reads as one thing travelling; a background
+ * switching on and off between rows reads as flicker.
+ */
+function glideTo(index, animate = true) {
+  const glide = suggestBox.querySelector('.suggest-glide');
+  const node = suggestBox.querySelectorAll('.suggest-row')[index];
+  if (!glide) return;
+  if (!node) {
+    // Parked at the top: left where a removed row was, it would stretch the
+    // list's scroll area and conjure a scrollbar for a list that fits.
+    glide.classList.add('no-slide');
+    glide.classList.remove('is-on');
+    glide.style.setProperty('transform', 'translateY(0)');
+    return;
+  }
+  const arriving = !glide.classList.contains('is-on');
+  // Appearing from nowhere it fades in where it is, rather than sliding in
+  // from wherever it last was.
+  glide.classList.toggle('no-slide', arriving || !animate);
+  glide.style.setProperty('transform', 'translateY(' + node.offsetTop + 'px)');
+  glide.style.setProperty('height', node.offsetHeight + 'px');
+  glide.classList.add('is-on');
+}
+
+function fillIn(row) {
+  queryInput.value = rowText(row) + (row.kind === 'search' ? ' ' : '');
+  queryInput.focus();
+  refreshSuggestions();
+}
+
+function commitRow(row, event) {
+  closeSuggestions();
+  if (row.kind === 'page') return openUrl(row.url, event);
+  invoke('tabs:navigate', { input: rowText(row) });
+}
+
+queryInput.addEventListener('input', () => refreshSuggestions());
+queryInput.addEventListener('blur', () => closeSuggestions());
+queryInput.addEventListener('focus', () => { if (queryInput.value.trim() && !aiMode) refreshSuggestions(); });
+window.addEventListener('resize', () => { if (!suggestBox.hidden) fitSuggestions(); });
 
 /* ---- AI answer ------------------------------------------------------------- */
 
@@ -578,6 +948,14 @@ onState((next) => {
   renderHint();
   renderEngine();
   renderStatusStrip();
+  // Redrawn only when the engine or the Search suggestions switch changes:
+  // state arrives often, and a redraw would pull the highlight from under
+  // the pointer.
+  const suggestSetup = (state.settings?.searchEngine || '') + '|' + remoteOn();
+  if (suggestSetup !== lastSuggestSetup) {
+    lastSuggestSetup = suggestSetup;
+    if (!suggestBox.hidden) renderSuggestions();
+  }
   // Widget card size, chosen by the user.
   document.body.dataset.widgetSize = state.settings?.newTab?.widgetSize || 'comfortable';
   renderBackground();

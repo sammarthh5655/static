@@ -11,6 +11,7 @@ const { JsonStore } = require('./storage');
 const { Settings, DEFAULTS } = require('../features/settings');
 const { Bookmarks } = require('../features/bookmarks');
 const { History } = require('../features/history');
+const { SearchSuggestions } = require('../features/suggest');
 const { Downloads } = require('../features/downloads');
 const { Extensions } = require('../features/extensions');
 const { Tabs, NEW_TAB } = require('../features/tabs');
@@ -161,6 +162,15 @@ class BrowserApplication {
     this.settings = new Settings(this.dir);
     this.bookmarks = new Bookmarks(this.dir);
     this.history = new History(this.dir);
+    // What the search engine guesses comes next, for the address bar and the
+    // new tab's search box alike. The fetcher is replaceable so probes can
+    // answer for the engine.
+    this.searchSuggest = new SearchSuggestions({
+      fetcher: (url, options) => net.fetch(url, options),
+      enabled: () => this.settings.value.searchSuggestions !== false,
+      engine: () => this.settings.value.searchEngine,
+      incognito: this.incognito,
+    });
     this.downloads = new Downloads(this.dir, this.session, () => this.push());
     // The new-tab scratchpad widget. Distinct from the Notes feature below.
     this.scratchpad = new JsonStore(this.dir, 'scratchpad', { text: '' });
@@ -2662,6 +2672,15 @@ class BrowserApplication {
 
       'omnibox:suggest': (_sender, payload) =>
         this.history.suggest(payload?.query || '', this.bookmarks.list()),
+      // The engine's suggestions. Every privacy rule is applied here, not in
+      // the page: incognito, the Settings switch, and anything that looks
+      // like an address, an email or a password. An empty query just cancels
+      // whatever this sender was still waiting for.
+      'search:suggest': (sender, payload) => {
+        const query = typeof payload?.query === 'string' ? payload.query : '';
+        if (!query.trim()) { this.searchSuggest.cancel(sender.id); return { query: '', searches: [], remote: false }; }
+        return this.searchSuggest.lookup(query, sender.id);
+      },
 
       'bookmarks:toggle': (_sender, payload) => {
         const active = this.tabs.activeState();
@@ -3798,6 +3817,8 @@ class BrowserApplication {
       this.history.clear();
       // Which sites had trackers blocked reads like history, so it goes too.
       this.shields.stats.forgetSites();
+      // So do the engine's recent answers: they are what was typed.
+      this.searchSuggest.clear();
     }
     if (clearDownloads) this.downloads.clear();
     if (cookies) {

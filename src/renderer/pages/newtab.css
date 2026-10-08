@@ -101,6 +101,9 @@ body.newtab {
   color: var(--text-faint);
   pointer-events: none;
   transition: color var(--motion-base) var(--ease);
+  /* The field's backdrop-filter makes it a layer of its own, painted over
+     anything positioned before it - which hid this icon entirely. */
+  z-index: 1;
 }
 
 .search input {
@@ -1215,5 +1218,273 @@ body.moving-widget { cursor: grabbing; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .studio-pane, .ambient.is-ready { animation: none; }
   .newtab .widgets > .widget { transition: none; }
+}
+
+/* ---- search suggestions ---------------------------------------------------
+   A sheet of the same frosted glass as the box, hanging just under it. It
+   unfurls downwards when it opens; after that a keystroke only changes
+   words, and only rows the list did not have before rise into place. One
+   highlight slides between rows rather than backgrounds blinking on and off.
+   Every duration is a --motion-* token, so the Animations setting stills it. */
+
+.search.is-suggesting { z-index: 6; }
+
+.suggest {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 1;
+  padding: 6px;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-raised) 84%, transparent);
+  backdrop-filter: blur(26px) saturate(1.4);
+  -webkit-backdrop-filter: blur(26px) saturate(1.4);
+  box-shadow: 0 26px 60px var(--shadow-colour),
+              0 0 0 1px color-mix(in srgb, var(--text) 3%, transparent) inset;
+  transform-origin: top center;
+}
+.suggest[hidden] { display: none; }
+
+/* A hairline of the accent along the top edge, where light would catch. */
+.suggest::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 22px;
+  right: 22px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent,
+    color-mix(in srgb, var(--accent) 70%, transparent),
+    color-mix(in srgb, var(--accent-alt, var(--accent)) 60%, transparent), transparent);
+  pointer-events: none;
+}
+
+/* Clip-path and transform only - never opacity, so a stalled animation can
+   never leave the list there but invisible. */
+.suggest.is-opening { animation: suggest-unfurl var(--motion-base) var(--ease); }
+@keyframes suggest-unfurl {
+  from { clip-path: inset(0 0 92% 0 round 18px); transform: translateY(-6px); }
+  to   { clip-path: inset(0 0 0 0 round 18px); transform: none; }
+}
+
+.suggest-list {
+  position: relative;
+  max-height: min(380px, var(--suggest-room, 380px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.suggest-glide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 17%, transparent),
+    color-mix(in srgb, var(--accent) 7%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform var(--motion-fast) var(--ease),
+              height var(--motion-fast) var(--ease),
+              opacity var(--motion-fast) var(--ease);
+}
+.suggest-glide.is-on { opacity: 1; }
+.suggest-glide.no-slide { transition: opacity var(--motion-fast) var(--ease); }
+/* The marker at the leading edge says "this one" without a word. */
+.suggest-glide::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--accent), var(--accent-alt, var(--accent)));
+}
+
+.suggest-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.suggest.is-opening .suggest-row {
+  animation: suggest-row-in var(--motion-base) var(--ease) both;
+  animation-delay: calc(var(--i, 0) * var(--motion-fast) / 7);
+}
+.suggest-row.is-new { animation: suggest-row-in var(--motion-base) var(--ease); }
+@keyframes suggest-row-in {
+  from { transform: translateY(-5px); filter: blur(1.5px); }
+  to   { transform: none; filter: none; }
+}
+
+.suggest-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  color: var(--text-faint);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  transition: color var(--motion-fast) var(--ease), background var(--motion-fast) var(--ease);
+}
+.suggest-row.is-selected .suggest-icon,
+.suggest-row:hover .suggest-icon {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+.suggest-icon .favicon-slot { display: grid; place-items: center; }
+.suggest-icon .favicon-img { border-radius: 3px; }
+.suggest-icon .favicon-letter { font-size: 11px; font-weight: 600; color: var(--text-dim); }
+.suggest-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  color: var(--bg);
+  background: var(--warn, var(--accent));
+  box-shadow: 0 0 0 2px var(--bg-raised);
+}
+
+.suggest-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.suggest-title { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.suggest-url {
+  flex: 0 10 auto;
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.suggest-row.is-past .suggest-title { color: var(--text-dim); }
+
+/* The typed part, picked out in the accent: the eye finds where its own
+   letters end and the suggestion begins. */
+.suggest-match {
+  background: linear-gradient(90deg, var(--accent), var(--accent-alt, var(--accent)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 600;
+}
+.suggest-url .suggest-match {
+  background: none;
+  color: color-mix(in srgb, var(--accent) 75%, var(--text-faint));
+  font-weight: 500;
+}
+
+.suggest-tail { flex: none; display: flex; align-items: center; justify-content: flex-end; min-width: 26px; }
+
+.suggest-tag {
+  padding: 3px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  color: var(--text-faint);
+  opacity: 0;
+  transform: translateX(4px);
+  transition: opacity var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease);
+}
+.suggest-row.is-typed .suggest-tag,
+.suggest-row.is-selected .suggest-tag,
+.suggest-row:hover .suggest-tag { opacity: 1; transform: none; }
+.suggest-row.is-typed.is-selected .suggest-tag,
+.suggest-row.is-typed:hover .suggest-tag {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.suggest-fill {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease), background var(--motion-fast) var(--ease),
+              color var(--motion-fast) var(--ease);
+}
+.suggest-row.is-selected .suggest-fill,
+.suggest-row:hover .suggest-fill { opacity: 1; }
+.suggest-fill:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 20%, transparent); }
+
+.suggest-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 6px 0;
+  padding: 9px 4px 4px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.suggest-source { display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.suggest-source.is-local { color: var(--text-dim); }
+.suggest-source.is-local svg { flex: none; color: var(--accent); }
+/* A slow pulse: the engine is listening. Scale only, and it stops with the
+   Animations setting because the duration is a motion token multiple. */
+.suggest-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: suggest-live calc(var(--motion-slow) * 6) ease-in-out infinite;
+}
+@keyframes suggest-live { 50% { transform: scale(0.6); } }
+.suggest-keys { flex: none; }
+.suggest-keys kbd {
+  padding: 1px 5px;
+  margin: 0 1px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  font: inherit;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+body.has-photo .suggest { background: color-mix(in srgb, var(--bg-raised) 90%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .suggest.is-opening, .suggest.is-opening .suggest-row, .suggest-row.is-new, .suggest-dot { animation: none; }
+  .suggest-glide { transition: none; }
 }
 

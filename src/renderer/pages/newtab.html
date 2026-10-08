@@ -34,11 +34,15 @@
     <form class="search" id="search" autocomplete="off">
       <span class="search-icon" id="search-icon"></span>
       <input id="query" type="text" spellcheck="false" autocomplete="off" autofocus
+             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggest"
              placeholder="Search the web or press Tab for AI">
       <span class="search-badge" id="search-badge" hidden>AI</span>
       <!-- Which engine a plain search uses. Here rather than in Settings,
            because it is a decision about the box it sits in. -->
       <select class="search-engine" id="search-engine" aria-label="Search engine"></select>
+      <!-- Suggestions while typing. Inside the form so it hangs from the
+           search box wherever the box sits. -->
+      <div class="suggest" id="suggest" role="listbox" aria-label="Suggestions" hidden></div>
     </form>
 
     <p class="keyhint" id="keyhint"></p>
@@ -88,6 +92,7 @@
   <script src="../../shared/theme.js"></script>
   <script src="../../shared/modes.js"></script>
   <script src="../../shared/widgets.js"></script>
+  <script src="../../shared/suggest.js"></script>
   <script src="common.js"></script>
   <script src="wallpaper-picker.js"></script>
   <script src="widgets/index.js"></script>

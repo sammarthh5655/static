@@ -617,56 +617,126 @@ function renderSuggestions() {
 
   if (!items.length) return;
 
+  const typed = omni.typed.trim();
+  const engine = state.settings?.searchEngine === 'brave' ? 'Brave' : 'Google';
   el.suggestions.replaceChildren(...items.map((item, index) => {
     const node = document.createElement('div');
-    node.className = 'suggestion' + (index === local.selected ? ' selected' : '');
+    node.className = 'suggestion is-' + item.kind + (index === local.selected ? ' selected' : '') +
+      (item.typed ? ' is-typed' : '');
 
     const kind = document.createElement('span');
     kind.className = 'kind';
     kind.append(window.ui.icon(
-      item.source === 'bookmark' ? 'star' : item.source === 'search' ? 'search' : 'clock',
+      item.kind === 'page' ? (item.source === 'bookmark' ? 'star' : 'clock')
+        : item.kind === 'go' ? 'forward' : item.past ? 'clock' : 'search',
       { size: 14 }));
     node.append(kind);
 
     const label = document.createElement('span');
     label.className = 'label';
-    label.textContent = item.title || item.url;
+    label.append(...highlighted(item.kind === 'search' ? item.query : item.kind === 'go' ? item.url : item.title, typed));
     node.append(label);
 
-    if (item.url && item.source !== 'search') {
+    if (item.kind === 'page') {
       const url = document.createElement('span');
       url.className = 'url';
-      url.textContent = ' — ' + item.url;
+      url.append(document.createTextNode(' — '), ...highlighted(item.url, typed));
       node.append(url);
+    }
+
+    if (item.typed) {
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = item.kind === 'go' ? 'Open' : 'Search ' + engine;
+      node.append(tag);
     }
 
     node.addEventListener('mousedown', (event) => {
       event.preventDefault();
-      commit(item.url || item.query);
+      // Middle-click on a page opens it behind, as a link would.
+      if (event.button === 1 && item.kind === 'page') {
+        closeSuggestions();
+        invoke('tabs:new', { url: item.url, background: true });
+        return;
+      }
+      if (event.button === 0) commit(item.url || item.query);
     });
     return node;
   }));
 }
 
+/** Text with the typed part marked, as text nodes - never parsed as markup. */
+function highlighted(value, typed) {
+  const [before, match, after] = window.suggest.highlightParts(value, typed);
+  const parts = [document.createTextNode(before)];
+  if (match) {
+    const mark = document.createElement('mark');
+    mark.className = 'match';
+    mark.textContent = match;
+    parts.push(mark, document.createTextNode(after));
+  }
+  return parts;
+}
+
+/**
+ * The address bar's half of search suggestions. The list itself is built by
+ * shared/suggest.js, exactly as on the new tab page, so both offer the same
+ * rows in the same order. History and bookmarks come back at once; the
+ * engine is asked by main once typing pauses, and only when main's privacy
+ * rules allow. Until its answer arrives, the last one stays up narrowed to
+ * what is typed now.
+ */
+const omni = { typed: '', pages: [], searches: [], seq: 0, timer: 0, asked: false };
+const REMOTE_DELAY_MS = 120;
+const remoteOn = () => state.settings?.searchSuggestions !== false && !state.incognito;
+
 async function updateSuggestions() {
   const query = el.address.value.trim();
+  omni.typed = el.address.value;
+  clearTimeout(omni.timer);
+  const seq = ++omni.seq;
   if (!query) {
     local.suggestions = [];
     local.selected = -1;
     renderSuggestions();
     return;
   }
-  const results = (await invoke('omnibox:suggest', { query })) || [];
-  const engine = state.settings?.searchEngine === 'brave' ? 'Brave Search' : 'Google';
-  local.suggestions = [
-    { source: 'search', title: `${query} — search ${engine}`, query },
-    ...results,
-  ].slice(0, 9);
+  // Checked here only to skip a pointless round trip; main decides.
+  const remote = remoteOn() && window.suggest.remoteAllowed(query);
+  omni.searches = remote ? window.suggest.stillMatching(omni.searches, query) : [];
+  const pages = (await invoke('omnibox:suggest', { query })) || [];
+  if (seq !== omni.seq) return;
+  omni.pages = pages;
   local.selected = -1;
+  showMerged(query);
+  if (!remote) return;
+  omni.timer = setTimeout(async () => {
+    omni.asked = true;
+    const answer = await invoke('search:suggest', { query }).catch(() => null);
+    if (seq !== omni.seq || !answer || answer.stale) return;
+    omni.searches = Array.isArray(answer.searches) ? answer.searches : [];
+    showMerged(query);
+  }, REMOTE_DELAY_MS);
+}
+
+function showMerged(query) {
+  const key = (item) => item ? item.kind + '\u0000' + (item.query || item.url) : '';
+  const chosen = key(local.suggestions[local.selected]);
+  local.suggestions = window.suggest.mergeSuggestions(query, {
+    searches: remoteOn() ? omni.searches : [],
+    pages: omni.pages,
+    engine: state.settings?.searchEngine || 'google',
+  });
+  // An answer landing while the arrows are in use keeps the same row chosen.
+  local.selected = chosen ? local.suggestions.findIndex((item) => key(item) === chosen) : -1;
   renderSuggestions();
 }
 
 function closeSuggestions() {
+  omni.seq++;
+  clearTimeout(omni.timer);
+  // Main drops a request still in flight; nothing would read its answer.
+  if (omni.asked) { omni.asked = false; invoke('search:suggest', { query: '' }).catch(() => {}); }
   local.suggestions = [];
   local.selected = -1;
   local.typing = false;
@@ -760,19 +830,27 @@ el.address.addEventListener('blur', () => closeSuggestions());
 
 el.address.addEventListener('keydown', (event) => {
   const items = local.suggestions;
-  if (event.key === 'ArrowDown' && items.length) {
+  if (event.isComposing) return;
+  if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && items.length) {
     event.preventDefault();
-    local.selected = (local.selected + 1) % items.length;
-    el.address.value = items[local.selected].url || items[local.selected].query;
-    renderSuggestions();
-  } else if (event.key === 'ArrowUp' && items.length) {
-    event.preventDefault();
-    local.selected = (local.selected - 1 + items.length) % items.length;
-    el.address.value = items[local.selected].url || items[local.selected].query;
+    // -1 sits between the last row and the first, as on the new tab page:
+    // arrowing past either end brings back exactly what was typed.
+    let next = local.selected + (event.key === 'ArrowDown' ? 1 : -1);
+    if (next >= items.length) next = -1;
+    else if (next < -1) next = items.length - 1;
+    local.selected = next;
+    el.address.value = next < 0 ? omni.typed : (items[next].url || items[next].query);
     renderSuggestions();
   } else if (event.key === 'Enter') {
     const picked = local.selected >= 0 ? items[local.selected] : null;
     commit(picked ? (picked.url || picked.query) : undefined);
+  } else if (event.key === 'Tab' && !event.shiftKey && local.selected >= 0 && items[local.selected]) {
+    // Tab writes the chosen suggestion in to keep typing from, as on the
+    // new tab page. With nothing chosen it moves focus as usual.
+    event.preventDefault();
+    const picked = items[local.selected];
+    el.address.value = (picked.url || picked.query) + (picked.kind === 'search' ? ' ' : '');
+    updateSuggestions();
   } else if (event.key === 'Escape') {
     closeSuggestions();
     el.address.value = displayUrl(state.active?.url);

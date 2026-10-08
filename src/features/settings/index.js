@@ -8,6 +8,10 @@ const wallpapers = require('../wallpapers');
 
 const DEFAULTS = {
   searchEngine: 'google',
+  // Ask the search engine what might come next while typing. On by default,
+  // as in every other browser; off keeps suggestions to history and
+  // bookmarks. Never asked in incognito whatever this says.
+  searchSuggestions: true,
   bookmarksBar: true,
   sidebarMode: 'on',
   // Which modes appear in the sidebar rail, in order. Absent means "use the
@@ -155,6 +159,7 @@ class Settings {
     if (!SURFACE_STYLES[next.surfaceStyle]) next.surfaceStyle = DEFAULTS.surfaceStyle;
     if (!RADIUS[next.radius]) next.radius = DEFAULTS.radius;
     if (typeof next.animations !== 'boolean') next.animations = DEFAULTS.animations;
+    if (typeof next.searchSuggestions !== 'boolean') next.searchSuggestions = DEFAULTS.searchSuggestions;
     if (!FONTS[next.font]) next.font = DEFAULTS.font;
     if (!DENSITY[next.density]) next.density = DEFAULTS.density;
     if (!['on', 'autohide', 'off'].includes(next.sidebarMode)) next.sidebarMode = DEFAULTS.sidebarMode;
@@ -205,6 +210,7 @@ class Settings {
     for (const [key, value] of Object.entries(patch)) {
       if (key === 'searchEngine' && ['google', 'brave'].includes(value)) next[key] = value;
       else if (key === 'bookmarksBar' && typeof value === 'boolean') next[key] = value;
+      else if (key === 'searchSuggestions' && typeof value === 'boolean') next[key] = value;
       else if (key === 'sidebarMode' && ['on', 'autohide', 'off'].includes(value)) next[key] = value;
       // Validated against the real mode registry: an internal page is still
       // web content, so it cannot write an arbitrary id in here.

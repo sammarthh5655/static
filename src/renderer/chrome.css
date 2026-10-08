@@ -407,10 +407,31 @@ body.dropping .strip-drag::after {
   border-radius: var(--radius-sm);
   overflow: hidden; white-space: nowrap;
 }
-.suggestion.selected, .suggestion:hover { background: var(--surface-hover); }
+.suggestion:hover { background: var(--surface-hover); }
+/* The chosen row wears the accent, as on the new tab page. */
+.suggestion.selected {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent),
+    color-mix(in srgb, var(--accent) 6%, transparent));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 .suggestion .kind { display: flex; color: var(--text-faint); flex: none; }
-.suggestion .label { overflow: hidden; text-overflow: ellipsis; }
-.suggestion .url { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; }
+.suggestion.selected .kind, .suggestion:hover .kind { color: var(--accent); }
+.suggestion .label { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.suggestion .url { color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; flex: 0 10 auto; }
+.suggestion.is-search.is-past .label { color: var(--text-dim); }
+/* What was typed, picked out in each row. */
+.suggestion .match { background: none; color: var(--accent); font-weight: 600; }
+.suggestion .url .match { font-weight: 500; }
+.suggestion .tag {
+  margin-left: auto;
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  font-size: 0.85em;
+  color: var(--text-faint);
+}
+.suggestion.selected .tag { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 
 /* ---- bookmarks bar (34px) ------------------------------------------------ */
 
