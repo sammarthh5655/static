@@ -60,7 +60,29 @@ function hydrate(item) {
         .catch((error) => ({ ok: false, error: String(error.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })),
     };
   }
+  // Colours keep the menu open: each one just sends its action.
+  if (item && item.swatches) {
+    return {
+      ...item,
+      swatches: item.swatches.map((swatch) => ({
+        ...swatch,
+        onSelect: () => { if (swatch.action) invoke(swatch.action.channel, swatch.action.payload); },
+      })),
+    };
+  }
   if (!item || item.separator || item.heading || item.brand) return item;
+  // "Add tab to group": its menu opens the next one in the same place. The
+  // overlay stays up for it; if no menu follows, it steps aside after all.
+  if (item.more && item.action) {
+    return {
+      ...item,
+      onSelect: () => {
+        const settle = () => { if (!window.ui.menuIsOpen()) setInteractive(false); };
+        invoke(item.action.channel, item.action.payload).then((shown) => { if (!shown) settle(); });
+        setTimeout(settle, 1500);
+      },
+    };
+  }
   if (item.zoom) {
     return { ...item, zoom: { ...item.zoom, in: hydrate(item.zoom.in), out: hydrate(item.zoom.out), full: hydrate(item.zoom.full) } };
   }
@@ -98,7 +120,7 @@ async function renderMenu(payload) {
     anchor: payload.anchor,
     align: payload.align || 'left',
     passive,
-    onClose: () => { if (!replacing) setInteractive(false); },
+    onClose: (how) => { if (!replacing && !how?.handoff) setInteractive(false); },
     onOutside: (event) => invoke('menu:passthrough', { x: event.clientX, y: event.clientY, button: event.button === 2 ? 'right' : 'left' }),
   });
 }

@@ -86,11 +86,20 @@ class Productivity {
       'organizer:apply': (_sender, p) => org.apply(p?.selection),
       'organizer:group': (_sender, p) => org.group(p),
       'organizer:move': (_sender, p) => org.move(p),
+      // From the tab menus. The menu's name box closes on { ok: true } and
+      // shows the message from a rejection, so nothing larger is returned.
+      'organizer:assign': async (_sender, p) => { await org.assign(p); return { ok: true }; },
+      'organizer:ungroup': async (_sender, p) => { await org.ungroup(p?.id); return true; },
+      'organizer:close-group': async (_sender, p) => { await org.closeGroup(p?.id); return true; },
       'organizer:workspace': (_sender, p) => org.workspace(p?.name),
       'organizer:select-workspace': (_sender, p) => org.selectWorkspace(p?.id),
       'organizer:pin': (_sender, p) => org.pin(p?.ids, p?.pinned),
       'organizer:sleep': (_sender, p) => org.sleep(p?.ids),
-      'organizer:wake': async (_sender, p) => { await org.wake(p?.id); this.changed('organizer:changed'); },
+      // One tab (`id`), or every tab picked in the strip (`ids`).
+      'organizer:wake': async (_sender, p) => {
+        for (const id of Array.isArray(p?.ids) ? org.ids(p.ids) : [p?.id]) await org.wake(id);
+        this.changed('organizer:changed');
+      },
       'organizer:close-duplicates': () => org.closeDuplicates(),
       'organizer:save-session': (_sender, p) => org.saveSession(p),
       'organizer:restore-session': (_sender, p) => org.restoreSession(p?.id),

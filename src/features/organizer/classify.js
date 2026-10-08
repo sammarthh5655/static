@@ -1,5 +1,30 @@
 const CATEGORIES = ['Work', 'Study', 'Coding', 'Shopping', 'Legal', 'Research', 'Entertainment', 'Social', 'Finance', 'Travel'];
-const COLORS = ['#47baff', '#a78bfa', '#52d6b1', '#f4ba62', '#a6b8f5', '#7ac8e4', '#e799cd', '#ed9393', '#9fc674', '#ddaa79'];
+/**
+ * Group colours: nine, as far apart as hues go, so two groups side by side are
+ * never mistaken for one. Each is stored as its light, pastel form - what a
+ * group looks like on a dark planet. Light planets draw the same hue deeper
+ * (chrome.css works that out from --luminous), so one stored value reads
+ * well on every theme and survives a change of theme.
+ */
+const GROUP_COLORS = [
+  { id: 'blue', name: 'Blue', value: '#7aa7f7' },
+  { id: 'red', name: 'Red', value: '#f28b82' },
+  { id: 'yellow', name: 'Yellow', value: '#f2c95c' },
+  { id: 'green', name: 'Green', value: '#79c99a' },
+  { id: 'pink', name: 'Pink', value: '#f08cc4' },
+  { id: 'purple', name: 'Purple', value: '#b694f5' },
+  { id: 'cyan', name: 'Cyan', value: '#6ccfdf' },
+  { id: 'orange', name: 'Orange', value: '#f5a56b' },
+  { id: 'grey', name: 'Grey', value: '#aab4c3' },
+];
+const COLORS = GROUP_COLORS.map(c => c.value);
+const colorOf = (id) => GROUP_COLORS.find(c => c.id === id).value;
+/** What the organiser paints each kind of group, so Coding is always the same green. */
+const CATEGORY_COLORS = {
+  Work: colorOf('blue'), Study: colorOf('purple'), Coding: colorOf('green'), Shopping: colorOf('orange'),
+  Legal: colorOf('grey'), Research: colorOf('cyan'), Entertainment: colorOf('red'), Social: colorOf('pink'),
+  Finance: colorOf('yellow'), Travel: colorOf('cyan'),
+};
 const RULES = [
   ['Legal', /indiankanoon|sci\.gov|judgment|judgement|supremecourt|legal|court|\.pdf(?:\W|$)/i],
   ['Coding', /github|gitlab|stackoverflow|developer\.|developer docs|javascript|python|programming|api reference|npmjs|codepen/i],
@@ -25,7 +50,7 @@ function analyze(tabs, now = Date.now()) {
   for (const tab of web) {
     const u = webURL(tab.url), text = tab.title + ' ' + u.hostname + u.pathname;
     const category = RULES.find(([, pattern]) => pattern.test(text))?.[0] || 'Research';
-    if (!groups.has(category)) groups.set(category, { name: category, category, color: COLORS[CATEGORIES.indexOf(category)], ids: [] });
+    if (!groups.has(category)) groups.set(category, { name: category, category, color: CATEGORY_COLORS[category], ids: [] });
     groups.get(category).ids.push(tab.id);
     // Keep query strings and fragments: different searches or documents are not duplicates.
     if (!urls.has(u.href)) urls.set(u.href, []);
@@ -53,10 +78,10 @@ function parseGroups(text, tabs, fallback) {
     if (!ids.length) continue;
     const category = CATEGORIES.includes(item.category) ? item.category : 'Research';
     const name = String(item.name || category).replace(/[\x00-\x1f]/g, ' ').trim().slice(0, 60) || category;
-    groups.push({ name, category, color: COLORS[CATEGORIES.indexOf(category)], ids });
+    groups.push({ name, category, color: CATEGORY_COLORS[category], ids });
   }
   if (!groups.length) throw new Error('No usable groups returned.');
   for (const group of fallback) { const ids = group.ids.filter(id => !seen.has(id)); if (ids.length) groups.push({ ...group, ids }); }
   return groups;
 }
-module.exports = { CATEGORIES, COLORS, webURL, webTabs, signature, analyze, aiMetadata, parseGroups };
+module.exports = { CATEGORIES, COLORS, GROUP_COLORS, webURL, webTabs, signature, analyze, aiMetadata, parseGroups };

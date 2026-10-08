@@ -128,7 +128,8 @@ body.mac .window-controls { display: none; }
    title bar take drops instead of dragging the window (see chrome.js). */
 body.dropping .strip-drag,
 body.dropping .titlebar,
-body.dropping .titlebar-drag { -webkit-app-region: no-drag; }
+body.dropping .titlebar-drag,
+body.tab-dragging .strip-drag { -webkit-app-region: no-drag; }
 body.dropping .strip-drag {
   margin: 4px 6px 6px;
   border: 1.5px dashed color-mix(in srgb, var(--accent) 70%, transparent);
@@ -151,6 +152,7 @@ body.dropping .strip-drag::after {
 .tabs { display: flex; align-items: flex-end; gap: 2px; overflow: hidden; }
 
 .tab {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -204,9 +206,119 @@ body.dropping .strip-drag::after {
   color: var(--text);
 }
 .strip-tool:disabled { opacity: 0.65; cursor: default; }
-.tab-group-chip { border: 0; border-radius: var(--radius-sm); padding: 5px 8px; margin: 0 2px 5px; color: var(--text); background: color-mix(in srgb, var(--group-color) 22%, var(--surface)); box-shadow: inset 0 -2px var(--group-color); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
-.tab.grouped { border-bottom: 2px solid var(--group-color); }
 .tab.sleeping .title { opacity: .6; }
+.tab.sleeping .favicon { filter: grayscale(.7); opacity: .7; }
+
+/* ---- pinned tabs ----------------------------------------------------------
+   Small squares at the far left holding only the favicon, as in Chrome: no
+   title, no close button (the title is in the tooltip). A hairline keeps
+   them apart from the tabs that come and go. */
+.tab.pinned { flex: none; width: 40px; min-width: 40px; padding: 0; justify-content: center; }
+.tab.pinned .favicon { width: 16px; height: 16px; }
+.tab-letter {
+  width: 18px; height: 18px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 5px;
+  font-size: 11px; font-weight: 700; line-height: 1;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface-active));
+}
+.tab.pinned.active::after {
+  content: ''; position: absolute; left: 50%; bottom: 3px; width: 14px; height: 2px; margin-left: -7px;
+  border-radius: 2px; background: var(--accent);
+}
+.pinned-rule { flex: none; align-self: center; width: 1px; height: 16px; margin: 0 4px 4px; background: var(--border); }
+
+/* Ctrl/Cmd- or Shift-clicked: picked out to act on together. */
+.tab.picked:not(.active) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* ---- tab groups -----------------------------------------------------------
+   A filled pill in the group's colour, then its tabs, each with a light
+   tint and the colour running along the bottom under all of them. Colours
+   are stored pastel; light planets draw them deeper (see .menu-swatch). */
+.tab-group {
+  --group-tone: oklch(from var(--group-color) calc(l - var(--luminous, 0) * (l - min(l - 0.2, 0.52))) calc(c + 0.02 * var(--luminous, 0)) h);
+  --on-group: oklch(from var(--group-tone) clamp(0.2, (0.62 - l) * 100, 0.99) 0.02 h);
+  --drop-colour: var(--group-tone);
+  position: relative;
+  /* Shrinks with the strip as its tabs do. Its floor - its tabs' smallest
+     width - is set by chrome.js, because CSS alone measures a group by its
+     tabs' whole titles: it either never shrank, or squeezed its tabs out from
+     under its chip and the next group. */
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  margin: 0 2px;
+}
+.tab-group::after {
+  content: ''; position: absolute; left: 6px; right: 0; bottom: 0; height: 2px;
+  border-radius: 2px; background: var(--group-tone); pointer-events: none;
+}
+.tab-group.collapsed:not(:has(.tab))::after { right: 6px; opacity: .55; }
+.tab-group .tab { background: color-mix(in srgb, var(--group-tone) 9%, var(--surface)); }
+.tab-group .tab:hover { background: color-mix(in srgb, var(--group-tone) 16%, var(--surface-hover)); }
+.tab-group .tab.active { background: color-mix(in srgb, var(--group-tone) 7%, var(--tab-active)); }
+
+.tab-group-chip {
+  flex: none;
+  align-self: center;
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 150px;
+  height: 22px;
+  margin: 0 1px 4px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit; font-size: 11.5px; font-weight: 600; line-height: 22px;
+  color: var(--on-group);
+  background: var(--group-tone);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--group-tone) 28%, transparent);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease), filter var(--motion-fast) var(--ease);
+}
+.tab-group-chip:hover { filter: brightness(1.06) saturate(1.05); box-shadow: 0 2px 10px color-mix(in srgb, var(--group-tone) 45%, transparent); }
+.tab-group-chip:active { transform: scale(.96); }
+.tab-group-chip:focus-visible { outline: 2px solid var(--group-tone); outline-offset: 2px; }
+.chip-name { overflow: hidden; text-overflow: ellipsis; }
+/* Folded: how many tabs are inside. */
+.chip-count {
+  min-width: 16px; height: 16px; padding: 0 4px;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 700; line-height: 1;
+  color: var(--group-tone);
+  background: var(--on-group);
+  animation: chip-count-in var(--motion-base) cubic-bezier(.3,1.6,.5,1);
+}
+@keyframes chip-count-in { from { transform: scale(.3); opacity: 0; } }
+
+/* ---- where a dragged tab will land ----------------------------------------
+   A bar at the tab's edge, in the colour of the group the tab will join (the
+   accent if none); the group itself lights up, and so does its chip. */
+.tabs { --drop-colour: var(--accent); }
+.tab.drop-before::before, .tab.drop-after::before {
+  content: ''; position: absolute; top: 5px; bottom: 5px; width: 3px; border-radius: 3px; z-index: 2;
+  background: var(--drop-colour);
+  box-shadow: 0 0 10px var(--drop-colour);
+  animation: drop-bar-in var(--motion-fast) var(--ease);
+}
+.tab.drop-before::before { left: 0; }
+.tab.drop-after::before { right: 0; }
+/* Beside a grouped tab, but joining no group (past the end of the strip). */
+.tab.drop-plain { --drop-colour: var(--accent); }
+@keyframes drop-bar-in { from { transform: scaleY(.3); opacity: 0; } }
+.tab-group.drop-into .tab:not(.dragging) { background: color-mix(in srgb, var(--group-tone) 20%, var(--surface)); }
+.tab-group.drop-into::after { height: 3px; box-shadow: 0 0 10px var(--group-tone); }
+.tab-group-chip.chip-target { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-tone) 40%, transparent), 0 4px 14px color-mix(in srgb, var(--group-tone) 50%, transparent); }
+.strip-tool[hidden] { display: none; }
 .tabs { overflow-x: auto; scrollbar-width: none; min-width: 0; }
 .tabs::-webkit-scrollbar { display: none; }
 
@@ -327,19 +439,23 @@ body.dropping .strip-drag::after {
 
 .empty { color: var(--text-faint); padding: 4px 8px; }
 
-/* ---- menus --------------------------------------------------------------- */
+/* ---- menus ---------------------------------------------------------------
+   Compact, in the spirit of Chrome's: single-line rows about 28px tall, slim
+   separators, small headings, a hint only where it earns its line. Denser
+   than Static's first menus, which ran to 40px rows and capital headings,
+   but still with room to breathe. */
 
 .menu {
   position: fixed;
   z-index: 100;
-  min-width: 216px;
-  max-width: 320px;
+  min-width: 200px;
+  max-width: 300px;
   /* A menu must never outgrow the window: it is positioned absolutely, so an
      over-tall one would render partly off-screen with no way to reach the rest.
      Capping it and scrolling keeps every item reachable however many are added. */
   max-height: calc(100vh - 24px);
   overflow-y: auto;
-  padding: 5px;
+  padding: 4px;
   background: var(--menu-surface);
   backdrop-filter: var(--menu-blur);
   -webkit-backdrop-filter: var(--menu-blur);
@@ -383,9 +499,9 @@ body.dropping .strip-drag::after {
 .menu-ghost {
   position: fixed;
   z-index: 100;
-  min-width: 216px;
-  max-width: 320px;
-  padding: 5px;
+  min-width: 200px;
+  max-width: 300px;
+  padding: 4px;
   background: var(--menu-surface);
   backdrop-filter: var(--menu-blur);
   -webkit-backdrop-filter: var(--menu-blur);
@@ -404,21 +520,25 @@ body.dropping .strip-drag::after {
 
 .menu-item {
   width: 100%;
+  min-height: 28px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
+  gap: 9px;
+  padding: 5px 8px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
   font: inherit;
+  font-size: 13px;
+  line-height: 18px;
   text-align: left;
   cursor: default;
   transition: background var(--motion-fast) var(--ease);
 }
 .menu-item:hover:not(:disabled) { background: var(--surface-hover); }
 .menu-item:disabled { color: var(--text-faint); }
+.menu-item:disabled .menu-icon { color: var(--text-faint); opacity: .7; }
 .menu-item.danger { color: var(--danger); }
 
 .menu-icon {
@@ -429,30 +549,90 @@ body.dropping .strip-drag::after {
 .menu-item:hover .menu-icon { color: var(--text); }
 .menu-item.danger .menu-icon { color: var(--danger); }
 
-.menu-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A hint sits under its label, on ONE line; the row grows by that line only. */
+.menu-item.has-hint { align-items: flex-start; padding-block: 4px; }
+.menu-item.has-hint .menu-icon { margin-top: 1px; }
+.menu-hint {
+  display: block;
+  margin-top: 0;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Right-aligned accelerator, e.g. "Ctrl+T". */
 .menu-shortcut {
   flex: none;
   color: var(--text-faint);
   font-size: 11.5px;
-  letter-spacing: 0.3px;
-  padding-left: 16px;
+  letter-spacing: 0.2px;
+  padding-left: 14px;
 }
+/* This item opens another menu in its place. */
+.menu-more { flex: none; display: flex; margin: 0 -3px 0 auto; color: var(--text-faint); }
+.menu-item:hover .menu-more { color: var(--text-dim); }
 
 .menu-divider {
   height: 1px;
-  margin: 5px 8px;
+  margin: 4px 6px;
   background: var(--border-soft);
 }
 
 .menu-heading {
-  padding: 7px 10px 4px;
+  padding: 6px 8px 3px;
   color: var(--text-faint);
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.7px;
+  font-weight: 600;
+  line-height: 14px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* ---- tab group colours ----------------------------------------------------
+   A group's colour is stored in its pastel form (organizer/classify.js). On a
+   light planet the same hue is drawn deeper - no lighter than 0.52 OKLCH
+   lightness - so it holds its own against cream and white and carries white
+   text at 4.5:1; --luminous is 1 there and 0 on dark planets. Text on a
+   filled colour is near-white or near-black, whichever its lightness needs.
+   tests/tabgroups.cjs measures every colour on a dark and a light planet. */
+.menu-swatch, .menu-swatch-btn {
+  --tone: oklch(from var(--swatch) calc(l - var(--luminous, 0) * (l - min(l - 0.2, 0.52))) calc(c + 0.02 * var(--luminous, 0)) h);
+  --on-tone: oklch(from var(--tone) clamp(0.2, (0.62 - l) * 100, 0.99) 0.02 h);
+}
+.menu-swatch {
+  width: 12px; height: 12px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--tone);
+  color: var(--on-tone);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 22%, transparent);
+}
+.menu-swatch .icon-svg { width: 9px; height: 9px; stroke-width: 3; }
+.menu-swatch.is-checked { width: 14px; height: 14px; }
+
+.menu-swatches { display: flex; gap: 6px; padding: 5px 8px 6px; }
+.menu-swatch-btn {
+  width: 20px; height: 20px; flex: none;
+  display: grid; place-items: center;
+  padding: 0; border: 0; border-radius: 50%;
+  background: var(--tone);
+  color: var(--on-tone);
+  cursor: pointer;
+  box-shadow: 0 0 0 0 var(--tone);
+  transition: transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
+}
+.menu-swatch-btn .icon-svg { opacity: 0; transform: scale(.4); transition: opacity var(--motion-fast) var(--ease), transform var(--motion-base) cubic-bezier(.3,1.6,.5,1); }
+.menu-swatch-btn:hover { transform: scale(1.14); }
+.menu-swatch-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--menu-surface), 0 0 0 3.5px var(--text-dim); }
+.menu-swatch-btn[aria-checked=true] { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 3.5px var(--tone); }
+.menu-swatch-btn[aria-checked=true] .icon-svg { opacity: 1; transform: none; }
 
 /* A secret typed into a menu: the master password, on a locked vault. */
 .menu-field {
@@ -460,8 +640,8 @@ body.dropping .strip-drag::after {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 8px;
-  margin: 4px 4px 6px;
-  padding: 5px 5px 5px 10px;
+  margin: 3px 3px 5px;
+  padding: 3px 3px 3px 9px;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--bg) 55%, transparent);
@@ -470,7 +650,8 @@ body.dropping .strip-drag::after {
 .menu-field-glyph { display: grid; color: var(--accent); }
 .menu-field input {
   min-width: 0;
-  padding: 6px 0;
+  padding: 4px 0;
+  font-size: 13px;
   border: 0;
   background: transparent;
   color: var(--text);
@@ -478,8 +659,9 @@ body.dropping .strip-drag::after {
   outline: none;
   letter-spacing: 0.5px;
 }
+.menu-field.is-text input { letter-spacing: 0; }
 .menu-field-go {
-  padding: 6px 12px;
+  padding: 4px 11px;
   border: 0;
   border-radius: var(--radius-sm);
   background: linear-gradient(120deg, var(--accent), var(--accent-alt));
@@ -560,3 +742,10 @@ body.vertical-tabs .strip { display: none; }
 .tab.split-left { border-top-right-radius: 0; margin-right: 0; padding-right: 4px; }
 .tab.split-right { border-top-left-radius: 0; margin-left: 0; box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
 .tab.split-left:not(.active), .tab.split-right:not(.active) { color: var(--text); }
+
+/* Asked for less motion: groups, pins and drops change without moving. */
+@media (prefers-reduced-motion: reduce) {
+  .chip-count, .tab.drop-before::before, .tab.drop-after::before { animation: none; }
+  .tab-group-chip, .menu-swatch-btn, .menu-swatch-btn .icon-svg { transition: none; }
+  .tab-group-chip.chip-target, .menu-swatch-btn:hover { transform: none; }
+}

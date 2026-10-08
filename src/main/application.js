@@ -6,7 +6,7 @@ const { requests, events } = require('../shared/channels');
 const { ENGINES, internalPage, resolveInput, allowedURL } = require('../shared/urls');
 const { THEMES, SURFACE_STYLES, RADIUS, forgePlanet, cssVariables } = require('../shared/theme');
 const { WIDGETS, BACKGROUNDS } = require('../shared/widgets');
-const { ACCELERATORS, matchAccelerator } = require('./shortcuts');
+const { ACCELERATORS, ACCEL, matchAccelerator } = require('./shortcuts');
 const { JsonStore } = require('./storage');
 const { Settings, DEFAULTS } = require('../features/settings');
 const { Bookmarks } = require('../features/bookmarks');
@@ -19,6 +19,7 @@ const pagecontext = require('../features/ai/pagecontext');
 const { Chats } = require('../features/ai/chats');
 const { Resources } = require('../features/resources');
 const { Productivity } = require('../features/productivity');
+const { groupPicker, tabMenu, chipMenu } = require('../features/organizer/menu');
 const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
@@ -1217,6 +1218,28 @@ class BrowserApplication {
     this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
   }
 
+  /**
+   * A menu anchor sent by a view, in window coordinates: the overlay spans
+   * the window, and the vertical tab list (or the chrome) sits somewhere in it.
+   * Anything that is not a set of numbers gives way to the usual place.
+   */
+  #windowAnchor(sender, anchor) {
+    const keys = ['left', 'right', 'top', 'bottom'];
+    if (!anchor || !keys.every((k) => Number.isFinite(Number(anchor[k])))) return this.#promptAnchor();
+    const view = sender === this.vtabs?.webContents ? this.vtabs : sender === this.chrome?.webContents ? this.chrome : null;
+    const at = view ? view.getBounds() : { x: 0, y: 0 };
+    return {
+      left: Number(anchor.left) + at.x, right: Number(anchor.right) + at.x,
+      top: Number(anchor.top) + at.y, bottom: Number(anchor.bottom) + at.y,
+      width: Number(anchor.width) || 0, height: Number(anchor.height) || 0,
+    };
+  }
+
+  /** The ids in a request that are open tabs, at most 500. */
+  #tabIds(value) {
+    return Array.isArray(value) ? [...new Set(value.slice(0, 500).map(String))].filter((id) => this.tabs.tabs.has(id)) : [];
+  }
+
   /** Where a question about the page goes: under the toolbar, at the right. */
   #promptAnchor() {
     const top = chromeHeight(this.settings.value);
@@ -1311,7 +1334,7 @@ class BrowserApplication {
     const account = request.user.name || request.user.displayName || 'this account';
     const choice = await this.#prompt([
       { heading: 'Create a passkey for ' + request.rpId + '?' },
-      { label: account, icon: 'key', hint: 'Saved in Static. Sign in with it instead of a password.', choice: 'static' },
+      { label: account, icon: 'key', hint: 'Saved in Static, used in place of a password', choice: 'static' },
       { label: 'Use another device or security key', icon: 'lock', choice: 'native' },
       { label: 'Cancel', choice: 'cancel' },
     ], { wc: at.tab.view.webContents.id });
@@ -1561,35 +1584,66 @@ class BrowserApplication {
       return;
     }
 
-    if (mode === 'restore') {
-      const saved = this.sessionStore.data;
-      const urls = (saved.tabs || []).filter((tab) => /^https?:|^browser:/.test(tab.url || ''));
-      if (urls.length) {
-        let activeId = null;
-        for (const tab of urls.slice(0, 60)) {
-          const id = this.tabs.create({ url: tab.url, background: true });
-          if (tab.active) activeId = id;
-        }
-        this.tabs.select(activeId || this.tabs.order[0]);
-        return;
-      }
-    }
+    if (mode === 'restore' && this.restoreSession()) return;
     this.tabs.create({ url: forced });
   }
 
-  /** Remember the open tabs, so the next launch can restore them. */
+  /**
+   * Reopen the last session's tabs, pinned where they were pinned and in the
+   * groups they were in, with the groups' names and colours. Returns false
+   * when there was nothing to restore.
+   */
+  restoreSession(saved = this.sessionStore.data) {
+    const entries = (saved?.tabs || []).filter((tab) => /^https?:|^browser:/.test(tab?.url || '')).slice(0, 60);
+    if (!entries.length) return false;
+    const organizer = this.productivity?.organizer;
+    const groups = organizer ? organizer.restore(saved.groups) : new Map();
+    const workspaces = new Set((organizer?.store.data.workspaces || [{ id: 'main' }]).map((w) => w.id));
+    let activeId = null;
+    for (const tab of entries) {
+      const id = this.tabs.create({
+        url: tab.url, background: true,
+        workspaceId: workspaces.has(tab.workspaceId) ? tab.workspaceId : 'main',
+        groupId: groups.get(tab.groupId) || null, pinned: tab.pinned === true,
+      });
+      if (tab.active) activeId = id;
+    }
+    organizer?.dropEmptyGroups();
+    this.tabs.select(activeId || this.tabs.order[0]);
+    return true;
+  }
+
+  /**
+   * Remember the open tabs, so the next launch can restore them: where each
+   * one is, whether it is pinned, and its group.
+   *
+   * It read `tab.state` from the list the chrome gets, which has no `state`,
+   * so every session was saved empty and nothing was ever restored.
+   */
   saveSession() {
     if (!this.tabs || this.incognito) return;
     // A guest profile deliberately remembers nothing.
     if (this.profiles?.active?.guest) { this.sessionStore.save({ tabs: [] }); return; }
-    const tabs = this.tabs.list()
-      .filter((tab) => /^https?:|^browser:/.test(tab.state?.displayUrl || ''))
+    // The profile picker and the welcome flow are moments, not places. A
+    // window showing only them (closed, or left by choosing a profile) keeps
+    // the last session as it was: saving it would throw those tabs away.
+    const moment = (tab) => /^browser:\/\/(welcome|profiles)/.test(tab.url || '');
+    const open = this.tabs.list();
+    if (open.length && open.every(moment)) return;
+    const tabs = open
+      .filter((tab) => /^https?:|^browser:/.test(tab.url || '') && !moment(tab))
       .map((tab) => ({
-        url: tab.state.displayUrl,
-        title: tab.state.title || '',
-        active: tab.id === this.tabs.activeId,
+        url: tab.url,
+        title: tab.title || '',
+        active: tab.active,
+        pinned: !!tab.pinned,
+        groupId: tab.groupId || null,
+        workspaceId: tab.workspaceId || 'main',
       }));
-    this.sessionStore.save({ tabs, savedAt: Date.now() });
+    const used = new Set(tabs.map((tab) => tab.groupId).filter(Boolean));
+    const groups = (this.productivity?.organizer.groups || []).filter((group) => used.has(group.id))
+      .map(({ id, name, color, category, workspaceId, collapsed }) => ({ id, name, color, category, workspaceId, collapsed: !!collapsed }));
+    this.sessionStore.save({ tabs, groups, savedAt: Date.now() });
   }
 
   /**
@@ -1826,17 +1880,6 @@ class BrowserApplication {
    */
   animateSidebar(toOpen) {
     clearInterval(this.sidebarAnim);
-    try { this.saveSession(); } catch { /* a failed save must not block quitting */ }
-    try {
-      // A maximised window has huge bounds; remember the restored size so it
-      // does not reopen filling a different monitor.
-      if (this.window && !this.window.isDestroyed()) {
-        const box = this.window.isMaximized()
-          ? this.window.getNormalBounds()
-          : this.window.getBounds();
-        this.windowStore.save({ ...box, maximized: this.window.isMaximized() });
-      }
-    } catch { /* geometry is a convenience, never a reason to fail */ }
     const target = toOpen ? 1 : 0;
     const start = this.sidebarProgress ?? (toOpen ? 0 : 1);
     const began = Date.now();
@@ -2213,11 +2256,7 @@ class BrowserApplication {
         if (!this.overlay || this.overlay.webContents.isDestroyed()) return false;
         // Menus opened from a side panel arrive in that panel's coordinates;
         // the overlay spans the window.
-        if (sender === this.vtabs?.webContents && payload?.anchor) {
-          const at = this.vtabs.getBounds();
-          const a = payload.anchor;
-          payload = { ...payload, anchor: { ...a, left: a.left + at.x, right: a.right + at.x, top: a.top + at.y, bottom: a.bottom + at.y } };
-        }
+        if (sender === this.vtabs?.webContents && payload?.anchor) payload = { ...payload, anchor: this.#windowAnchor(sender, payload.anchor) };
         // The overlay may not have registered its IPC listener yet (it loads
         // asynchronously, and the user can hit F10 immediately). Hold the most
         // recent request and replay it once the overlay reports ready, so an
@@ -2416,6 +2455,79 @@ class BrowserApplication {
         this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
         return true;
       },
+      /**
+       * "Add tab to group" in a tab's menu. The overlay has no submenus, so
+       * choosing it opens the list of groups where the tab menu just was:
+       * same anchor, same side. That anchor is already in window coordinates,
+       * whichever tab list the menu came from.
+       */
+      'organizer:group-menu': (_sender, payload) => {
+        const organizer = this.productivity?.organizer;
+        const ids = organizer ? organizer.ids(payload?.ids) : [];
+        if (!ids.length) return false;
+        const from = this.lastMenu || {};
+        this.#showMenu(groupPicker(organizer, ids), from.anchor || this.#promptAnchor(), from.align || 'left');
+        return true;
+      },
+      /**
+       * A tab's right-click menu, for the strip and the vertical list alike
+       * (see organizer/menu.js). `ids` is the selection the tab was
+       * right-clicked in; a tab outside it acts alone.
+       */
+      'tabs:menu': (sender, payload) => {
+        const organizer = this.productivity?.organizer;
+        const id = String(payload?.id || '');
+        if (!organizer || !this.tabs.tabs.has(id)) return false;
+        const chosen = organizer.ids(Array.isArray(payload?.ids) ? payload.ids : []);
+        const ids = chosen.includes(id) ? [id, ...chosen.filter((other) => other !== id)] : [id];
+        const items = tabMenu({
+          id, ids, organizer, layout: this.settings.value.tabLayout,
+          bookmarked: (url) => !!url && this.bookmarks.list().some((b) => b.url === url),
+          canReopen: this.tabs.closed.length > 0,
+          accel: (action) => ACCEL.get(action)?.display || '',
+        });
+        this.#showMenu(items, this.#windowAnchor(sender, payload?.anchor), 'left');
+        return true;
+      },
+      'organizer:chip-menu': (sender, payload) => {
+        const items = this.productivity ? chipMenu(this.productivity.organizer, String(payload?.id || '')) : null;
+        if (!items) return false;
+        this.#showMenu(items, this.#windowAnchor(sender, payload?.anchor), 'left');
+        return true;
+      },
+      // Several tabs at once, from a selection. Only ids that are open count.
+      'tabs:reload': (_sender, payload) => {
+        for (const id of this.#tabIds(payload?.ids)) {
+          const wc = this.tabs.tabs.get(id)?.view.webContents;
+          if (wc && !wc.isDestroyed()) wc.reload();
+        }
+        return true;
+      },
+      /**
+       * "Close other tabs" and "Close tabs to the right" keep pinned tabs, as
+       * Chrome does - pinning a tab is asking for it to stay - and only ever
+       * reach tabs in the same workspace, the ones that can be seen.
+       */
+      'tabs:close-others': (_sender, payload) => {
+        const keep = new Set(this.#tabIds(payload?.ids));
+        if (!keep.size) return false;
+        const workspace = this.tabs.tabs.get([...keep][0]).workspaceId;
+        if (!keep.has(this.tabs.activeId)) this.tabs.select([...keep][0]);
+        for (const tab of this.tabs.list()) {
+          if (!keep.has(tab.id) && !tab.pinned && tab.workspaceId === workspace) this.tabs.close(tab.id);
+        }
+        return true;
+      },
+      'tabs:close-right': (_sender, payload) => {
+        const id = String(payload?.id || '');
+        const tab = this.tabs.tabs.get(id);
+        if (!tab) return false;
+        const visible = this.tabs.list().filter((t) => t.workspaceId === tab.workspaceId);
+        const doomed = visible.slice(visible.findIndex((t) => t.id === id) + 1).filter((t) => !t.pinned).map((t) => t.id);
+        if (doomed.includes(this.tabs.activeId)) this.tabs.select(id);
+        for (const other of doomed) this.tabs.close(other);
+        return true;
+      },
       'context:run': (_sender, payload) => {
         const target = this.contextTarget;
         if (!target) return false;
@@ -2502,13 +2614,24 @@ class BrowserApplication {
         if (errors.length && !opened.length) this.notify(errors[0]);
         return { opened: opened.length, errors };
       },
-      'tabs:new': (_sender, payload) => this.tabs.create({
-        url: payload?.url,
-        background: !!payload?.background,
-        index: payload?.index,
-      }),
-      // No id means "the active tab" (Ctrl+W from anywhere).
-      'tabs:close': (_sender, payload) => this.tabs.close(payload?.id || this.tabs.activeId),
+      'tabs:new': (_sender, payload) => {
+        // "New tab in group" and "New tab to the right" of a grouped tab:
+        // only a group that exists, and the tab opens in that group's workspace.
+        const group = payload?.groupId ? this.productivity?.organizer.groups.find((g) => g.id === payload.groupId) : null;
+        return this.tabs.create({
+          url: payload?.url,
+          background: !!payload?.background,
+          index: payload?.index,
+          // "Duplicate" on a pinned tab: the copy is pinned too, as in Chrome.
+          pinned: payload?.pinned === true,
+          ...(group ? { groupId: group.id, workspaceId: group.workspaceId } : {}),
+        });
+      },
+      // No id means "the active tab" (Ctrl+W from anywhere); `ids`, several.
+      'tabs:close': (_sender, payload) => {
+        if (Array.isArray(payload?.ids)) { for (const id of this.#tabIds(payload.ids)) this.tabs.close(id); return true; }
+        return this.tabs.close(payload?.id || this.tabs.activeId);
+      },
       'tabs:select': (_sender, payload) => this.tabs.select(payload?.id),
       'tabs:reorder': (_sender, payload) => this.tabs.reorder(payload?.id, payload?.to),
       'tabs:navigate': (_sender, payload) => {
@@ -3986,7 +4109,9 @@ class BrowserApplication {
       case 'tab:close': this.tabs.close(this.tabs.activeId); break;
       case 'tab:next': this.tabs.cycle(1); break;
       case 'tab:previous': this.tabs.cycle(-1); break;
-      case 'tab:reopen': this.tabs.reopenClosed?.(); break;
+      case 'tab:reopen':
+        this.tabs.reopenClosed?.((id) => this.productivity?.organizer.groups.find((g) => g.id === id) || null);
+        break;
 
       case 'omnibox:focus': this.chrome?.webContents.send('ui:focus-address'); break;
       case 'page:reload': this.tabs.navigateActive('reload'); break;
@@ -4260,6 +4385,20 @@ class BrowserApplication {
   }
 
   flush() {
+    // The session and the window's size were saved from the sidebar's slide
+    // animation - a misplaced copy - so closing the browser saved neither.
+    // Closing (and quitting) is when they are worth remembering.
+    try { this.saveSession(); } catch { /* a failed save must not block quitting */ }
+    try {
+      // A maximised window has huge bounds; remember the restored size so it
+      // does not reopen filling a different monitor.
+      if (this.window && !this.window.isDestroyed()) {
+        const box = this.window.isMaximized()
+          ? this.window.getNormalBounds()
+          : this.window.getBounds();
+        this.windowStore.save({ ...box, maximized: this.window.isMaximized() });
+      }
+    } catch { /* geometry is a convenience, never a reason to fail */ }
     this.productivity?.flush();
     this.history.flush();
     this.downloads.flush();

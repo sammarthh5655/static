@@ -3,6 +3,7 @@ const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const { resolveInput, securityState, internalPage } = require('../../shared/urls');
 const { pathToFileURL } = require('node:url');
+const { tidyOrder } = require('./order');
 
 /** Where Static's own pages load from; a file:// navigation outside it is a dropped file. */
 const RENDERER_ROOT = pathToFileURL(path.join(__dirname, '..', '..', 'renderer')).href;
@@ -147,11 +148,19 @@ class Tabs {
     right.view.setBounds({ x: divider.x + divider.width, y, width: Math.max(0, x + width - divider.x - divider.width), height });
   }
 
-  /** Ctrl+Shift+T: bring back the most recently closed tab. */
-  reopenClosed() {
+  /**
+   * Ctrl+Shift+T: bring back the most recently closed tab - pinned if it was
+   * pinned, and back in its group if that group is still about. `groupOf(id)`
+   * answers that (groups belong to the organiser, not to this class).
+   */
+  reopenClosed(groupOf = () => null) {
     const last = this.closed.pop();
     if (!last) return null;
-    return this.create({ url: last.url, index: Math.min(last.index, this.order.length) });
+    const group = last.groupId ? groupOf(last.groupId) : null;
+    return this.create({
+      url: last.url, index: Math.min(last.index, this.order.length), pinned: !!last.pinned,
+      ...(group ? { groupId: group.id, workspaceId: group.workspaceId } : {}),
+    });
   }
 
   get active() { return this.tabs.get(this.activeId) || null; }
@@ -188,7 +197,17 @@ class Tabs {
     };
   }
 
-  create({ url, background = false, index, workspaceId = this.activeWorkspace } = {}) {
+  /** Pinned tabs first, groups together (see order.js). */
+  tidy() {
+    this.order = tidyOrder(this.order, (id) => this.tabs.get(id));
+  }
+
+  /**
+   * `groupId` and `pinned` are for a tab that belongs somewhere from the
+   * start - "New tab in group", or a restored session - so it is born in its
+   * place rather than created at the end and moved.
+   */
+  create({ url, background = false, index, workspaceId = this.activeWorkspace, groupId = null, pinned = false } = {}) {
     const view = new WebContentsView({
       webPreferences: {
         // Security defaults for untrusted web content. Do not relax these.
@@ -213,7 +232,7 @@ class Tabs {
       view,
       historyId: null, // current history entry, so late title updates can patch it
       createdAt: Date.now(), lastActiveAt: Date.now(),
-      pinned: false, groupId: null, workspaceId,
+      pinned: !!pinned, groupId: pinned ? null : groupId || null, workspaceId,
       state: {
         title: 'New tab',
         url: '',
@@ -230,6 +249,7 @@ class Tabs {
     this.tabs.set(id, tab);
     const at = Number.isInteger(index) ? Math.max(0, Math.min(index, this.order.length)) : this.order.length;
     this.order.splice(at, 0, id);
+    this.tidy();
 
     this.#wire(tab);
     this.onTabCreated?.(view.webContents);
@@ -407,7 +427,7 @@ class Tabs {
     if (partner) this.unsplit(id);
     const url = tab.state.displayUrl;
     if (url && !/^browser:\/\/(newtab|welcome|profiles)/.test(url)) {
-      this.closed.push({ url, index: this.order.indexOf(id) });
+      this.closed.push({ url, index: this.order.indexOf(id), pinned: !!tab.pinned, groupId: tab.groupId || null });
       if (this.closed.length > 25) this.closed.shift();
     }
     const position = this.order.indexOf(id);
@@ -441,6 +461,7 @@ class Tabs {
     this.order.splice(from, 1);
     const target = Math.max(0, Math.min(Number(to) || 0, this.order.length));
     this.order.splice(target, 0, id);
+    this.tidy();
     this.onChange();
   }
 

@@ -2,7 +2,8 @@
 module.exports = {
   requests: [
     'organizer:state', 'organizer:analyze', 'organizer:apply', 'organizer:group',
-    'organizer:move', 'organizer:workspace', 'organizer:select-workspace', 'organizer:pin',
+    'organizer:move', 'organizer:assign', 'organizer:group-menu', 'organizer:chip-menu', 'organizer:ungroup', 'organizer:close-group',
+    'organizer:workspace', 'organizer:select-workspace', 'organizer:pin',
     'organizer:sleep', 'organizer:wake', 'organizer:close-duplicates',
     'organizer:save-session', 'organizer:restore-session', 'organizer:delete-session', 'organizer:summary', 'organizer:undo',
     'screentime:state', 'screentime:update', 'screentime:save-rule', 'screentime:remove-rule',
@@ -10,6 +11,7 @@ module.exports = {
     'app:state', 'ui:layout', 'ui:shortcuts', 'ui:action', 'ui:suggestions',
     'window:control', 'menu:open', 'menu:state', 'menu:ready', 'menu:pending', 'context:run', 'find:query', 'find:close', 'wallpapers:catalog', 'wallpapers:random', 'import:detect', 'import:run', 'autofill:choose', 'autofill:decide', 'autofill:state', 'autofill:list', 'autofill:values', 'autofill:put', 'autofill:remove', 'autofill:prefs', 'autofill:never-remove', 'passwords:export', 'passwords:import', 'passwords:health', 'passwords:breach-check', 'help:system', 'help:reveal', 'feedback:categories', 'feedback:available', 'feedback:attach', 'feedback:screenshot', 'feedback:shots', 'feedback:remove', 'feedback:preview', 'feedback:submit', 'feedback:reveal', 'split:resize', 'split:reset', 'split:swap', 'split:exit', 'split:with', 'split:drag', 'split:drop', 'split:menu',
     'tabs:new', 'tabs:open-files', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
+    'tabs:menu', 'tabs:reload', 'tabs:close-others', 'tabs:close-right',
     'navigation:back', 'navigation:forward', 'navigation:reload', 'navigation:stop', 'navigation:home',
     'omnibox:suggest', 'bookmarks:toggle', 'bookmarks:remove',
     'history:search', 'history:remove',

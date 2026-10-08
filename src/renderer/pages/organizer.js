@@ -18,7 +18,7 @@
   function rename(group) {
     modal('Edit group', body => {
       const name = e('input', { type: 'text', value: group.name, required: '', maxlength: 80 });
-      const color = e('select', {}, state.colors.map((value, i) => e('option', { value, text: 'Colour ' + (i + 1), selected: value === group.color ? '' : null })));
+      const color = e('select', {}, state.colors.map((value, i) => e('option', { value, text: state.colorNames?.[i] || 'Colour ' + (i + 1), selected: value === group.color ? '' : null })));
       body.append(field('Group name', name), field('Accent', color));
       return async () => { await invoke('organizer:group', { id: group.id, name: name.value, color: color.value }); await refresh(); };
     });

@@ -72,8 +72,22 @@ let openMenu = null;
  * @property {boolean} [checked]   show a check mark
  * @property {boolean} [disabled]
  * @property {string}  [danger]    style as a destructive action
+ * @property {string}  [swatch]    a colour dot in place of the icon (tab groups)
+ * @property {boolean} [more]      opens another menu: a chevron at the end
  * @property {Function}[onSelect]
+ *
+ * Rows of their own: `choices` (a segmented switch), `swatches` (colours to
+ * pick from, which keep the menu open), `field` (a text or password box).
  */
+
+/** A round colour chip, for a tab group's colour. */
+function swatchDot(color, { checked = false } = {}) {
+  const dot = document.createElement('span');
+  dot.className = 'menu-swatch' + (checked ? ' is-checked' : '');
+  dot.style.setProperty('--swatch', color);
+  if (checked) dot.append(icon('check', { size: 11 }));
+  return dot;
+}
 
 /**
  * Open a menu anchored to a rectangle (usually a button's bounding box).
@@ -212,11 +226,41 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       continue;
     }
 
+    // A tab group's colours. Choosing one recolours the group at once and the
+    // menu stays open, so the next colour is one click away.
+    if (item.swatches) {
+      const row = document.createElement('div');
+      row.className = 'menu-swatches';
+      row.setAttribute('role', 'radiogroup');
+      row.setAttribute('aria-label', 'Colour');
+      for (const swatch of item.swatches) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'menu-swatch-btn';
+        button.title = swatch.label;
+        button.setAttribute('role', 'radio');
+        button.setAttribute('aria-label', swatch.label);
+        button.setAttribute('aria-checked', String(!!swatch.checked));
+        button.style.setProperty('--swatch', swatch.color);
+        button.append(icon('check', { size: 12 }));
+        button.addEventListener('click', () => {
+          row.querySelectorAll('[aria-checked=true]').forEach((b) => b.setAttribute('aria-checked', 'false'));
+          button.setAttribute('aria-checked', 'true');
+          // The name box beside it wears the colour too.
+          root.querySelector('.menu-field .menu-swatch')?.style.setProperty('--swatch', swatch.color);
+          swatch.onSelect?.();
+        });
+        row.append(button);
+      }
+      root.append(row);
+      continue;
+    }
+
     if (item.choices) {
       const row = document.createElement('div');
       row.className = 'menu-segment-row';
       row.title = item.hint || item.label;
-      row.append(icon(item.icon, { size: 20 }));
+      row.append(icon(item.icon, { size: 16 }));
       const label = document.createElement('span');
       label.textContent = item.label;
       const choices = document.createElement('div');
@@ -244,10 +288,15 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       form.className = 'menu-field';
       const lockGlyph = document.createElement('span');
       lockGlyph.className = 'menu-field-glyph';
-      lockGlyph.append(icon(item.icon || 'lock', { size: 15 }));
+      lockGlyph.append(item.swatch ? swatchDot(item.swatch) : icon(item.icon || 'lock', { size: 15 }));
       const input = document.createElement('input');
       input.type = item.field.type || 'password';
       input.placeholder = item.field.placeholder || '';
+      // A name already in the box (a group's), selected so typing replaces it.
+      if (item.field.value) input.value = String(item.field.value);
+      if (item.field.maxLength) input.maxLength = item.field.maxLength;
+      input.addEventListener('focus', () => input.select(), { once: true });
+      if (input.type === 'text') form.classList.add('is-text');
       input.autocomplete = 'off';
       input.spellcheck = false;
       input.setAttribute('aria-label', item.field.placeholder || item.label || 'Password');
@@ -299,7 +348,8 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
 
     const glyph = document.createElement('span');
     glyph.className = 'menu-icon';
-    if (item.checked) glyph.append(icon('check', { size: 15 }));
+    if (item.swatch) glyph.append(swatchDot(item.swatch, { checked: !!item.checked }));
+    else if (item.checked) glyph.append(icon('check', { size: 15 }));
     else if (item.icon) {
       glyph.append(icon(item.icon, { size: 16 }), icon(item.icon, { size: 16, filled: true }));
       glyph.firstChild.classList.add('icon-outline');
@@ -310,7 +360,7 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
     const label = document.createElement('span');
     label.className = 'menu-label';
     label.textContent = item.label;
-    // A hint says what the item is for, under its name.
+    // A hint says what the item is for, under its name, on one line.
     if (item.hint) {
       const hint = document.createElement('small');
       hint.className = 'menu-hint';
@@ -326,10 +376,20 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       accel.textContent = item.shortcut;
       node.append(accel);
     }
+    if (item.more) {
+      const chevron = document.createElement('span');
+      chevron.className = 'menu-more';
+      chevron.append(icon('chevron_right', { size: 14 }));
+      node.append(chevron);
+      node.setAttribute('aria-haspopup', 'menu');
+    }
 
     if (!item.disabled) {
       node.addEventListener('click', () => {
-        closeMenu();
+        // An item that opens the next menu hands over to it: the overlay stays
+        // up, rather than closing, giving the keyboard back and then being
+        // closed again by that as the next menu arrives.
+        closeMenu(item.more ? { handoff: true } : undefined);
         item.onSelect?.();
       });
     }
@@ -367,7 +427,7 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
   return root;
 }
 
-function closeMenu() {
+function closeMenu(how) {
   if (!openMenu) return;
   const { root, onClose } = openMenu;
   openMenu = null;
@@ -382,7 +442,7 @@ function closeMenu() {
   root.classList.remove('menu', 'open');
   root.classList.add('menu-ghost');
   root.setAttribute('aria-hidden', 'true');
-  onClose?.();
+  onClose?.(how);
 
   // Remove once the close animation has played; the duration comes from the
   // theme and is 0ms when the user has turned animations off.

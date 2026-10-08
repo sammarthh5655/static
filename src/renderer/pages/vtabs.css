@@ -24,13 +24,65 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 body.collapsed .vt-fold svg { transform: rotate(180deg); }
 
 .vt-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 8px 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-.vt-group {
-  display: flex; align-items: center; gap: 6px; width: 100%; margin: 8px 0 3px; padding: 4px 8px;
-  border-radius: 8px; font-size: 11.5px; font-weight: 650; letter-spacing: 0.02em;
-  color: var(--group-color, var(--accent));
+/* Group colours are stored pastel; light planets draw them deeper, and text
+   on a filled colour is near-white or near-black as its lightness needs
+   (the same rule as the strip along the top, in chrome.css). */
+.vt-group, .vt-tab.grouped, body.drop-grouped {
+  --group-tone: oklch(from var(--group-color, var(--drop-group, var(--accent))) calc(l - var(--luminous, 0) * (l - min(l - 0.2, 0.52))) calc(c + 0.02 * var(--luminous, 0)) h);
+  --on-group: oklch(from var(--group-tone) clamp(0.2, (0.62 - l) * 100, 0.99) 0.02 h);
 }
-.vt-group::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--group-color, var(--accent)); flex: none; }
-.vt-group:hover { background: var(--surface); }
+body.drop-grouped { --drop-colour: var(--group-tone); }
+
+/* A group's header: a filled pill in its colour, its tab count on the right. */
+.vt-group {
+  display: flex; align-items: center; gap: 6px; max-width: 100%; margin: 8px 0 3px; padding: 0 9px 0 6px; height: 24px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 650; letter-spacing: 0.01em;
+  color: var(--on-group); background: var(--group-tone);
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--group-tone) 25%, transparent);
+  transition: transform 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+}
+.vt-group:hover { filter: brightness(1.06); }
+.vt-group:active { transform: scale(.98); }
+.vt-chevron { display: grid; transition: transform 200ms ease; }
+.vt-chevron svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 2.4; }
+.vt-group:not(.collapsed) .vt-chevron { transform: rotate(90deg); }
+.vt-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.vt-group-count { font-size: 10.5px; opacity: .75; font-variant-numeric: tabular-nums; }
+.vt-group.chip-target { transform: scale(1.03); box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-tone) 40%, transparent); }
+
+/* Pinned tabs: a compact row of favicon squares at the top. */
+.vt-pinned { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 4px; padding: 2px 8px 8px; border-bottom: 1px solid var(--border-soft, var(--border)); margin-bottom: 4px; }
+.vt-pinned[hidden] { display: none; }
+.vt-pin {
+  position: relative; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--surface); color: var(--text-dim);
+  transition: background 120ms ease, transform 160ms ease;
+}
+.vt-pin:hover { background: var(--surface-hover); }
+.vt-pin.active { background: color-mix(in srgb, var(--accent) 22%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+.vt-pin.dragging { opacity: .4; }
+.vt-letter, .vt-pin .vt-letter {
+  width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px;
+  font-size: 11px; font-weight: 700; line-height: 1; color: var(--text);
+  background: color-mix(in srgb, var(--accent) 26%, var(--surface-active, var(--surface)));
+}
+.vt-tab.picked:not(.active), .vt-pin.picked:not(.active) { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* Where a dragged tab will land: a line in the colour of the group it joins. */
+body { --drop-colour: var(--accent); }
+.vt-tab.drop-before::after, .vt-tab.drop-after::after {
+  content: ''; position: absolute; left: 4px; right: 4px; height: 3px; border-radius: 3px; z-index: 2;
+  background: var(--drop-colour); box-shadow: 0 0 10px var(--drop-colour); opacity: 1; width: auto;
+}
+.vt-tab.drop-before::after { top: -3px; bottom: auto; }
+.vt-tab.drop-after::after { bottom: -3px; top: auto; }
+.vt-pin.drop-before::after, .vt-pin.drop-after::after {
+  content: ''; position: absolute; top: 5px; bottom: 5px; width: 3px; border-radius: 3px;
+  background: var(--drop-colour); box-shadow: 0 0 8px var(--drop-colour);
+}
+.vt-pin.drop-before::after { left: -3px; }
+.vt-pin.drop-after::after { right: -3px; }
+.vt-foot[hidden] { display: none; }
 
 .vt-tab {
   position: relative; display: flex; align-items: center; gap: 9px;
@@ -49,10 +101,13 @@ body.collapsed .vt-fold svg { transform: rotate(180deg); }
   background: var(--accent); box-shadow: 0 0 10px var(--accent);
 }
 .vt-tab.grouped { margin-left: 10px; }
-.vt-tab.grouped::after {
-  content: ''; position: absolute; left: -8px; top: 0; bottom: 0; width: 2px; border-radius: 2px;
-  background: var(--group-color, var(--accent)); opacity: 0.7;
+.vt-tab.grouped { background: color-mix(in srgb, var(--group-tone) 7%, transparent); }
+.vt-tab.grouped:hover { background: color-mix(in srgb, var(--group-tone) 14%, var(--surface)); }
+.vt-tab.grouped::before {
+  content: ''; position: absolute; left: -8px; top: 0; bottom: 0; width: 3px; border-radius: 3px;
+  background: var(--group-tone); opacity: 0.9;
 }
+.vt-tab.grouped.active::before { left: -8px; top: 0; bottom: 0; width: 3px; box-shadow: 0 0 10px var(--group-tone); background: var(--group-tone); }
 .vt-tab.sleeping { opacity: 0.55; }
 .vt-tab.drop-target { background: color-mix(in srgb, var(--accent) 25%, var(--surface)); }
 .vt-tab.dragging { opacity: 0.4; }
@@ -81,12 +136,14 @@ body.collapsed .vt-fold svg { transform: rotate(180deg); }
 
 /* Collapsed: favicons only. */
 body.collapsed .vt-label, body.collapsed .vt-title, body.collapsed .vt-close,
-body.collapsed .vt-group span, body.collapsed .vt-workspace { display: none; }
+body.collapsed .vt-workspace { display: none; }
 body.collapsed .vt-head { flex-direction: column; }
 body.collapsed .vt-new { justify-content: center; padding: 0; flex: none; height: 34px; }
 body.collapsed .vt-tab { justify-content: center; padding: 0; }
 body.collapsed .vt-tab.grouped { margin-left: 0; }
-body.collapsed .vt-group { justify-content: center; padding: 4px 0; }
+body.collapsed .vt-group { justify-content: center; padding: 0; }
+body.collapsed .vt-group .vt-chevron, body.collapsed .vt-group-name { display: none; }
+body.collapsed .vt-pinned { grid-template-columns: 1fr; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 

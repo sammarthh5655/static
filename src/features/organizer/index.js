@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { JsonStore } = require('../../main/storage');
-const { CATEGORIES, COLORS, webURL, signature, analyze, aiMetadata, parseGroups } = require('./classify');
+const { CATEGORIES, COLORS, GROUP_COLORS, webURL, signature, analyze, aiMetadata, parseGroups } = require('./classify');
+const { tidyOrder } = require('../tabs/order');
 
 /** Owns organizer metadata, never the tab views. Tab ids remain the extension bridge's ids. */
 class Organizer {
@@ -110,9 +111,10 @@ class Organizer {
       this.groups = this.groups.filter(g => this.tabs().list().some(t => t.groupId === g.id));
       for (const proposal of this.plan.groups) {
         for (const workspace of this.store.data.workspaces) {
-          const ids = proposal.ids.filter(id => this.tabs().tabs.get(id)?.workspaceId === workspace.id);
+          // Pinned tabs stay pinned: a pinned tab is never in a group.
+          const ids = proposal.ids.filter(id => this.tabs().tabs.get(id)?.workspaceId === workspace.id && !this.tabs().tabs.get(id).pinned);
           if (!ids.length) continue;
-          const group = { id: randomUUID(), name: proposal.name, category: proposal.category, color: proposal.color,
+          const group = { id: randomUUID(), name: proposal.name, category: proposal.category, color: this.freeColor(workspace.id, proposal.color),
             workspaceId: workspace.id, collapsed: false };
           this.groups.push(group);
           for (const id of ids) this.tabs().tabs.get(id).groupId = group.id;
@@ -121,20 +123,37 @@ class Organizer {
       this.sortGroups(); this.lastResult = 'Tabs grouped. Drag cards to adjust, or rename a group.';
     });
   }
+  /**
+   * Pinned tabs first, then each group's tabs together where the group
+   * already is. It used to pull every group to the end of the strip, so a tab
+   * dragged in front of a group, or opened beside one, jumped away.
+   */
   sortGroups() {
-    const manager = this.tabs(), ordered = [];
-    for (const workspace of this.store.data.workspaces) {
-      const ids = manager.order.filter(id => manager.tabs.get(id)?.workspaceId === workspace.id);
-      ordered.push(...ids.filter(id => !manager.tabs.get(id).groupId));
-      for (const group of this.groups.filter(g => g.workspaceId === workspace.id)) ordered.push(...ids.filter(id => manager.tabs.get(id).groupId === group.id));
-    }
-    manager.order = [...new Set([...ordered, ...manager.order])];
+    const manager = this.tabs();
+    manager.order = tidyOrder(manager.order, id => manager.tabs.get(id));
+  }
+  /** Groups left with no tabs go: an empty name with nothing to show for it. */
+  dropEmptyGroups() {
+    const used = new Set(this.tabs().list().map(t => t.groupId).filter(Boolean));
+    this.groups = this.groups.filter(g => used.has(g.id));
+  }
+  /**
+   * Groups in a workspace that still hold a tab. A group whose last tab was
+   * closed stays on the books (Reopen closed tab puts the tab back in it), but
+   * it must not keep its colour or its name from the next new group.
+   */
+  liveGroups(workspaceId) {
+    const used = new Set(this.tabs().list().map(t => t.groupId).filter(Boolean));
+    return this.groups.filter(g => g.workspaceId === workspaceId && used.has(g.id));
   }
   group(input) {
     const group = this.groups.find(g => g.id === input?.id);
     if (!group) throw new Error('Group no longer exists.');
+    // The rename box in the chip's menu sends what was typed as `value`.
+    const name = input.name !== undefined ? input.name : input.value;
+    if (name !== undefined) this.name(name);
     return this.action('Edit group', async () => {
-      if (input.name !== undefined) group.name = this.name(input.name);
+      if (name !== undefined) group.name = this.name(name);
       if (COLORS.includes(input.color)) group.color = input.color;
       if (typeof input.collapsed === 'boolean') group.collapsed = input.collapsed;
       this.lastResult = 'Group updated.';
@@ -149,14 +168,89 @@ class Organizer {
     return this.action('Move tabs', async () => {
       for (const id of ids) {
         const tab = this.tabs().tabs.get(id); tab.workspaceId = workspaceId; tab.groupId = group?.id || null;
+        // Into a group means out of the pinned row: a pinned tab is never grouped.
+        if (group) tab.pinned = false;
       }
+      // Dropped into a folded group: open it, or the tab would vanish as it lands.
+      if (group) group.collapsed = false;
       if (ids.includes(this.tabs().activeId)) this.tabs().activeWorkspace = workspaceId;
       if (input.beforeId && !ids.includes(input.beforeId)) {
         const order = this.tabs().order.filter(id => !ids.includes(id)), at = order.indexOf(input.beforeId);
         order.splice(at < 0 ? order.length : at, 0, ...ids); this.tabs().order = order;
       } else this.tabs().order = [...this.tabs().order.filter(id => !ids.includes(id)), ...ids];
-      this.sortGroups(); this.lastResult = 'Tabs moved.';
+      this.dropEmptyGroups(); this.sortGroups(); this.lastResult = 'Tabs moved.';
     });
+  }
+  /**
+   * The tab menu's "Add tab to group": into an existing group, into a new one
+   * named on the spot (groupId 'new'), or out of any group (groupId null).
+   *
+   * The tabs go to the end of the group, as in every other browser. A group
+   * this leaves without tabs is removed, rather than lingering as an empty
+   * name in the next menu with nothing to show for it in the strip.
+   */
+  assign(input) {
+    if (!input || typeof input !== 'object') throw new Error('Choose tabs and a group.');
+    const ids = this.ids(input.ids);
+    if (!ids.length) throw new Error('Those tabs have been closed.');
+    const creating = input.groupId === 'new';
+    const existing = creating || input.groupId == null ? null : this.groups.find(g => g.id === input.groupId);
+    if (!creating && input.groupId != null && !existing) throw new Error('That group no longer exists.');
+    // The menu's name box sends what was typed as `value`.
+    const name = creating ? this.name(input.name ?? input.value) : '';
+    const label = creating ? 'New group' : existing ? 'Add to group' : 'Remove from group';
+    return this.action(label, async () => {
+      const manager = this.tabs(), home = manager.tabs.get(ids[0]).workspaceId || manager.activeWorkspace;
+      let group = existing;
+      if (creating) {
+        group = { id: randomUUID(), name, category: null, color: this.freeColor(home, input.color), workspaceId: home, collapsed: false };
+        this.groups.push(group);
+      }
+      const workspaceId = group?.workspaceId || home;
+      const was = manager.tabs.get(ids[0]).groupId;
+      for (const id of ids) {
+        Object.assign(manager.tabs.get(id), { groupId: group?.id || null, workspaceId });
+        if (group) manager.tabs.get(id).pinned = false;
+      }
+      if (ids.includes(manager.activeId)) manager.activeWorkspace = workspaceId;
+      // A collapsed group would hide the tab the moment it arrived.
+      if (group) group.collapsed = false;
+      // Into a group: behind its last tab. Out of one: just after the group it
+      // left, rather than off at the far end of the strip.
+      const rest = manager.order.filter(id => !ids.includes(id));
+      const target = group ? group.id : was;
+      const last = target ? rest.findLastIndex(id => manager.tabs.get(id)?.groupId === target) : -1;
+      // A brand-new group (or a tab leaving a group that is now empty) stays put.
+      if (last >= 0) rest.splice(last + 1, 0, ...ids);
+      else rest.splice(Math.max(0, manager.order.indexOf(ids[0])), 0, ...ids);
+      manager.order = rest;
+      this.dropEmptyGroups();
+      this.sortGroups();
+      const tabs = ids.length === 1 ? 'Tab' : ids.length + ' tabs';
+      this.lastResult = group ? tabs + ' added to ' + group.name + '.' : tabs + ' taken out of the group.';
+    });
+  }
+  /** A colour no other group in this workspace is wearing, the preferred one if it is free. */
+  freeColor(workspaceId, preferred) {
+    const used = new Set(this.liveGroups(workspaceId).map(g => g.color));
+    if (COLORS.includes(preferred) && !used.has(preferred)) return preferred;
+    return COLORS.find(c => !used.has(c)) || COLORS[this.groups.length % COLORS.length];
+  }
+  /**
+   * The name and colour offered for a new group made from these tabs: what
+   * the organiser would call them ("Coding", "Shopping"), so Enter alone gives
+   * a sensible group, and never a name this workspace already has.
+   */
+  suggestion(ids) {
+    const chosen = new Set(ids), manager = this.tabs();
+    const top = analyze(this.detail().filter(t => chosen.has(t.id)), this.now()).groups
+      .sort((a, b) => b.ids.length - a.ids.length)[0];
+    const workspaceId = manager.tabs.get(ids[0])?.workspaceId || manager.activeWorkspace;
+    const taken = new Set(this.liveGroups(workspaceId).map(g => g.name.toLowerCase()));
+    const base = top?.name || 'New group';
+    let name = base;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = base + ' ' + n;
+    return { name, color: this.freeColor(workspaceId) };
   }
   workspace(name) {
     if (this.store.data.workspaces.length >= 30) throw new Error('Use up to 30 workspaces.');
@@ -170,11 +264,71 @@ class Organizer {
     if (tab) this.tabs().select(tab.id); else this.tabs().create({ workspaceId: id });
     this.onChange();
   }
+  /**
+   * Pinned tabs live at the far left, in the order they were pinned: pinning
+   * puts a tab at the end of that row (and out of any group - a pinned tab is
+   * never grouped), unpinning puts it straight after the row, as in Chrome.
+   */
   pin(ids, pinned) {
-    return this.action('Pin tabs', async () => {
-      for (const id of this.ids(ids)) this.tabs().tabs.get(id).pinned = !!pinned;
+    const chosen = this.ids(ids);
+    return this.action(pinned ? 'Pin tabs' : 'Unpin tabs', async () => {
+      const manager = this.tabs();
+      for (const id of chosen) {
+        const tab = manager.tabs.get(id);
+        tab.pinned = !!pinned;
+        if (pinned) tab.groupId = null;
+      }
+      const rest = manager.order.filter(id => !chosen.includes(id));
+      const row = rest.filter(id => manager.tabs.get(id)?.pinned).length;
+      rest.splice(row, 0, ...chosen);
+      manager.order = rest;
+      this.dropEmptyGroups(); this.sortGroups();
       this.lastResult = pinned ? 'Pinned tabs are protected from cleanup.' : 'Tabs unpinned.';
     });
+  }
+  /** "Ungroup" on a group's chip: the tabs stay where they are, the group goes. */
+  ungroup(id) {
+    const group = this.groups.find(g => g.id === id);
+    if (!group) throw new Error('Group no longer exists.');
+    return this.action('Ungroup', async () => {
+      for (const tab of this.tabs().tabs.values()) if (tab.groupId === group.id) tab.groupId = null;
+      this.groups = this.groups.filter(g => g !== group);
+      this.lastResult = group.name + ' ungrouped.';
+    });
+  }
+  /** "Close group": every tab in it. Undo brings them back, as for duplicates. */
+  closeGroup(id) {
+    const group = this.groups.find(g => g.id === id);
+    if (!group) throw new Error('Group no longer exists.');
+    return this.action('Close group', async before => {
+      const manager = this.tabs();
+      for (const tab of manager.list().filter(t => t.groupId === group.id)) {
+        before.closed.push(tab);
+        await this.wake(tab.id); manager.close(tab.id);
+      }
+      this.groups = this.groups.filter(g => g !== group);
+      this.lastResult = group.name + ' closed. Undo reopens its tabs.';
+    });
+  }
+  /**
+   * Groups from the last session, checked field by field: the file is ours,
+   * but a damaged one must not put an invalid colour or a 5,000-character name
+   * on the strip. Returns old id -> new id, for the restored tabs.
+   */
+  restore(saved) {
+    const ids = new Map();
+    const workspaces = new Set(this.store.data.workspaces.map(w => w.id));
+    for (const entry of Array.isArray(saved) ? saved.slice(0, 200) : []) {
+      if (!entry || typeof entry.id !== 'string') continue;
+      let name;
+      try { name = this.name(entry.name); } catch { continue; }
+      const workspaceId = workspaces.has(entry.workspaceId) ? entry.workspaceId : 'main';
+      const color = /^#[0-9a-f]{6}$/i.test(entry.color || '') ? entry.color : this.freeColor(workspaceId);
+      const group = { id: randomUUID(), name, category: CATEGORIES.includes(entry.category) ? entry.category : null, color,
+        workspaceId, collapsed: entry.collapsed === true };
+      this.groups.push(group); ids.set(entry.id, group.id);
+    }
+    return ids;
   }
   async protected(tab, { allowPinned = false } = {}) {
     const wc = tab?.view.webContents;
@@ -303,6 +457,7 @@ class Organizer {
   state() {
     return { ...this.chromeState(), tabs: this.detail(), plan: this.plan, busy: this.busy, aiBusy: this.aiBusy,
       aiAvailable: !!this.ai?.hasKey(), lastResult: this.lastResult, summary: this.summaryText, colors: COLORS,
+      colorNames: GROUP_COLORS.map(c => c.name),
       undoLabel: this.undoStack.at(-1)?.label || null,
       sessions: this.store.data.sessions.map(s => ({ id: s.id, name: s.name, savedAt: s.savedAt, count: s.tabs.length, summary: s.summary })) };
   }

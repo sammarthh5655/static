@@ -33,6 +33,8 @@ const local = {
   suggestions: [],
   selected: -1,
   dragId: null,
+  // Tabs picked with Ctrl/Cmd-click or Shift-click, to act on together.
+  picked: new Set(),
 };
 
 const invoke = (channel, payload) => window.browser.invoke(channel, payload).catch((error) => {
@@ -220,15 +222,15 @@ window.addEventListener('blur', closeOverlayMenu);
 window.browser.on('ui:menu-closed', closeOverlayMenu);
 
 /**
- * The layout choice, offered wherever the tab strip is right-clicked. The
- * hint says what vertical tabs are for, because the name alone does not.
+ * The layout choice, offered when the empty strip is right-clicked. The
+ * hint says what vertical tabs are for, because the name alone does not -
+ * in one line, not a paragraph.
  */
 function tabLayoutItems() {
   return [
-    { heading: true, label: 'Tab layout' },
     {
       label: 'Show tabs vertically', icon: 'sidebar',
-      hint: 'See whole titles, manage groups easily and free up vertical space. Best with many tabs open.',
+      hint: 'See whole titles, with room for many tabs',
       action: action('settings:update', { tabLayout: 'vertical' }),
     },
   ];
@@ -275,34 +277,47 @@ function openDropped(event, intoTab) {
   return true;
 }
 
-/** Right-click menu for a tab. */
+/** A zero-size anchor at the pointer, in this view's coordinates. */
+function pointAt(event) {
+  return { left: event.clientX, right: event.clientX, top: event.clientY, bottom: event.clientY, width: 0, height: 0 };
+}
+
+/**
+ * Right-click menu for a tab. Main builds it (organizer/menu.js), because the
+ * vertical tab list offers exactly the same one. Right-clicked inside a
+ * selection, it acts on every selected tab.
+ */
 function tabContextMenu(tab, event) {
-  const activeId = state.tabs.find((t) => t.active)?.id;
-  contextMenu([
-    ...(tab.splitWith
-      ? [
-        { label: 'Swap sides', icon: 'split', action: action('split:swap', { id: tab.id }) },
-        { label: 'Exit split view', icon: 'split', hint: 'Both tabs stay open', action: action('split:exit', { id: tab.id }) },
-        { separator: true },
-      ]
-      : tab.id !== activeId
-        ? [{ label: 'Open in split view', icon: 'split', hint: 'Beside the current tab', action: action('split:with', { id: tab.id }) }, { separator: true }]
-        : []),
-    { label: tab.pinned ? 'Unpin tab' : 'Pin tab', icon: 'bookmark', action: action('organizer:pin', { ids: [tab.id], pinned: !tab.pinned }) },
-    { label: state.organizer?.sleeping.includes(tab.id) ? 'Wake tab' : 'Sleep tab', icon: 'clock',
-      action: state.organizer?.sleeping.includes(tab.id) ? action('organizer:wake', { id: tab.id }) : action('organizer:sleep', { ids: [tab.id] }) },
-    { label: 'Reload', icon: 'reload', action: doAction('page:reload') },
-    { label: 'Duplicate', icon: 'plus', action: action('tabs:new', { url: tab.url }) },
-    { separator: true },
-    { label: 'Bookmark', icon: 'star', action: action('bookmarks:toggle', { url: tab.url, title: tab.title }) },
-    { separator: true },
-    ...tabLayoutItems(),
-    { separator: true },
-    {
-      label: 'Close tab', icon: 'close', danger: true, shortcut: accel('tab:close'),
-      action: action('tabs:close', { id: tab.id }),
-    },
-  ], event);
+  event.preventDefault();
+  closeOverlayMenu();
+  const ids = local.picked.has(tab.id) ? [...local.picked] : [tab.id];
+  invoke('tabs:menu', { id: tab.id, ids, anchor: pointAt(event) });
+}
+
+/** Ctrl on Windows and Linux, Cmd on a Mac: add a tab to the selection. */
+const pickKey = (event) => (state.platform === 'darwin' ? event.metaKey : event.ctrlKey);
+
+/**
+ * Click a tab: open it. Ctrl/Cmd-click: add it to (or take it out of) the
+ * selection; Shift-click: select every tab from the open one to this one.
+ * The selection is what the tab menu, pinning and grouping then act on.
+ */
+function clickTab(tab, event, visible) {
+  if (pickKey(event) || event.shiftKey) {
+    const activeId = state.tabs.find((t) => t.active)?.id;
+    if (!local.picked.size && activeId) local.picked.add(activeId);
+    if (event.shiftKey) {
+      const ids = visible.map((t) => t.id);
+      const [a, b] = [ids.indexOf(activeId), ids.indexOf(tab.id)].sort((x, y) => x - y);
+      local.picked = new Set(ids.slice(Math.max(0, a), b + 1));
+    } else if (local.picked.has(tab.id) && local.picked.size > 1) local.picked.delete(tab.id);
+    else local.picked.add(tab.id);
+    renderTabs();
+    return;
+  }
+  local.picked.clear();
+  invoke('tabs:select', { id: tab.id });
+  renderTabs();
 }
 
 /** Right-click menu for a bookmark. */
@@ -330,55 +345,50 @@ function render() {
   renderNotice();
 }
 
-function renderTabs() {
-  // Replacing dragged DOM nodes cancels Chromium's native drag session.
-  if (local.dragId) return;
-  const active = state.tabs.find(t => t.active);
-  el.windowTitle.textContent = active?.title ? active.title + ' — static' : 'static';
-  const organizer = state.organizer || { groups: [], workspaces: [], activeWorkspace: 'main', sleeping: [] };
-  $('workspace-switch').textContent = organizer.workspaces.find(w => w.id === organizer.activeWorkspace)?.name || 'Main';
-  const visible = state.tabs.filter(t => (t.workspaceId || 'main') === organizer.activeWorkspace);
-  const painted = new Set();
-  el.tabs.replaceChildren(...visible.flatMap((tab) => {
-    const group = organizer.groups.find(g => g.id === tab.groupId), nodes = [];
-    if (group && !painted.has(group.id)) {
-      painted.add(group.id);
-      const chip = document.createElement('button');
-      chip.className = 'tab-group-chip'; chip.textContent = (group.collapsed ? '▸ ' : '▾ ') + group.name;
-      chip.title = 'Collapse or expand ' + group.name; chip.dataset.groupId = group.id;
-      chip.style.setProperty('--group-color', group.color); chip.setAttribute('aria-expanded', String(!group.collapsed));
-      chip.addEventListener('click', () => invoke('organizer:group', { id: group.id, collapsed: !group.collapsed }));
-      chip.addEventListener('contextmenu', event => contextMenu([
-        { label: 'Edit in Organizer', icon: 'grid', action: doAction('open:organizer') },
-        { label: 'Save all tabs as session', icon: 'bookmark', action: action('organizer:save-session') },
-      ], event));
-      nodes.push(chip);
-    }
-    if (group?.collapsed && !tab.active) return nodes;
-    const node = document.createElement('div');
-    node.className = 'tab' + (tab.active ? ' active' : '') + (tab.splitSide ? ' split-' + tab.splitSide : '') + (organizer.sleeping.includes(tab.id) ? ' sleeping' : '') + (group ? ' grouped' : '');
-    if (group) node.style.setProperty('--group-color', group.color);
-    node.draggable = true;
-    node.dataset.id = tab.id;
-    node.title = tab.title || '';
+/** A tab's icon: its favicon, a spinner while it loads, or a letter. */
+function tabIcon(tab, size = 16) {
+  if (tab.loading) {
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner';
+    return spinner;
+  }
+  // A pinned tab is ONLY its icon, so a page without one gets its initial
+  // rather than the same anonymous glyph as every other.
+  const letter = () => {
+    const mark = document.createElement('span');
+    mark.className = 'tab-letter';
+    mark.textContent = (tab.title || tab.url || '?').replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '·';
+    return mark;
+  };
+  const fallback = () => (tab.pinned ? letter() : window.ui.icon('search', { size: 14 }));
+  if (!tab.favicon) return fallback();
+  const img = document.createElement('img');
+  img.className = 'favicon';
+  img.width = size; img.height = size;
+  img.src = tab.favicon;
+  img.onerror = () => img.replaceWith(fallback());
+  return img;
+}
 
-    if (tab.loading) {
-      const spinner = document.createElement('div');
-      spinner.className = 'spinner';
-      node.append(spinner);
-    } else if (tab.favicon) {
-      const img = document.createElement('img');
-      img.className = 'favicon';
-      img.src = tab.favicon;
-      img.onerror = () => img.replaceWith(window.ui.icon('search', { size: 14 }));
-      node.append(img);
-    } else {
-      node.append(window.ui.icon('search', { size: 14 }));
-    }
+function tabNode(tab, organizer, visible, group) {
+  const sleeping = organizer.sleeping.includes(tab.id);
+  const node = document.createElement('div');
+  node.className = 'tab' + (tab.active ? ' active' : '') + (tab.pinned ? ' pinned' : '')
+    + (tab.splitSide ? ' split-' + tab.splitSide : '') + (sleeping ? ' sleeping' : '')
+    + (group ? ' grouped' : '') + (local.picked.has(tab.id) ? ' picked' : '');
+  node.draggable = true;
+  node.dataset.id = tab.id;
+  node.title = (tab.title || 'New tab') + (tab.pinned ? ' (pinned)' : '') + (sleeping ? ' - sleeping' : '');
+  node.setAttribute('role', 'tab');
+  node.setAttribute('aria-selected', String(!!tab.active));
+  node.append(tabIcon(tab));
 
+  // A pinned tab is a small square with just its icon, as in Chrome: no
+  // title, no close button. Its title is in the tooltip.
+  if (!tab.pinned) {
     const title = document.createElement('span');
     title.className = 'title';
-    title.textContent = (tab.pinned ? '◆ ' : '') + (organizer.sleeping.includes(tab.id) ? '◌ ' : '') + (tab.title || 'New tab');
+    title.textContent = (sleeping ? '◌ ' : '') + (tab.title || 'New tab');
     node.append(title);
 
     const close = document.createElement('button');
@@ -391,14 +401,100 @@ function renderTabs() {
       invoke('tabs:close', { id: tab.id });
     });
     node.append(close);
+  }
 
-    node.addEventListener('click', () => invoke('tabs:select', { id: tab.id }));
-    node.addEventListener('auxclick', (event) => {
-      if (event.button === 1) invoke('tabs:close', { id: tab.id });
-    });
-    node.addEventListener('contextmenu', (event) => tabContextMenu(tab, event));
-    return [...nodes, node];
-  }));
+  node.addEventListener('click', (event) => clickTab(tab, event, visible));
+  node.addEventListener('auxclick', (event) => {
+    if (event.button === 1) invoke('tabs:close', { id: tab.id });
+  });
+  node.addEventListener('contextmenu', (event) => tabContextMenu(tab, event));
+  return node;
+}
+
+/**
+ * A group's chip: a filled pill in the group's colour, its name, and how
+ * many tabs it holds when folded. Click folds and unfolds; right-click opens
+ * the group's own menu (rename, colour, ungroup, close).
+ */
+function groupChip(group, count) {
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'tab-group-chip' + (group.collapsed ? ' collapsed' : '');
+  chip.dataset.groupId = group.id;
+  chip.title = (group.collapsed ? 'Expand ' : 'Collapse ') + group.name + ' (' + count + (count === 1 ? ' tab)' : ' tabs)');
+  chip.setAttribute('aria-expanded', String(!group.collapsed));
+  const name = document.createElement('span');
+  name.className = 'chip-name';
+  name.textContent = group.name;
+  chip.append(name);
+  if (group.collapsed) {
+    const badge = document.createElement('span');
+    badge.className = 'chip-count';
+    badge.textContent = String(count);
+    chip.append(badge);
+  }
+  chip.addEventListener('click', () => invoke('organizer:group', { id: group.id, collapsed: !group.collapsed }));
+  chip.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    closeOverlayMenu();
+    invoke('organizer:chip-menu', { id: group.id, anchor: pointAt(event) });
+  });
+  return chip;
+}
+
+function renderTabs() {
+  // Replacing dragged DOM nodes cancels Chromium's native drag session.
+  if (local.dragId) return;
+  const active = state.tabs.find(t => t.active);
+  el.windowTitle.textContent = active?.title ? active.title + ' — static' : 'static';
+  const organizer = state.organizer || { groups: [], workspaces: [], activeWorkspace: 'main', sleeping: [] };
+  // The workspace switch says "Main" to someone who has only ever had one
+  // workspace, which means nothing to them. It appears once there is a second;
+  // workspaces stay in the main menu and the Organizer either way.
+  const switcher = $('workspace-switch');
+  switcher.hidden = (organizer.workspaces || []).length < 2;
+  switcher.textContent = organizer.workspaces.find(w => w.id === organizer.activeWorkspace)?.name || 'Main';
+  const visible = state.tabs.filter(t => (t.workspaceId || 'main') === organizer.activeWorkspace);
+  for (const id of [...local.picked]) if (!visible.some((t) => t.id === id)) local.picked.delete(id);
+
+  // Pinned squares first, then a hairline, then everything else - groups
+  // wrapped so their colour runs under the chip and every tab in them.
+  const nodes = [];
+  const pinned = visible.filter((t) => t.pinned);
+  for (const tab of pinned) nodes.push(tabNode(tab, organizer, visible, null));
+  const rest = visible.filter((t) => !t.pinned);
+  if (pinned.length && rest.length) {
+    const rule = document.createElement('span');
+    rule.className = 'pinned-rule';
+    nodes.push(rule);
+  }
+  const wrappers = new Map();
+  for (const tab of rest) {
+    const group = organizer.groups.find(g => g.id === tab.groupId);
+    if (!group) { nodes.push(tabNode(tab, organizer, visible, null)); continue; }
+    let wrap = wrappers.get(group.id);
+    if (!wrap) {
+      const count = rest.filter((t) => t.groupId === group.id).length;
+      wrap = document.createElement('div');
+      wrap.className = 'tab-group' + (group.collapsed ? ' collapsed' : '');
+      wrap.dataset.group = group.id;
+      wrap.style.setProperty('--group-color', group.color);
+      wrap.append(groupChip(group, count));
+      wrappers.set(group.id, wrap);
+      nodes.push(wrap);
+    }
+    // A folded group still shows the tab you are on, so it never vanishes.
+    if (group.collapsed && !tab.active) continue;
+    wrap.append(tabNode(tab, organizer, visible, group));
+  }
+  el.tabs.replaceChildren(...nodes);
+  // A crowded strip shrinks a group's tabs to their 56px minimum like any
+  // other, and no further (see .tab-group in chrome.css): the chip, then each
+  // tab and the 2px gap before it.
+  for (const wrap of wrappers.values()) {
+    const chip = wrap.querySelector('.tab-group-chip');
+    wrap.style.minWidth = (chip.offsetWidth + 2 + wrap.querySelectorAll('.tab').length * 58) + 'px';
+  }
 }
 
 function renderToolbar() {
@@ -682,16 +778,117 @@ el.address.addEventListener('keydown', (event) => {
   }
 });
 
-/* Drag to reorder tabs. The drop index comes from the midpoint of each tab so
-   the insertion point matches where the cursor visually sits. */
+/* ---- dragging tabs -------------------------------------------------------
+   Drag to reorder, and into or out of groups. While a tab is dragged, a bar
+   shows where it will land, in the colour of the group it will join (or the
+   accent when it joins none):
+   - onto a group's chip, or onto any tab in a group: it joins that group;
+   - between two tabs of the same group: it joins that group;
+   - anywhere else, including just past a group's edge: it belongs to none.
+   Pinned tabs move only among pinned tabs, and the rest only among the rest,
+   so a drag never pins or unpins anything by accident. */
+
+/** Where a drop at this pointer position would put the dragged tabs. */
+function dropTarget(event) {
+  const dragged = state.tabs.find((t) => t.id === local.dragId);
+  if (!dragged) return null;
+  const moving = dragIds();
+  const chip = event.target.closest?.('.tab-group-chip');
+  if (chip && !dragged.pinned) return { groupId: chip.dataset.groupId, beforeId: null, chip };
+
+  const nodes = [...el.tabs.querySelectorAll('.tab')]
+    .filter((n) => !moving.includes(n.dataset.id) && n.classList.contains('pinned') === !!dragged.pinned);
+  if (!nodes.length) return { groupId: null, beforeId: null };
+  // Past the last tab - over the + button or the empty strip - is the end of
+  // the row, in no group: the way out of a group that is last in the strip.
+  if (!el.tabs.contains(event.target)) return { groupId: null, beforeId: null, node: nodes.at(-1), side: 'after' };
+  const boxes = nodes.map((n) => n.getBoundingClientRect());
+  const tabOf = (n) => state.tabs.find((t) => t.id === n?.dataset.id);
+  const x = event.clientX;
+  const over = boxes.findIndex((b) => x >= b.left && x <= b.right);
+  if (over >= 0) {
+    // On a tab: its left half goes before it, its right half after - and
+    // into the tab's group, if it has one.
+    const left = x < boxes[over].left + boxes[over].width / 2;
+    return {
+      groupId: dragged.pinned ? null : tabOf(nodes[over])?.groupId || null,
+      beforeId: left ? nodes[over].dataset.id : nodes[over + 1]?.dataset.id || null,
+      node: nodes[over], side: left ? 'before' : 'after',
+    };
+  }
+  // In a gap, or past either end: inside a group only between two of its tabs.
+  let before = boxes.findIndex((b) => x < b.left);
+  if (before < 0) before = nodes.length;
+  const left = tabOf(nodes[before - 1]);
+  const right = tabOf(nodes[before]);
+  return {
+    groupId: !dragged.pinned && left?.groupId && left.groupId === right?.groupId ? left.groupId : null,
+    beforeId: nodes[before]?.dataset.id || null,
+    node: nodes[before] || nodes[before - 1], side: nodes[before] ? 'before' : 'after',
+  };
+}
+
+/** The tabs a drag carries: the selection, if the dragged tab is in it. */
+function dragIds() {
+  return local.picked.has(local.dragId) && local.picked.size > 1 ? [...local.picked] : [local.dragId];
+}
+
+function clearDropMarks() {
+  el.tabs.querySelectorAll('.drop-before, .drop-after, .drop-into, .drop-plain, .chip-target')
+    .forEach((n) => n.classList.remove('drop-before', 'drop-after', 'drop-into', 'drop-plain', 'chip-target'));
+}
+
+function showDrop(target) {
+  clearDropMarks();
+  if (!target) return;
+  // The bar takes the colour of where the tab is going (see chrome.css): a
+  // bar beside a grouped tab is the accent when the tab will join no group.
+  const group = target.groupId ? el.tabs.querySelector(`.tab-group[data-group="${CSS.escape(target.groupId)}"]`) : null;
+  group?.classList.add('drop-into');
+  if (target.chip) { target.chip.classList.add('chip-target'); return; }
+  target.node?.classList.add(target.side === 'before' ? 'drop-before' : 'drop-after');
+  if (!target.groupId) target.node?.classList.add('drop-plain');
+}
+
+/** Drop the dragged tabs where `target` says. */
+function dropTabs(target) {
+  const ids = dragIds();
+  clearDropMarks();
+  local.dragId = null;
+  document.body.classList.remove('tab-dragging');
+  if (!target) return;
+  const workspaceId = state.organizer?.activeWorkspace;
+  invoke('organizer:move', { ids, groupId: target.groupId, workspaceId, beforeId: target.beforeId });
+}
+
 el.tabs.addEventListener('dragstart', (event) => {
   const tab = event.target.closest('.tab');
   if (!tab) return;
   local.dragId = tab.dataset.id;
-  tab.classList.add('dragging');
+  for (const id of dragIds()) el.tabs.querySelector(`.tab[data-id="${CSS.escape(id)}"]`)?.classList.add('dragging');
   event.dataTransfer.effectAllowed = 'move';
+  event.dataTransfer.setData('application/x-static-tab', local.dragId);
+  // The empty strip drags the window, and Windows gives a window-dragging
+  // area no drops; while a tab is dragged it is an ordinary drop zone.
+  document.body.classList.add('tab-dragging');
   // Drop zones appear over the page: drag a tab there to split with it.
   invoke('split:drag', { id: local.dragId });
+});
+
+// Past the end of the tabs (the + button, the empty strip): see dropTarget.
+document.querySelector('.strip')?.addEventListener('dragover', (event) => {
+  if (!local.dragId || el.tabs.contains(event.target)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'move';
+  showDrop(dropTarget(event));
+});
+document.querySelector('.strip')?.addEventListener('drop', (event) => {
+  if (!local.dragId || el.tabs.contains(event.target)) return;
+  event.preventDefault();
+  dropTabs(dropTarget(event));
+});
+document.querySelector('.strip')?.addEventListener('dragleave', (event) => {
+  if (local.dragId && !event.currentTarget.contains(event.relatedTarget)) clearDropMarks();
 });
 
 el.tabs.addEventListener('dragover', (event) => {
@@ -706,10 +903,12 @@ el.tabs.addEventListener('dragover', (event) => {
   }
   event.preventDefault();
   event.dataTransfer.dropEffect = 'move';
+  showDrop(dropTarget(event));
 });
 
-el.tabs.addEventListener('dragleave', () => {
+el.tabs.addEventListener('dragleave', (event) => {
   el.tabs.querySelectorAll('.link-target').forEach((n) => n.classList.remove('link-target'));
+  if (local.dragId && !el.tabs.contains(event.relatedTarget)) clearDropMarks();
 });
 
 el.tabs.addEventListener('drop', (event) => {
@@ -720,25 +919,13 @@ el.tabs.addEventListener('drop', (event) => {
     return;
   }
   event.preventDefault();
-  const groupChip = event.target.closest('[data-group-id]');
-  if (groupChip) {
-    invoke('organizer:move', { ids: [local.dragId], groupId: groupChip.dataset.groupId });
-    local.dragId = null; return;
-  }
-  const nodes = [...el.tabs.querySelectorAll('.tab')].filter(n => n.dataset.id !== local.dragId);
-  let index = nodes.findIndex((node) => {
-    const box = node.getBoundingClientRect();
-    return event.clientX < box.left + box.width / 2;
-  });
-  const targetId = index === -1 ? nodes.at(-1)?.dataset.id : nodes[index]?.dataset.id;
-  const target = state.tabs.find(t => t.id === targetId);
-  if (target) invoke('organizer:move', { ids: [local.dragId], groupId: target.groupId, workspaceId: target.workspaceId,
-    beforeId: index === -1 ? null : targetId });
-  local.dragId = null;
+  dropTabs(dropTarget(event));
 });
 
 el.tabs.addEventListener('dragend', () => {
   local.dragId = null;
+  document.body.classList.remove('tab-dragging');
+  clearDropMarks();
   invoke('split:drag', { id: null });
   el.tabs.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
   renderTabs();
@@ -795,10 +982,10 @@ for (const target of [el.newtab, document.querySelector('.strip-drag'), document
 
 // Right-click on the empty strip: the strip's own menu.
 document.querySelector('.strip')?.addEventListener('contextmenu', (event) => {
-  if (event.target.closest('.tab, .tab-group-chip, button')) return;
+  if (event.target.closest('.tab, .tab-group-chip, .tab-group, button')) return;
   contextMenu([
     { label: 'New tab', icon: 'plus', shortcut: accel('tab:new'), action: doAction('tab:new') },
-    { label: 'Reopen closed tab', icon: 'reload', shortcut: accel('tab:reopen'), action: doAction('tab:reopen') },
+    { label: 'Reopen closed tab', shortcut: accel('tab:reopen'), action: doAction('tab:reopen') },
     { label: 'Organise tabs', icon: 'grid', action: doAction('open:organizer') },
     { separator: true },
     ...tabLayoutItems(),

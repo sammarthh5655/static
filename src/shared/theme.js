@@ -584,6 +584,8 @@ const ICONS = {
   user: { outline: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21a8 8 0 0 1 16 0', fill: null },
   tabs: { outline: 'M3 8h18v12H3ZM3 8l2-4h6l2 4', fill: null },
   split: { outline: 'M3 4h18v16H3ZM12 4v16', fill: null },
+  // A drawing pin, for pinned tabs.
+  pin: { outline: 'M9 3h6l-1 6.5 3.5 3.5v1.5h-11V13L10 9.5zM12 14.5V21', fill: null },
   import: { outline: 'M12 3v12M7 10l5 5 5-5M4 21h16', fill: null },
   doc: { outline: 'M6 3h9l4 4v14H6ZM14 3v5h5M9 13h7M9 17h7', fill: null },
   chat: { outline: 'M4 5h16v11H9l-5 4Z', fill: null },

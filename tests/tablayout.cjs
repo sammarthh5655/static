@@ -90,8 +90,11 @@ async function run(browser) {
     })()`);
     await wait(300);
     const vmenu = browser.lastMenu;
-    check('the vertical list has its own menu, including "Show tabs horizontally"',
-      (vmenu?.items || []).some((i) => i.label === 'Show tabs horizontally'), (vmenu?.items || []).map((i) => i.label).join(' | '));
+    // A tab's menu there is the same as on the strip, with the layout as a
+    // one-line switch (Tabs: Top | Side) rather than an item with a paragraph.
+    check('a tab in the vertical list has the tab menu, with the way back to the top',
+      (vmenu?.items || []).some((i) => i.label === 'Show tabs horizontally' || i.choices?.some((c) => c.value === 'horizontal')),
+      (vmenu?.items || []).map((i) => i.label).join(' | '));
     check('drawn where the pointer is, in window coordinates', vmenu && vmenu.anchor.top >= vb.y, JSON.stringify(vmenu?.anchor));
 
     // Fold to icons.
