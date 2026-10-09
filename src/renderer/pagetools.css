@@ -1,0 +1,228 @@
+/* Page tools in the overlay: the QR code card, the screenshot card and the
+ * area picker (renderer/pagetools-panel.js).
+ *
+ * The cards are menus to everything else - they open, close, take Escape and
+ * a click away like one - so these rules only change how they look. Selectors
+ * name `.menu-qr` and friends without `.menu`, so a closing card (which keeps
+ * only `.menu-ghost`, see ui.js#closeMenu) fades out still looking like itself.
+ *
+ * As with every menu, entrances animate transform, never opacity: a view that
+ * is not being composited can stall an animation, and a stalled transform
+ * leaves something slightly out of place where a stalled fade would leave it
+ * invisible. */
+
+.menu-qr, .menu-shot {
+  width: 316px; max-width: calc(100vw - 24px); max-height: none; overflow: visible; padding: 0;
+  background-image: var(--ambient, none);
+  /* Solid, as the tab search list is: a backdrop blur cannot reach the page
+     under the overlay, which is another view. */
+  background-color: var(--menu-bg-solid, var(--bg-raised));
+  box-shadow: var(--menu-shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent),
+    0 22px 60px -18px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.menu-ghost.menu-qr, .menu-ghost.menu-shot { max-width: calc(100vw - 24px); padding: 0; }
+
+.pt-card { display: flex; flex-direction: column; padding: 12px 12px 10px; }
+
+.pt-head { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+.pt-plate {
+  width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 10px; color: var(--text);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 34%, var(--surface)), color-mix(in srgb, var(--accent-alt) 20%, var(--surface)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 14%, transparent), 0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.pt-words { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pt-title { font-size: 13px; line-height: 17px; font-weight: 650; letter-spacing: -.1px; color: var(--text); }
+.pt-sub { font-size: 11.5px; line-height: 15px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.pt-close { width: 26px; height: 26px; color: var(--text-dim); border-radius: 8px; }
+.pt-close:hover { color: var(--text); }
+
+.pt-actions { display: flex; gap: 8px; margin-top: 12px; }
+.pt-btn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 34px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text);
+  background: color-mix(in srgb, var(--surface) 80%, transparent); cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
+}
+.pt-btn .icon-svg { flex: none; }
+.pt-btn:hover { background: var(--surface-hover); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.pt-btn:active { transform: scale(.97); }
+.pt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pt-btn.is-primary {
+  /* Near-white on a deep accent, near-black on a pale one (as group chips do). */
+  border-color: transparent; color: oklch(from var(--accent) clamp(0.2, (0.62 - l) * 100, 0.99) 0.02 h);
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent-alt) 75%, var(--accent)));
+  box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 22%, transparent);
+}
+.pt-btn.is-primary:hover { filter: brightness(1.08); box-shadow: 0 8px 22px -6px color-mix(in srgb, var(--accent) 85%, transparent), inset 0 1px 0 color-mix(in srgb, #fff 26%, transparent); }
+.pt-btn.is-busy { animation: pt-busy calc(var(--motion-base) * 5) ease-in-out infinite; }
+@keyframes pt-busy { 50% { transform: scale(.97); } }
+.pt-btn.is-done .icon-svg { animation: pt-done calc(var(--motion-base) * 3) cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes pt-done { from { transform: scale(.4) rotate(-25deg); } }
+
+.pt-status {
+  display: flex; align-items: center; gap: 6px; min-height: 0; margin-top: 0;
+  font-size: 11.5px; line-height: 16px; color: var(--text-dim);
+}
+.pt-status.is-in { min-height: 22px; margin-top: 9px; animation: pt-status-in calc(var(--motion-base) * 1.6) cubic-bezier(.2, .9, .25, 1.2); }
+@keyframes pt-status-in { from { transform: translateY(-4px); } }
+.pt-status-glyph {
+  width: 18px; height: 18px; flex: none; display: grid; place-items: center; border-radius: 50%;
+  color: var(--success); background: color-mix(in srgb, var(--success) 16%, transparent);
+  animation: pt-done calc(var(--motion-base) * 3) cubic-bezier(.3, 1.6, .5, 1);
+}
+.pt-status.is-error .pt-status-glyph { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.pt-status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-link {
+  flex: none; padding: 1px 2px; border: 0; background: none; font: inherit; font-weight: 600; color: var(--accent); cursor: pointer;
+  text-decoration: underline 1px color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px;
+}
+.pt-link:hover { text-decoration-color: var(--accent); }
+
+/* ---- the QR code ----------------------------------------------------------
+   Black on white whatever the planet - a scanner needs the contrast - on a
+   plate lit from behind by the planet's own colours, turning slowly. */
+.qr-stage { position: relative; display: grid; place-items: center; padding: 6px 0 4px; isolation: isolate; }
+.qr-halo {
+  position: absolute; z-index: -1; width: 212px; height: 212px; border-radius: 40px;
+  background: conic-gradient(from 0deg, var(--accent), var(--accent-alt), color-mix(in srgb, var(--accent) 40%, transparent), var(--accent-alt), var(--accent));
+  filter: blur(22px); opacity: .55;
+  animation: qr-halo calc(var(--motion-base) * 70) linear infinite;
+}
+@keyframes qr-halo { to { transform: rotate(360deg); } }
+.qr-plate {
+  width: 212px; height: 212px; padding: 0; border-radius: 22px; background: #fff;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .6) inset, 0 14px 34px -10px rgba(0, 0, 0, .55), 0 0 0 1px rgba(0, 0, 0, .06);
+}
+.qr-plate.is-arriving { animation: qr-plate-in calc(var(--motion-base) * 3) cubic-bezier(.2, .9, .25, 1.15); }
+@keyframes qr-plate-in { from { transform: scale(.86) rotate(-3deg); } }
+.qr-svg { display: block; width: 100%; height: 100%; }
+.qr-modules rect, .qr-finder { fill: #111114; }
+.qr-plate.is-arriving .qr-modules rect {
+  transform-box: fill-box; transform-origin: center;
+  animation: qr-module-in calc(var(--motion-base) * 2.4) cubic-bezier(.3, 1.5, .5, 1) backwards;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes qr-module-in { from { transform: scale(.25); } }
+.qr-plate.is-arriving .qr-finder { transform-box: fill-box; transform-origin: center; animation: qr-finder-in calc(var(--motion-base) * 3) cubic-bezier(.3, 1.6, .5, 1) backwards; }
+@keyframes qr-finder-in { from { transform: scale(.5) rotate(-45deg); } }
+
+.qr-where { margin-top: 12px; padding: 8px 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 70%, transparent); box-shadow: inset 0 0 0 1px var(--border-soft); }
+.qr-page { font-size: 12.5px; line-height: 17px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qr-url {
+  margin-top: 1px; font-size: 11.5px; line-height: 15px; color: var(--text-dim); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; user-select: text;
+}
+
+/* ---- a screenshot ---------------------------------------------------------- */
+.shot-frame {
+  position: relative; height: 178px; border-radius: 12px; overflow: hidden;
+  background:
+    repeating-conic-gradient(color-mix(in srgb, var(--surface) 90%, transparent) 0 25%, color-mix(in srgb, var(--surface-hover) 90%, transparent) 0 50%) 0 0 / 14px 14px;
+  box-shadow: inset 0 0 0 1px var(--border-soft), 0 10px 28px -14px rgba(0, 0, 0, .7);
+}
+.shot-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transition: transform calc(var(--motion-base) * 2) var(--ease); }
+.shot-frame.is-tall .shot-img { object-fit: cover; object-position: top center; }
+/* A tall page fades out at the bottom: there is more than the card shows. */
+.shot-frame.is-tall::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 46px; pointer-events: none;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--bg-raised) 92%, transparent));
+}
+.shot-frame:hover .shot-img { transform: scale(1.025); }
+.shot-frame.is-arriving .shot-img { visibility: hidden; }
+.shot-flash { position: fixed; z-index: 200; pointer-events: none; background: #fff; opacity: 0; border-radius: 2px; }
+.shot-ghost {
+  position: fixed; z-index: 201; pointer-events: none; object-fit: contain; transform-origin: 0 0;
+  background: var(--bg-raised); border-radius: 10px;
+}
+.shot-ghost.is-tall { object-fit: cover; object-position: top center; }
+
+/* ---- choosing an area -------------------------------------------------------
+   The page, frozen, under a veil; the chosen part cut out of it, outlined in
+   the planet's light, with its size and a Capture button beside it. */
+.menu-region, .menu-ghost.menu-region {
+  inset: 0; width: 100vw; height: 100vh; min-width: 0; max-width: none; max-height: none; overflow: hidden;
+  padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none; animation: none;
+}
+.menu-ghost.menu-region { animation: rg-out var(--motion-base) var(--ease); }
+@keyframes rg-out { from { opacity: 1; } to { opacity: 0; } }
+.rg-stage { position: absolute; overflow: hidden; cursor: crosshair; touch-action: none; user-select: none; }
+.rg-stage[data-over=move] { cursor: move; }
+.menu-region.is-dragging .rg-stage { cursor: crosshair; }
+.rg-shot { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.rg-shade { position: absolute; inset: 0; background: rgba(4, 6, 12, .46); animation: rg-veil calc(var(--motion-base) * 1.6) var(--ease); }
+@keyframes rg-veil { from { background: rgba(4, 6, 12, 0); } }
+.rg-shade[hidden] { display: none; }
+
+.rg-guide { position: absolute; left: 0; top: 0; pointer-events: none; background: color-mix(in srgb, var(--accent) 70%, #fff); opacity: .55; }
+.rg-guide.is-x { width: 100%; height: 1px; }
+.rg-guide.is-y { width: 1px; height: 100%; }
+.rg-guide[hidden] { display: none; }
+
+.rg-sel {
+  position: absolute; box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, #fff);
+  box-shadow: 0 0 0 100vmax rgba(4, 6, 12, .52), 0 0 0 1px rgba(0, 0, 0, .35), 0 0 22px color-mix(in srgb, var(--accent) 60%, transparent);
+  cursor: move;
+}
+.rg-sel[hidden] { display: none; }
+.menu-region.is-dragging .rg-sel { cursor: inherit; }
+.rg-handle {
+  position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 2px var(--accent), 0 2px 6px rgba(0, 0, 0, .4);
+  transition: transform var(--motion-fast) var(--ease);
+}
+.rg-handle:hover { transform: scale(1.3); }
+.rg-handle.is-nw { left: 0; top: 0; cursor: nwse-resize; }
+.rg-handle.is-n { left: 50%; top: 0; cursor: ns-resize; }
+.rg-handle.is-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.rg-handle.is-e { left: 100%; top: 50%; cursor: ew-resize; }
+.rg-handle.is-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.rg-handle.is-s { left: 50%; top: 100%; cursor: ns-resize; }
+.rg-handle.is-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.rg-handle.is-w { left: 0; top: 50%; cursor: ew-resize; }
+.menu-region.is-dragging .rg-handle { opacity: 0; }
+
+.rg-size {
+  position: absolute; left: -1px; bottom: calc(100% + 7px); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  font-size: 11px; line-height: 16px; font-weight: 600; font-variant-numeric: tabular-nums; color: #fff;
+  background: rgba(10, 12, 18, .82); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 4px 12px rgba(0, 0, 0, .4);
+  pointer-events: none;
+}
+.rg-size.is-inside { bottom: auto; top: 7px; left: 7px; }
+
+.rg-hint {
+  position: absolute; left: 50%; top: 18px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 9px; padding: 8px 14px 8px 12px; border-radius: 999px; white-space: nowrap;
+  font-size: 12.5px; color: #fff; pointer-events: none;
+  background: rgba(10, 12, 18, .78);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), 0 10px 30px rgba(0, 0, 0, .45), 0 0 26px -6px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: rg-hint-in calc(var(--motion-base) * 2.4) cubic-bezier(.2, .9, .25, 1.2);
+  transition: transform var(--motion-base) var(--ease), opacity var(--motion-base) var(--ease);
+}
+.rg-hint .icon-svg { color: color-mix(in srgb, var(--accent) 70%, #fff); }
+@keyframes rg-hint-in { from { transform: translate(-50%, -14px); } }
+.rg-hint.is-gone { opacity: 0; transform: translate(-50%, -8px); }
+.rg-hint-keys { color: rgba(255, 255, 255, .6); font-size: 11.5px; }
+.rg-hint kbd {
+  display: inline-block; min-width: 20px; margin-right: 3px; padding: 0 5px; border: 1px solid rgba(255, 255, 255, .25); border-bottom-width: 2px;
+  border-radius: 5px; font: inherit; font-size: 10.5px; line-height: 15px; text-align: center; color: #fff;
+}
+
+.rg-bar {
+  position: absolute; display: flex; gap: 6px; padding: 5px; border-radius: 14px;
+  background: var(--menu-bg-solid, var(--bg-raised)); background-image: var(--ambient, none);
+  box-shadow: var(--menu-shadow), 0 0 0 1px var(--border);
+  animation: rg-bar-in calc(var(--motion-base) * 1.8) cubic-bezier(.2, .9, .25, 1.25);
+}
+.rg-bar[hidden] { display: none; }
+@keyframes rg-bar-in { from { transform: translateY(-6px) scale(.96); } }
+.rg-bar .pt-btn { flex: none; height: 30px; padding: 0 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-halo, .qr-plate.is-arriving, .qr-plate.is-arriving .qr-modules rect, .qr-plate.is-arriving .qr-finder,
+  .pt-status.is-in, .pt-status-glyph, .pt-btn.is-done .icon-svg, .pt-btn.is-busy,
+  .rg-shade, .rg-hint, .rg-bar, .menu-ghost.menu-region { animation: none; }
+  .shot-img, .rg-handle, .rg-hint { transition: none; }
+}

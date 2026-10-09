@@ -1,6 +1,6 @@
 ﻿const INTERNAL_PAGES = new Set(['newtab', 'bookmarks', 'history', 'extensions', 'downloads', 'settings', 'ai',
   'dashboard', 'notes', 'focus', 'resources', 'safety',
-  'student', 'legal', 'shopping', 'shields', 'passwords', 'autofill', 'organizer', 'screentime', 'health', 'welcome', 'guide', 'profiles', 'edge', 'licences', 'help']);
+  'student', 'legal', 'shopping', 'shields', 'passwords', 'autofill', 'organizer', 'screentime', 'health', 'welcome', 'guide', 'profiles', 'edge', 'licences', 'help', 'reader']);
 const ENGINES = { google: 'https://www.google.com/search?q=', brave: 'https://search.brave.com/search?q=' };
 function internalPage(input) {
   try { const u = new URL(input); return u.protocol === 'browser:' && INTERNAL_PAGES.has(u.hostname) ? u.hostname : null; }
@@ -34,6 +34,19 @@ function resolveInput(input, engine = 'google') {
   }
   return (ENGINES[engine] || ENGINES.google) + encodeURIComponent(value);
 }
+/**
+ * The web page a browser://reader address is showing, or ''. Reading view
+ * keeps the article's own address in the address bar, so a bookmark, a
+ * shared link or a reopened tab is the article and not Static's page.
+ */
+function readerSource(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'browser:' || u.hostname !== 'reader') return '';
+    const source = new URL(u.searchParams.get('url') || '');
+    return source.protocol === 'http:' || source.protocol === 'https:' ? source.href : '';
+  } catch { return ''; }
+}
 function securityState(url, error) {
   if (error) return 'error';
   if (internalPage(url) || url === 'about:blank') return 'internal';
@@ -41,4 +54,4 @@ function securityState(url, error) {
   if (url.startsWith('static-file://')) return 'file';
   return url.startsWith('https://') ? 'secure' : 'insecure';
 }
-module.exports = { ENGINES, INTERNAL_PAGES, internalPage, allowedURL, resolveInput, securityState };
+module.exports = { ENGINES, INTERNAL_PAGES, internalPage, allowedURL, resolveInput, securityState, readerSource };

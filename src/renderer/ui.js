@@ -151,6 +151,15 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       root.append(window.tabSearchPanel(item, { close: closeMenu }));
       continue;
     }
+    // A page tool's card (renderer/pagetools-panel.js): a QR code, a
+    // screenshot to copy or save, or the area picker over the whole page.
+    const tool = item && window.pageToolPanels ? ['qr', 'shot', 'region'].find((kind) => item[kind]) : null;
+    if (tool) {
+      root.classList.add('menu-tool', 'menu-' + tool);
+      root.setAttribute('aria-label', { qr: 'QR code for this page', shot: 'Screenshot', region: 'Select an area' }[tool]);
+      root.append(window.pageToolPanels[tool](item, { close: closeMenu, root }));
+      continue;
+    }
     if (!item || item.separator) {
       const divider = document.createElement('div');
       divider.className = 'menu-divider';
@@ -422,6 +431,8 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
   // otherwise sit partly off-screen. Its own max-height makes it scroll.
   top = Math.max(margin, Math.min(top, window.innerHeight - box.height - margin));
   if (box.height > window.innerHeight - margin * 2) top = margin;
+  // The area picker covers the whole window; it is not placed against anything.
+  if (root.classList.contains('menu-region')) left = top = 0;
   root.style.left = Math.round(left) + 'px';
   root.style.top = Math.round(top) + 'px';
 
@@ -433,7 +444,7 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
   openMenu = { root, onClose, onOutside, passive, width: window.innerWidth, height: window.innerHeight };
   // A passive menu (autofill suggestions) does not take the keyboard from the
   // page; the down arrow in the field moves into it (see focusMenu).
-  if (!passive) (root.querySelector('.menu-field input, .tabsearch-input') || root.querySelector('.menu-item:not(:disabled)'))?.focus({ preventScroll: true });
+  if (!passive) (root.querySelector('.menu-field input, .tabsearch-input') || root.querySelector('.menu-item:not(:disabled), [data-autofocus]'))?.focus({ preventScroll: true });
   return root;
 }
 

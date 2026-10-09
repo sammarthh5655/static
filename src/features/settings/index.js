@@ -32,6 +32,12 @@ const DEFAULTS = {
   verticalTabsCollapsed: false,
   /** Rest the pointer on a tab for a moment: a card with a picture of the page. */
   tabPreviews: true,
+  /**
+   * Reading view: text size in pixels, how wide the column runs, the
+   * typeface, and the colours. An empty theme follows Static's own: a dark
+   * planet reads in dark, a light one in light, until a choice is made.
+   */
+  reader: { size: 20, width: 'medium', font: 'serif', theme: '' },
 
   // Appearance. Every one of these feeds shared/theme.js#cssVariables, which
   // is the only place that turns them into actual CSS.
@@ -172,6 +178,7 @@ class Settings {
     next.fontSize = clampSize(next.fontSize, DEFAULTS.fontSize);
     next.accentCustom = normalizeHex(next.accentCustom) || '';
     next.newTab = this.#normaliseNewTab(next.newTab);
+    next.reader = normaliseReader(next.reader);
     return next;
   }
 
@@ -250,6 +257,7 @@ class Settings {
       else if (key === 'accentCustom') next[key] = normalizeHex(value) || '';
       else if (key === 'fontSize') next[key] = clampSize(value, DEFAULTS.fontSize);
       else if (key === 'newTab') next[key] = this.#normaliseNewTab({ ...next.newTab, ...value });
+      else if (key === 'reader' && value && typeof value === 'object') next[key] = normaliseReader({ ...next.reader, ...value });
       else throw new Error('Invalid setting: ' + key);
     }
     // A theme naming a planet that does not exist (or was just removed) falls
@@ -276,6 +284,18 @@ class Settings {
     this.store.save(this.value);
     return this.value;
   }
+}
+
+/** Reading view preferences, each from its own short list. */
+function normaliseReader(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const size = Number(source.size);
+  return {
+    size: Number.isFinite(size) ? Math.max(14, Math.min(32, Math.round(size))) : DEFAULTS.reader.size,
+    width: ['narrow', 'medium', 'wide'].includes(source.width) ? source.width : DEFAULTS.reader.width,
+    font: ['serif', 'sans'].includes(source.font) ? source.font : DEFAULTS.reader.font,
+    theme: ['', 'light', 'sepia', 'dark'].includes(source.theme) ? source.theme : DEFAULTS.reader.theme,
+  };
 }
 
 /** Font sizes outside this range make the UI unusable. */

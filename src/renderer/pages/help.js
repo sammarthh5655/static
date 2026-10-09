@@ -28,9 +28,15 @@ const GUIDE = [
   ['Make it yours', 'Pick a planet in Settings → Appearance, or forge your own. On a new tab, Customise changes the wallpaper and lets you drag widgets anywhere.'],
   ['Shields', 'Ads and trackers are blocked before they load. If a site breaks, turn Shields off for that site from the shield icon.'],
   ['Profiles', 'Separate spaces with their own history, logins and look. Make one from the profile picker or Settings → Profiles.'],
+  ['Reading view', 'On an article, the book in the address bar (or F9) shows just the story: the words and pictures, in light, sepia or dark, at the size and width you like. One click takes you back.'],
+  ['Screenshots', 'Right-click a page, or open the menu, and choose Screenshot: what is on screen, the whole page, or an area you drag across. Copy it, or save it to Pictures › Static Screenshots.'],
+  ['QR codes', 'Rest the pointer on the address bar and press the QR button to open the page on your phone. The code is made on this computer; the address is not sent anywhere.'],
 ];
 
 const NEW = [
+  ['Reading view', 'Articles on their own: clean type, light, sepia or dark, and no clutter.'],
+  ['Screenshots', 'The visible area, the whole page, or a part you select, to copy or save.'],
+  ['QR codes', 'Any page as a QR code, made on this computer, to scan with a phone.'],
   ['Split view', 'Two pages side by side in one tab, with a handle to resize.'],
   ['Vertical tabs', 'Tabs down the side, from the tab strip\'s right-click menu.'],
   ['Right-click menus', 'For pages, links, images, video, text fields and selections.'],

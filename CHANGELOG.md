@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Reading view, screenshots and QR codes
+
+- Reading view: a book in the address bar on pages that read like articles
+  (F9, or the page's right-click menu). The article is extracted in an isolated
+  world, rebuilt in main from an allow-list (no scripts, handlers, styles or
+  non-http(s) addresses) and shown at browser://reader with its title, site,
+  byline, date and reading time; text size, column width, serif or sans, and
+  light, sepia or dark are remembered. Pictures load with no referrer. One
+  click, or Escape, goes back to the page.
+- Screenshots from the page's right-click menu and the main menu: the visible
+  area, the full page (DevTools protocol, captured beyond the viewport) or a
+  dragged, adjustable area, to a card with Copy and Save (Pictures › Static
+  Screenshots).
+- QR code for this page, from the address bar and the right-click menu, made
+  by Static's own encoder with no network, with Copy image and Save.
+- Unit tests for the QR encoder (checked by an independent strict decoder) and
+  the reading view sanitiser; an off-screen probe (tests/pagetools.cjs) that
+  uses all three with real clicks and decodes the QR codes it shows and saves,
+  and one (tests/readerweb.cjs, needs the network) that opens reading view on
+  real sites: an encyclopaedia, documentation, a hand-made essay laid out in
+  tables with <br> paragraphs, GOV.UK's folded accordions and two blogs.
+  A third (tests/pagetoolsedge.cjs) leans on the corners: a hostile article
+  that rewrites the DOM in its own world and hides script in SVG, MathML,
+  frames and odd addresses; Back through two articles read in one tab; full
+  page captures of scrolled, zoomed and over-tall pages; and the area picker
+  resized and moved by its handles.
+
 ### Added — Organizer and Screen Time
 
 - Organizer Mode with local topic suggestions and optional Gemini 3 Flash Preview

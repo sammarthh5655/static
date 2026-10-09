@@ -27,7 +27,7 @@ function isWeb(url) { return /^https?:\/\//i.test(url || ''); }
  * Build the menu for one right-click.
  *
  * @param {Electron.ContextMenuParams} params
- * @param {object} ctx { canGoBack, canGoForward, pageUrl, extensionItems, has: {incognito, split} }
+ * @param {object} ctx { canGoBack, canGoForward, pageUrl, shownUrl, extensionItems, has: {incognito, split, pageTools, reader} }
  */
 function buildItems(params, ctx) {
   const items = [];
@@ -120,6 +120,16 @@ function buildItems(params, ctx) {
       isWeb(ctx.pageUrl) ? { label: 'Translate to ' + languageName(), icon: 'chat', action: run('translate') } : null,
       { label: 'Select all', action: run('select-all'), shortcut: 'Ctrl+A' },
     ]);
+    // Things to make of the page: a picture of it, a code to scan it onto a
+    // phone, and the article on its own. Screenshot opens its three kinds
+    // where this menu was, as "Add tab to group" does.
+    if (ctx.has.pageTools) {
+      section([
+        { label: 'Screenshot', icon: 'camera', more: true, action: run('screenshot') },
+        isWeb(ctx.shownUrl || ctx.pageUrl) ? { label: 'QR code for this page', icon: 'qr', action: run('qr') } : null,
+        ctx.has.reader ? { label: 'Open in reading view', icon: 'reader', shortcut: 'F9', action: run('reader') } : null,
+      ]);
+    }
   }
 
   // Anything extensions registered with chrome.contextMenus.
@@ -249,6 +259,10 @@ async function runCommand(browser, target, command, arg) {
     case 'save-note': await browser.captureNote?.(); break;
 
     case 'block-element': browser.startElementPicker?.(tabId, params.x, params.y); break;
+    // `more`: the overlay stays up for the next menu only if this says one is coming.
+    case 'screenshot': return !!browser.pageTools?.screenshotMenu(tabId, browser.lastPageMenu?.anchor, 'left');
+    case 'qr': browser.pageTools?.showQr(tabId, browser.lastPageMenu?.anchor, 'left'); break;
+    case 'reader': await browser.pageTools?.toggleReader(tabId); break;
     case 'extension': {
       const item = target.extensionItems?.[Number(arg)];
       if (item && typeof item.click === 'function') item.click();

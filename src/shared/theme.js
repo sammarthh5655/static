@@ -608,6 +608,18 @@ const ICONS = {
   wave: { outline: 'M2 10c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-2M2 16c2.5-3 5-3 7.5 0s5 3 7.5 0 3.5-3 5-2', fill: null },
   peak: { outline: 'M3 20l6-10 4 6 3-4 5 8Z', fill: null },
   incognito: { outline: 'M3 11h18M6 11l2-6h8l2 6M7 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM17 20a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM10 17h4', fill: null },
+  // Page tools: reading view, screenshots and QR codes.
+  reader: {
+    outline: 'M12 6.6C10.3 5.3 7.8 4.6 4 4.6v13.2c3.8 0 6.3.7 8 2 1.7-1.3 4.2-2 8-2V4.6c-3.8 0-6.3.7-8 2ZM12 6.6v13.2',
+    fill: 'M11.2 6C9.4 4.9 7 4.3 4 4.3a.8.8 0 0 0-.8.8v12.6c0 .5.4.8.8.8 3.2 0 5.4.6 7.2 1.8ZM12.8 6c1.8-1.1 4.2-1.7 7.2-1.7.4 0 .8.4.8.8v12.6c0 .5-.4.8-.8.8-3.2 0-5.4.6-7.2 1.8Z',
+  },
+  camera: { outline: 'M4 7.5h3.2l1.6-2.5h6.4l1.6 2.5H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1ZM12 16a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z', fill: null },
+  qr: { outline: 'M4 4h6v6H4ZM14 4h6v6h-6ZM4 14h6v6H4ZM14 14h2.5v2.5H14ZM17.5 17.5H20V20h-2.5ZM14 20h.01M20 14h.01', fill: null },
+  shot_visible: { outline: 'M4 8.5V5a1 1 0 0 1 1-1h3.5M15.5 4H19a1 1 0 0 1 1 1v3.5M20 15.5V19a1 1 0 0 1-1 1h-3.5M8.5 20H5a1 1 0 0 1-1-1v-3.5M8 9h8v6H8Z', fill: null },
+  shot_full: { outline: 'M7 2.5h10a1 1 0 0 1 1 1v17a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-17a1 1 0 0 1 1-1ZM9 6.5h6M9 9.5h6M9 12.5h4M12 15v4M10 17l2 2 2-2', fill: null },
+  crop: { outline: 'M6 2.5V16a2 2 0 0 0 2 2h13.5M18 21.5V8a2 2 0 0 0-2-2H2.5', fill: null },
+  copy: { outline: 'M9 9h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1ZM5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1', fill: null },
+  folder: { outline: 'M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5Z', fill: null },
 };
 
 /**

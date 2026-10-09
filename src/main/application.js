@@ -38,6 +38,7 @@ const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
+const { PageTools } = require('../features/pagetools');
 const wallpapers = require('../features/wallpapers');
 const feedback = require('../features/feedback');
 const importer = require('../features/importer');
@@ -265,6 +266,13 @@ class BrowserApplication {
     });
 
     this.productivity = new Productivity(this);
+    // Reading view, screenshots and QR codes. Their cards are drawn in the
+    // overlay like any menu, so they are handed the same way to draw one.
+    this.pageTools = new PageTools(this, {
+      showMenu: (items, anchor, align) => this.#showMenu(items, anchor, align),
+      anchor: () => this.#promptAnchor(),
+      tabOf: (contents) => (this.tabs ? this.#tabByContents(contents) : null),
+    });
     this.#hardenSession();
     this.#installRequestFilter();
     this.#installCookiePolicy();
@@ -539,11 +547,16 @@ class BrowserApplication {
       canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(),
       pageUrl: contents.getURL(),
+      // What the address bar shows: reading view is our page, but its QR
+      // code is of the article.
+      shownUrl: tab.state.displayUrl,
       extensionItems,
       has: {
         incognito: typeof this.openIncognito === 'function',
         split: typeof this.openSplit === 'function',
         blockElement: typeof this.startElementPicker === 'function',
+        pageTools: !!this.pageTools,
+        reader: !!this.pageTools?.readerState(tab).available,
       },
     });
     // params are in the page's own coordinates; the overlay spans the window.
@@ -787,6 +800,8 @@ class BrowserApplication {
         this.attachShortcuts(contents);
         this.attachScriptlets(contents);
         contents.on('context-menu', (_event, params) => this.openPageMenu(contents, params));
+        // Whether each page reads like an article, for the reading view button.
+        this.pageTools?.watch(contents);
         // A new page in the tab on screen: its hover card's picture is retaken.
         contents.on('did-stop-loading', () => {
           if (this.tabs?.active?.view.webContents === contents) this.#settleSnapshot();
@@ -2192,6 +2207,8 @@ class BrowserApplication {
       bookmarks: this.bookmarks.list(),
       bookmarked: this.#activeIsBookmarked(),
       saved: this.#activeSaved(),
+      // The book in the address bar: offered on articles, lit in reading view.
+      reader: this.pageTools?.readerState(this.tabs?.active) || null,
       downloads: this.downloads.list().slice(0, 100),
       // The new tab page builds its most-visited grid from this slice.
       history: this.history.store.data.slice(0, 300),
@@ -2298,6 +2315,7 @@ class BrowserApplication {
   #registerIpc() {
     const handlers = {
       ...this.productivity.handlers(),
+      ...this.pageTools.handlers(),
       'app:state': () => this.state(),
 
       'ui:layout': () => { this.layout(); return true; },
@@ -4266,6 +4284,7 @@ class BrowserApplication {
       case 'open:legal': open('browser://legal'); break;
       case 'open:shopping': open('browser://shopping'); break;
       case 'notes:capture': this.captureNote(); break;
+      case 'page:reader': if (this.tabs.activeId) this.pageTools?.toggleReader(this.tabs.activeId); break;
       case 'open:extensions': open('browser://extensions'); break;
 
       case 'window:devtools': {

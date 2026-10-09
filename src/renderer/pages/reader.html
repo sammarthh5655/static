@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- The article's own pictures come from the web (img-src https: http:),
+       and are asked for with no referrer, so the site does not learn they
+       were read in reading view. Everything else stays local: no remote
+       script, style or font, and no inline anything. The article itself is
+       built with createElement from main's cleaned tree, never parsed. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: https: http:">
+  <meta name="referrer" content="no-referrer">
+  <title>Reading view</title>
+  <link rel="stylesheet" href="pages.css">
+  <link rel="stylesheet" href="reader.css">
+</head>
+<body class="reader" data-theme="dark" data-font="serif" data-width="medium">
+  <div class="rd-progress" id="progress" aria-hidden="true"><i></i></div>
+
+  <header class="rd-bar" id="bar">
+    <button class="rd-back" id="back" type="button" title="Back to the page (Esc)"></button>
+    <div class="rd-where" id="where" aria-live="polite"></div>
+    <div class="rd-tools" id="tools" role="toolbar" aria-label="Reading view settings"></div>
+  </header>
+
+  <main class="rd-page">
+    <article class="rd-article" id="article" aria-busy="true">
+      <div class="rd-loading" id="loading"><span></span><span></span><span></span></div>
+    </article>
+  </main>
+
+  <script src="../../shared/theme.js"></script>
+  <script src="common.js"></script>
+  <script src="reader.js"></script>
+</body>
+</html>

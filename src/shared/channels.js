@@ -47,6 +47,8 @@ module.exports = {
     'passwords:passkeys', 'passwords:remove-passkey', 'passwords:answer', 'passwords:unlock-menu', 'autofill:no-auto-remove',
     'passwords:add', 'passwords:update', 'passwords:details', 'passwords:key-menu', 'menu:passthrough',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
+    'shot:menu', 'shot:take', 'shot:region', 'shot:copy', 'shot:save', 'shot:reveal',
+    'qr:show', 'reader:toggle', 'reader:article', 'reader:leave',
   ],
   events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'ui:menu-focus', 'ui:tab-preview', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'passwords:changed', 'organizer:changed', 'screentime:changed'],
 };

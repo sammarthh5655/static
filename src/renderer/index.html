@@ -48,6 +48,12 @@
       <span class="security" id="security"></span>
       <input id="address" type="text" spellcheck="false" autocomplete="off"
              placeholder="Search Google or type a URL">
+      <!-- Page tools: a QR code of the address (shown while the pointer is on
+           the bar), and the article on its own (offered only on articles).
+           The QR code comes first so that, appearing, it moves nothing the
+           pointer may be heading for. -->
+      <button class="icon-btn omni-tool qr" id="qr" title="QR code for this page" hidden></button>
+      <button class="icon-btn omni-tool reader" id="reader" title="Reading view" hidden></button>
       <button class="icon-btn key" id="key" title="Saved passwords for this site" hidden></button>
       <button class="icon-btn star" id="star" title="Bookmark this page"></button>
       <div class="suggestions" id="suggestions" hidden></div>

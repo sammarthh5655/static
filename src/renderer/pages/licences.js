@@ -83,6 +83,25 @@ const CREDITS = [
     obligation: 'Used as data, unmodified, and downloaded from the original source.',
   },
   {
+    name: 'Readability, the method',
+    licence: 'Apache-2.0',
+    what:
+      'Reading view finds the article on a page the way Mozilla\'s Readability made standard: ' +
+      'score the paragraphs, credit what holds them, set aside link-heavy furniture. ' +
+      'Static\'s extractor is its own, written from that description.',
+    url: 'https://github.com/mozilla/readability',
+    obligation: 'None: no Readability code is included. Credited because the approach is theirs.',
+  },
+  {
+    name: 'QR Code',
+    licence: 'ISO/IEC 18004',
+    what:
+      'The QR codes Static draws for a page are made on this computer by its own encoder. ' +
+      'Nothing is sent anywhere to make one.',
+    url: 'https://www.qrcode.com/en/faq.html',
+    obligation: '"QR Code" is a registered trademark of DENSO WAVE INCORPORATED, acknowledged here. The standard is free to use.',
+  },
+  {
     name: 'Google Gemini',
     licence: 'Commercial API',
     what: 'The assistant. Used only when you ask it something.',

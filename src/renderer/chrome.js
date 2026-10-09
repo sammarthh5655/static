@@ -19,6 +19,7 @@ const el = {
   tabs: $('tabs'), newtab: $('newtab'), tabSearch: $('tab-search'),
   back: $('back'), forward: $('forward'), reload: $('reload'), home: $('home'),
   address: $('address'), security: $('security'), star: $('star'), key: $('key'),
+  reader: $('reader'), qr: $('qr'),
   suggestions: $('suggestions'), bookmarks: $('bookmarks'),
   overflow: $('overflow'), notice: $('notice'),
 };
@@ -80,6 +81,8 @@ function buildChrome() {
   setIcon(el.home, 'home');
   setIcon(el.star, 'star');
   setIcon(el.key, 'key');
+  setIcon(el.reader, 'reader');
+  setIcon(el.qr, 'qr');
   setIcon(el.newtab, 'plus');
   setIcon(el.overflow, 'menu');
   el.tabSearch.append(icon('tab_search', { size: 17 }));
@@ -155,6 +158,8 @@ function mainMenuItems() {
     { separator: true },
     { label: 'Find in page', icon: 'search', shortcut: accel('find:open'), action: doAction('find:open') },
     { label: 'Print…', icon: 'doc', shortcut: accel('page:print'), action: doAction('page:print') },
+    // Its three kinds open in this menu's place (see main's shot:menu).
+    { label: 'Screenshot', icon: 'camera', more: true, action: action('shot:menu') },
     { label: 'Organise tabs', icon: 'tabs', shortcut: accel('open:organizer'), action: doAction('open:organizer') },
     { label: 'Extensions', icon: 'puzzle', shortcut: accel('open:extensions'), action: doAction('open:extensions') },
     { label: 'Sidebar', icon: 'sidebar', hint: 'Workspace sidebar', value: s.sidebarMode || 'on', choices: [
@@ -620,6 +625,18 @@ function renderToolbar() {
     el.key.classList.toggle('locked', !!saved.locked);
   }
 
+  // Reading view: the book appears on pages that read like articles, and
+  // stays lit while the article is open on its own.
+  const reader = state.reader || {};
+  const offered = !!(reader.available || reader.active);
+  if (offered && el.reader.hidden) el.reader.classList.add('is-new');
+  el.reader.hidden = !offered;
+  el.reader.classList.toggle('on', !!reader.active);
+  el.reader.setAttribute('aria-pressed', String(!!reader.active));
+  el.reader.title = (reader.active ? 'Back to the page' : 'Reading view') + (accel('page:reader') ? ' (' + accel('page:reader') + ')' : '');
+  // The QR code is for web addresses, which are what a phone can open.
+  el.qr.hidden = !/^https?:\/\//i.test(active.url || '');
+
   el.star.classList.toggle('on', !!state.bookmarked);
   el.star.title = (state.bookmarked ? 'Remove bookmark' : 'Bookmark this page') +
     ' (' + accel('bookmarks:toggle') + ')';
@@ -970,6 +987,9 @@ el.forward.addEventListener('click', () => act('page:forward'));
 el.home.addEventListener('click', () => act('page:home'));
 el.reload.addEventListener('click', () => act(state.active?.loading ? 'page:stop' : 'page:reload'));
 el.star.addEventListener('click', () => act('bookmarks:toggle'));
+el.reader.addEventListener('click', () => invoke('reader:toggle'));
+el.reader.addEventListener('animationend', () => el.reader.classList.remove('is-new'));
+el.qr.addEventListener('click', () => invoke('qr:show', { anchor: anchorRect(el.qr) }));
 el.key.addEventListener('click', () => {
   const box = el.key.getBoundingClientRect();
   invoke('passwords:key-menu', { anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } });

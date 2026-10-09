@@ -60,6 +60,8 @@ const ACCELERATORS = [
   accel('page:save', 'Save page as', 's', { mod: true }),
   accel('page:print', 'Print', 'p', { mod: true }),
   accel('page:source', 'View page source', 'u', { mod: true }),
+  // Firefox's key for the same thing.
+  accel('page:reader', 'Reading view', 'F9', {}),
   accel('page:zoom-in', 'Zoom in', '=', { mod: true }),
   accel('page:zoom-in', 'Zoom in', '+', { mod: true }),
   accel('page:zoom-in', 'Zoom in', '+', { mod: true, shift: true }),

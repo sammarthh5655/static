@@ -1,7 +1,7 @@
 const { WebContentsView } = require('electron');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
-const { resolveInput, securityState, internalPage } = require('../../shared/urls');
+const { resolveInput, securityState, internalPage, readerSource } = require('../../shared/urls');
 const { pathToFileURL } = require('node:url');
 const { tidyOrder } = require('./order');
 
@@ -209,6 +209,8 @@ class Tabs {
       loading: tab.state.loading,
       title: tab.state.title,
       zoom: tab.view.webContents.isDestroyed() ? 1 : tab.view.webContents.getZoomFactor(),
+      // In reading view, whose address bar shows the article's own address.
+      reader: !!readerSource(tab.state.internalUrl || ''),
     };
   }
 
@@ -310,8 +312,9 @@ class Tabs {
       } else if (tab.state.internalUrl && tab.state.url && tab.state.url !== 'about:blank') {
         tab.state.internalUrl = null;
       }
-      // Internal pages keep showing their browser:// URL, never the file path.
-      tab.state.displayUrl = tab.state.internalUrl || tab.state.url;
+      // Internal pages keep showing their browser:// URL, never the file path;
+      // reading view shows the article's own address (see readerSource).
+      tab.state.displayUrl = readerSource(tab.state.internalUrl) || tab.state.internalUrl || tab.state.url;
       tab.state.canGoBack = wc.navigationHistory.canGoBack();
       tab.state.canGoForward = wc.navigationHistory.canGoForward();
       tab.state.security = securityState(tab.state.displayUrl, tab.state.loadError);
@@ -403,7 +406,7 @@ class Tabs {
     const tab = this.tabs.get(id);
     if (!tab) return;
     const target = resolveInput(input, this.getEngine?.() || 'google');
-    tab.state.displayUrl = target;
+    tab.state.displayUrl = readerSource(target) || target;
     tab.state.security = securityState(target);
     const page = internalPage(target);
     if (page) {

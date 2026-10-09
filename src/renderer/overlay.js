@@ -75,6 +75,15 @@ function hydrate(item) {
   if (item && item.tabsearch) {
     return { ...item, run: (act) => (act ? invoke(act.channel, act.payload) : Promise.resolve(null)) };
   }
+  // The page tools' cards talk to main themselves and need its answers
+  // (and its reasons, when something could not be done).
+  if (item && (item.qr || item.shot || item.region)) {
+    return {
+      ...item,
+      run: (channel, payload) => window.browser.invoke(channel, payload),
+      settle: () => { if (!window.ui.menuIsOpen()) setInteractive(false); },
+    };
+  }
   if (!item || item.separator || item.heading || item.brand) return item;
   // "Add tab to group": its menu opens the next one in the same place. The
   // overlay stays up for it; if no menu follows, it steps aside after all.
