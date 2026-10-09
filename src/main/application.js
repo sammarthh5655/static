@@ -16,6 +16,8 @@ const { Downloads } = require('../features/downloads');
 const { Extensions } = require('../features/extensions');
 const { Tabs, NEW_TAB } = require('../features/tabs');
 const gemini = require('../features/ai/gemini');
+const prices = require('../features/shopping/prices');
+const retailers = require('../features/shopping/retailers');
 const pagecontext = require('../features/ai/pagecontext');
 const { Chats } = require('../features/ai/chats');
 const { Resources } = require('../features/resources');
@@ -173,6 +175,10 @@ class BrowserApplication {
     this.pendingMenu = null;
     // Aborts the in-flight Gemini request when a new one starts.
     this.aiController = null;
+    // Shopping's two comparisons, one in flight per Shopping page (see
+    // #shoppingRun), and when Google Search may next be asked for prices.
+    this.shoppingRuns = new Map();
+    this.priceSearchRestUntil = 0;
     // URLs the user chose to open despite a safety warning, this run only.
     this.sessionAllowed = new Set();
     // The AI sidebar: a WebContentsView beside the tab, created on first use.
@@ -2153,6 +2159,32 @@ class BrowserApplication {
     return recorded && (!latest || recorded.lastActiveAt >= latest.lastActiveAt) ? recorded : latest;
   }
 
+  /**
+   * A cancel for one Shopping comparison, kept per page and per kind.
+   *
+   * Per page, so two Shopping tabs can each compare something without the
+   * second silently stopping the first and leaving it waiting for ever; per
+   * kind, so comparing tabs never cancels a price comparison on the same page.
+   * Closing the page stops its request rather than paying for an answer no
+   * one will see. `done()` must be called when the run ends, which also takes
+   * the listener off the page again.
+   */
+  #shoppingRun(sender, kind) {
+    const key = kind + ':' + (sender?.id ?? 0);
+    this.shoppingRuns.get(key)?.abort();
+    const controller = new AbortController();
+    this.shoppingRuns.set(key, controller);
+    const stop = () => controller.abort();
+    sender?.once?.('destroyed', stop);
+    return {
+      signal: controller.signal,
+      done: () => {
+        if (this.shoppingRuns.get(key) === controller) this.shoppingRuns.delete(key);
+        if (sender && !sender.isDestroyed()) sender.removeListener('destroyed', stop);
+      },
+    };
+  }
+
   /** Title, address and icon of a tab, for naming the page that was read. */
   #pageIdentity(tab) {
     const url = tab.state.displayUrl || '';
@@ -3829,37 +3861,33 @@ class BrowserApplication {
       /**
        * Compare the product pages currently open.
        *
-       * Detection is deliberately loose - a URL shaped like a product page, or
-       * page text with a price in it - because being too strict here means the
-       * feature silently does nothing on sites we did not anticipate.
+       * Detection is deliberately loose - any web page with something price-
+       * shaped in it - because being too strict here means the feature silently
+       * does nothing on sites we did not anticipate. The most recently used tabs
+       * are read first, all at once, through the same isolated-world reader as
+       * "Read this page", so a page can neither stall the others nor rewrite
+       * what is read from it.
        */
-      'shopping:compare': async () => {
+      'shopping:compare': async (sender) => {
         const tabs = [...(this.tabs?.tabs.values() || [])]
-          .filter((tab) => !tab.state.internalUrl && /^https?:/.test(tab.state.displayUrl || ''));
+          .filter((tab) => !tab.state.internalUrl && /^https?:/.test(tab.state.displayUrl || '')
+            && !tab.view.webContents.isDestroyed())
+          .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
         if (tabs.length < 2) {
           return { ok: false, error: 'Open at least two product pages in separate tabs first.' };
         }
 
-        const extracted = [];
-        for (const tab of tabs.slice(0, 5)) {
+        const read = await Promise.all(tabs.slice(0, 8).map(async (tab) => {
           try {
-            const text = await tab.view.webContents.executeJavaScript(`(() => {
-              const drop = 'script,style,noscript,svg,iframe';
-              const clone = document.body.cloneNode(true);
-              clone.querySelectorAll(drop).forEach((node) => node.remove());
-              return (clone.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
-            })()`, true);
-            const body = String(text || '');
+            const page = await this.#readableText(tab, { shopping: true });
             // Only treat it as a product if there is something price-shaped.
-            const looksLikeProduct = /(?:[\u20B9$£€]\s?\d|\d+\s?(?:INR|USD|EUR|GBP))/i.test(body);
-            if (!looksLikeProduct) continue;
-            extracted.push({
-              title: tab.state.title,
-              url: tab.state.displayUrl,
-              text: body.slice(0, 12000),
-            });
-          } catch { /* a tab that refuses injection is simply skipped */ }
-        }
+            const looksLikeProduct = /(?:[₹$£€]\s?\d|\b(?:Rs\.?|INR|USD|EUR|GBP)\s?\d|\d+\s?(?:INR|USD|EUR|GBP)\b)/i.test(page.text);
+            return looksLikeProduct ? { ...this.#pageIdentity(tab), text: page.text.slice(0, 12000) } : null;
+          } catch {
+            return null; // a tab that cannot be read is simply skipped
+          }
+        }));
+        const extracted = read.filter(Boolean).slice(0, 5);
 
         if (extracted.length < 2) {
           return {
@@ -3869,18 +3897,123 @@ class BrowserApplication {
           };
         }
 
+        // Each page's words are fenced, title and address included, exactly as
+        // "Read this page" fences one (see READ_PAGE).
+        const fence = (value) => String(value || '').replace(/<<<PAGE|PAGE>>>/gi, ' ');
         const prompt = extracted
-          .map((item, index) => `--- PRODUCT ${index + 1}: ${item.title}\nURL: ${item.url}\n\n${item.text}`)
+          .map((item, index) => [
+            `PRODUCT ${index + 1}`,
+            '<<<PAGE',
+            'Page title: ' + fence(item.title),
+            'Address: ' + fence(item.url),
+            '',
+            fence(item.text),
+            'PAGE>>>',
+          ].join('\n'))
           .join('\n\n');
 
+        // Its own cancel: comparing tabs must not cancel a page being read or
+        // prices being compared, nor be cancelled by them (see #shoppingRun).
+        const run = this.#shoppingRun(sender, 'compare');
         try {
-          const result = await gemini.generate({ prompt, system: SHOPPING_SYSTEM });
+          const result = await gemini.generate({ prompt, system: SHOPPING_SYSTEM, signal: run.signal });
           return { ok: true, text: result.text, model: result.model, sources: extracted.map((item) => ({
-            title: item.title, url: item.url,
+            id: item.id, title: item.title, url: item.url, host: item.host, favicon: item.favicon,
           })) };
         } catch (error) {
+          if (error.kind === 'cancelled') return { ok: false, cancelled: true, error: 'Cancelled.' };
           return { ok: false, error: error.message };
+        } finally {
+          run.done();
         }
+      },
+
+      /** The countries "Compare prices" knows the shops of, for the page's picker. */
+      'shopping:price-regions': () => ({ regions: retailers.regionSummary(), defaultRegion: retailers.DEFAULT_REGION }),
+
+      /**
+       * "Compare prices": one product across at least ten shops in the chosen
+       * country - what the person typed, or else the product on the page they
+       * were on.
+       *
+       * Asked of Gemini grounded in Google Search first, so the figures come
+       * from today's results and the page can name its sources. When search
+       * is refused (it has its own allowance, which this key's free tier does
+       * not always have), it is rested for a while and the same question goes
+       * to the model alone, and the result says the prices are from what the
+       * assistant knows. Either way every figure is labelled approximate and
+       * every link is a search we built on the shop's own site (see
+       * features/shopping).
+       */
+      'shopping:prices': async (sender, payload) => {
+        const where = retailers.region(String(payload?.region || ''));
+        const query = String(payload?.query || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+        let page = null;
+        if (!query) {
+          const tab = this.#recentWebTab(sender);
+          if (!tab) return { ok: false, error: 'Type the product you want, or open its page in a tab first.' };
+          try {
+            const read = await this.#readableText(tab, { shopping: true });
+            page = { ...this.#pageIdentity(tab), text: read.text };
+          } catch (error) {
+            return { ok: false, error: error.message };
+          }
+        }
+
+        const date = prices.today();
+        const run = this.#shoppingRun(sender, 'prices');
+        const ask = async (search) => {
+          const { system, prompt } = prices.buildRequest({ regionId: where.id, query, page, date, search });
+          const result = await gemini.generate({
+            prompt, system, search, signal: run.signal,
+            // A dozen shops with notes is a long answer; a little thinking
+            // keeps the figures consistent with each other without a long wait.
+            thinking: 1024,
+            temperature: 0.2,
+            retries: search ? 0 : 1,
+            deadline: search ? 45000 : 75000,
+          });
+          const answer = prices.parseAnswer(result.text);
+          if (!answer) throw Object.assign(new Error('The assistant’s answer could not be read. Try again.'), { kind: 'unreadable' });
+          return { answer, result };
+        };
+
+        let outcome = null;
+        try {
+          if (!(this.priceSearchRestUntil > Date.now())) {
+            try {
+              outcome = await ask(true);
+            } catch (error) {
+              if (error.kind === 'cancelled') return { ok: false, cancelled: true, error: 'Cancelled.' };
+              if (error.kind === 'auth' || error.kind === 'region') return { ok: false, error: error.message };
+              // Refused or used up: leave search alone for a while rather than
+              // paying for the same refusal on every comparison.
+              if (error.kind === 'quota' || error.kind === 'invalid') {
+                this.priceSearchRestUntil = Date.now() + 15 * 60 * 1000;
+              }
+            }
+          }
+          if (!outcome) {
+            try {
+              outcome = await ask(false);
+            } catch (error) {
+              if (error.kind === 'cancelled') return { ok: false, cancelled: true, error: 'Cancelled.' };
+              return { ok: false, error: error.message };
+            }
+          }
+        } finally {
+          run.done();
+        }
+
+        const comparison = prices.assemble(outcome.answer, {
+          regionId: where.id, query, date, model: outcome.result.model,
+          grounding: outcome.result.grounding || null,
+          page: page && { url: page.url, host: page.host, title: page.title },
+        });
+        return {
+          ...comparison,
+          source: page ? { id: page.id, title: page.title, url: page.url, host: page.host, favicon: page.favicon } : null,
+        };
       },
 
       // ---- shields ---------------------------------------------------------
@@ -4942,7 +5075,7 @@ class BrowserApplication {
       ai: { active: false, badge: null, summary: `${this.chats.list().length} conversations` },
       student: { active: false, badge: null, summary: 'Summarise and revise' },
       legal: { active: false, badge: null, summary: 'Indian legal research' },
-      shopping: { active: false, badge: null, summary: 'Compare open products' },
+      shopping: { active: false, badge: null, summary: 'Read a product, compare prices' },
       dashboard: { active: false, badge: null, summary: 'All modes' },
       passwords: (() => {
         // Counts only: state() decrypts every entry, and this runs on every push.

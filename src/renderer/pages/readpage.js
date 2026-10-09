@@ -140,7 +140,7 @@ function actionButton(label, iconName, run, extraClass = '') {
 
 /* ---- the component --------------------------------------------------------------- */
 
-function create({ mode, onUseAsSource = null, disclaimer = () => '' }) {
+function create({ mode, onUseAsSource = null, disclaimer = () => '', actions = [], onTarget = null }) {
   const copy = MODES[mode];
   let recent = null;      // the page that would be read, from main
   let busy = false;
@@ -178,7 +178,7 @@ function create({ mode, onUseAsSource = null, disclaimer = () => '' }) {
       element('h2', { class: 'rp-heading', text: copy.heading }),
       element('p', { class: 'rp-blurb', text: copy.blurb }),
       sourceSlot,
-      element('div', { class: 'rp-hero-actions' }, [readButton, listenPageButton]),
+      element('div', { class: 'rp-hero-actions' }, [readButton, ...actions, listenPageButton]),
       heroNote,
     ]),
     illustration,
@@ -209,6 +209,8 @@ function create({ mode, onUseAsSource = null, disclaimer = () => '' }) {
     readButton.querySelector('.rp-go-label').textContent = busy ? 'Reading…' : 'Read this page';
     hero.classList.toggle('is-busy', busy);
     hero.classList.toggle('has-target', !!recent);
+    // A page that adds its own hero actions may need the same page to act on.
+    onTarget?.(recent);
   }
 
   let refreshTimer = 0;

@@ -11,7 +11,9 @@
 .rp-hero {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
+  /* clip rather than hidden, so focusing a button cannot scroll the card
+     inside itself towards its drifting glow. */
+  overflow: clip;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 168px;
   gap: 28px;

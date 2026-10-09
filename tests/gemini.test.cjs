@@ -183,3 +183,45 @@ test('a refused thinking level is not mistaken for a retired model', () => {
   const error = _testing.classify(400, { error: { message: 'Thinking level MINIMAL is not supported for this model.' } });
   assert.equal(error.kind, 'invalid');
 });
+
+/* ---- grounding in Google Search ------------------------------------------------ */
+
+const grounded = (text, chunks, queries) => ({ status: 200, json: { candidates: [{
+  content: { parts: [{ text }] }, finishReason: 'STOP',
+  groundingMetadata: { groundingChunks: chunks, webSearchQueries: queries },
+}] } });
+
+test('a search request asks for the google_search tool, and a plain one does not', async (t) => {
+  const calls = fake(t, () => ok('fine'));
+  await gemini.generate({ prompt: 'plain' });
+  await gemini.generate({ prompt: 'searched', search: true });
+  assert.equal(calls[0].body.tools, undefined);
+  assert.deepEqual(calls[1].body.tools, [{ google_search: {} }]);
+});
+
+test('a grounded answer brings its sources, and only web addresses', async (t) => {
+  fake(t, () => grounded('{"a":1}', [
+    { web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc', title: 'amazon.in' } },
+    { web: { uri: 'javascript:alert(1)', title: 'bad' } },
+    { web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc', title: 'again' } },
+    { retrievedContext: { uri: 'x' } },
+  ], ['sony xm5 price india']));
+  const result = await gemini.generate({ prompt: 'p', search: true });
+  assert.equal(result.text, '{"a":1}');
+  assert.deepEqual(result.grounding.sources, [
+    { url: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/abc', title: 'amazon.in' },
+  ]);
+  assert.deepEqual(result.grounding.queries, ['sony xm5 price india']);
+});
+
+test('search refused for quota does not rest the model for plain questions', async (t) => {
+  // Against the shipped key a model can refuse every search while answering
+  // plain prompts: the two allowances must be tracked apart.
+  const calls = fake(t, ({ body }) => (body.tools ? QUOTA : ok('plain answer')));
+  await assert.rejects(gemini.generate({ prompt: 'p', search: true, retries: 0 }), (error) => error.kind === 'quota');
+  const before = calls.length;
+  const result = await gemini.generate({ prompt: 'p' });
+  assert.equal(result.model, gemini.DEFAULT_MODEL, 'the default model still answers plain questions');
+  assert.equal(calls.length - before, 1);
+  assert.equal(result.grounding, undefined);
+});

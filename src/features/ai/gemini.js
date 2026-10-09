@@ -136,6 +136,17 @@ const restingUntil = new Map();
  */
 const learntShape = new Map();
 
+/**
+ * What the two maps above are keyed by. A request grounded in Google Search
+ * draws on a SEPARATE allowance from a plain one - against this key a model
+ * can refuse every search ("exceeded your current quota") while answering
+ * plain questions happily - so a refused search must never rest the model
+ * for everyone else.
+ */
+function slot(model, search) {
+  return search ? model + '|search' : model;
+}
+
 function resting(model, now = Date.now()) {
   const until = restingUntil.get(model);
   if (until === undefined) return false;
@@ -156,9 +167,9 @@ function thinkingShapes(model, thinking) {
   return [{ thinkingBudget: thinking }, { thinkingLevel: thinking <= 2048 ? 'low' : 'high' }, null];
 }
 
-function shapesFor(model, thinking) {
+function shapesFor(model, thinking, search) {
   const all = thinkingShapes(model, thinking);
-  const known = learntShape.get(model + '|' + thinking);
+  const known = learntShape.get(slot(model, search) + '|' + thinking);
   if (known === undefined) return all;
   return [all[known], ...all.filter((_, index) => index !== known)];
 }
@@ -190,7 +201,7 @@ function validModel(model) {
   return typeof model === 'string' && /^[a-z0-9][a-z0-9.-]{1,63}$/.test(model);
 }
 
-function buildBody({ prompt, system, context, history, temperature, maxOutputTokens }, shape) {
+function buildBody({ prompt, system, context, history, temperature, maxOutputTokens, search }, shape) {
   // Page context is prepended as a separate part so the model can tell the
   // difference between the page and the question.
   const parts = [];
@@ -231,6 +242,9 @@ function buildBody({ prompt, system, context, history, temperature, maxOutputTok
     },
   };
   if (system) body.systemInstruction = { parts: [{ text: clean(system, 8000) }] };
+  // Grounding: the model may run Google searches and answer from the results.
+  // Only ever switched on by a caller in main, never by what a page sends.
+  if (search) body.tools = [{ google_search: {} }];
   return body;
 }
 
@@ -372,6 +386,28 @@ function readAnswer(json) {
   throw error;
 }
 
+/**
+ * The web pages a grounded answer was drawn from, and what was searched for.
+ * Google hands these back as its own redirect links; only http(s) addresses
+ * are kept, so nothing else can reach a page as a link.
+ */
+function readGrounding(json) {
+  const meta = json?.candidates?.[0]?.groundingMetadata;
+  if (!meta) return null;
+  const sources = [];
+  const seen = new Set();
+  for (const chunk of meta.groundingChunks || []) {
+    const url = String(chunk?.web?.uri || '');
+    if (!/^https?:\/\//i.test(url) || url.length > 2048 || seen.has(url)) continue;
+    seen.add(url);
+    sources.push({ url, title: clean(chunk.web.title || '', 160).trim() });
+    if (sources.length >= 12) break;
+  }
+  const queries = (meta.webSearchQueries || [])
+    .map((query) => clean(query, 160).trim()).filter(Boolean).slice(0, 8);
+  return sources.length || queries.length ? { sources, queries } : null;
+}
+
 /* ---- what the person reads ------------------------------------------------- */
 
 const FRIENDLY = {
@@ -428,7 +464,7 @@ function log(model, error) {
  * accepted. Resolves with text or rejects with a classified error.
  */
 async function askModel(model, options, timeLeft) {
-  const shapes = shapesFor(model, options.thinking);
+  const shapes = shapesFor(model, options.thinking, options.search);
   const all = thinkingShapes(model, options.thinking);
   let lastError;
   for (const shape of shapes) {
@@ -439,9 +475,10 @@ async function askModel(model, options, timeLeft) {
     if (status === 200) {
       const text = readAnswer(json);
       if (options.thinking !== undefined) {
-        learntShape.set(model + '|' + options.thinking, all.findIndex((s) => JSON.stringify(s) === JSON.stringify(shape)));
+        learntShape.set(slot(model, options.search) + '|' + options.thinking,
+          all.findIndex((s) => JSON.stringify(s) === JSON.stringify(shape)));
       }
-      return text;
+      return { text, grounding: options.search ? readGrounding(json) : null };
     }
     lastError = classify(status, json);
     // A 400 while a thinking setting was sent is almost always that setting:
@@ -471,8 +508,9 @@ async function askModel(model, options, timeLeft) {
  * @param {number}   [options.retries]   extra passes over models that were busy
  * @param {number}   [options.deadline]  ms for the whole request
  * @param {number}   [options.attemptTimeout] ms for any one model
+ * @param {boolean}  [options.search]  ground the answer in Google Search results
  * @param {AbortSignal} [options.signal]
- * @returns {Promise<{text: string, model: string}>}
+ * @returns {Promise<{text: string, model: string, grounding?: {sources: Array, queries: Array}}>}
  */
 async function generate(options = {}) {
   if (!hasKey()) {
@@ -498,7 +536,7 @@ async function generate(options = {}) {
   // Skip models already known to be retired or out of quota - unless that
   // would leave nothing, in which case try them anyway: a cooldown is a
   // guess, and a guess must never be the reason nothing was asked.
-  const awake = full.filter((model) => !resting(model));
+  const awake = full.filter((model) => !resting(slot(model, options.search)));
   let queue = awake.length ? awake : full;
 
   const started = Date.now();
@@ -519,21 +557,21 @@ async function generate(options = {}) {
     for (const model of queue) {
       if (timeLeft() < MIN_ATTEMPT) break;
       try {
-        const text = await askModel(model, options, timeLeft);
-        return { text, model };
+        const { text, grounding } = await askModel(model, options, timeLeft);
+        return grounding ? { text, model, grounding } : { text, model };
       } catch (error) {
         if (options.signal?.aborted || error.kind === 'cancelled') {
           throw Object.assign(new Error('Cancelled'), { kind: 'cancelled' });
         }
         if (!error.kind) error.kind = 'network';
-        log(model, error);
+        log(options.search ? model + ' (search)' : model, error);
         failures.push(error);
         // Nothing another model can fix: say so now rather than after
         // walking the whole chain.
         if (error.kind === 'auth' || error.kind === 'region' || error.kind === 'blocked') throw friendly(error);
-        if (error.kind === 'retired') { restingUntil.set(model, Infinity); continue; }
+        if (error.kind === 'retired') { restingUntil.set(slot(model, options.search), Infinity); continue; }
         if (error.kind === 'quota') {
-          restingUntil.set(model, Date.now() + (error.rest || MINUTE_QUOTA_REST));
+          restingUntil.set(slot(model, options.search), Date.now() + (error.rest || MINUTE_QUOTA_REST));
           continue;
         }
         if (error.kind === 'invalid') {
@@ -569,7 +607,7 @@ function scrubKey(message) {
 const _testing = {
   useTransport(fn) { transport = fn || netTransport; },
   reset() { restingUntil.clear(); learntShape.clear(); },
-  thinkingShapes, classify, clean, friendly, buildBody,
+  thinkingShapes, classify, clean, friendly, buildBody, readGrounding,
 };
 
 module.exports = {

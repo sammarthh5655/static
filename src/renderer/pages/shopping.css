@@ -1,0 +1,757 @@
+/* Shopping: "Compare prices" and "Compare open products".
+ *
+ * Built on the "Read this page" look (readpage.css) so the three actions read
+ * as one page: the same eyebrow, heading, gradient button, sections and
+ * disclaimer. Every colour comes from the theme, and every animation length
+ * is a multiple of the theme's motion variables, which are 0ms when the
+ * person has turned animations off; prefers-reduced-motion is at the bottom.
+ */
+
+/* ---- the panel ------------------------------------------------------------------ */
+
+.pc-panel {
+  position: relative;
+  isolation: isolate;
+  /* clip, not hidden: a hidden box can still be scrolled, and focusing the
+     box below the drifting glow scrolled the whole panel up inside itself. */
+  overflow: clip;
+  margin: 14px 0;
+  padding: 24px 28px 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(235deg,
+      color-mix(in srgb, var(--accent-alt) 12%, var(--surface)) 0%,
+      var(--surface) 55%,
+      color-mix(in srgb, var(--accent) 8%, var(--surface)) 100%);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 4%, transparent) inset;
+}
+.pc-panel-glow {
+  position: absolute;
+  z-index: -1;
+  bottom: -60%;
+  left: -10%;
+  width: 420px;
+  height: 420px;
+  background: radial-gradient(closest-side,
+    color-mix(in srgb, var(--accent-alt) 20%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 60%,
+    transparent 100%);
+  pointer-events: none;
+  animation: pc-drift calc(var(--motion-slow) * 56) ease-in-out infinite alternate;
+}
+@keyframes pc-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to   { transform: translate(60px, -28px) scale(1.1); }
+}
+
+.pc-panel-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 24px;
+  align-items: center;
+}
+.pc-panel-copy .rp-blurb { margin-bottom: 16px; }
+
+/* Five price tags standing in a row; the shortest one is lit. */
+.pc-ladder {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  height: 92px;
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid color-mix(in srgb, var(--text) 14%, transparent);
+}
+.pc-rung {
+  position: relative;
+  width: 16px;
+  border-radius: 5px 5px 2px 2px;
+  background: color-mix(in srgb, var(--text) 15%, transparent);
+  transform-origin: bottom;
+  animation: pc-rise calc(var(--motion-base) * 3) cubic-bezier(.2, 1.2, .4, 1) both;
+}
+.pc-rung-0 { height: 76%; animation-delay: calc(var(--motion-fast) * 1); }
+.pc-rung-1 { height: 58%; animation-delay: calc(var(--motion-fast) * 2); }
+.pc-rung-2 { height: 92%; animation-delay: calc(var(--motion-fast) * 3); }
+.pc-rung-3 {
+  height: 38%;
+  animation-delay: calc(var(--motion-fast) * 4);
+  background: linear-gradient(180deg, var(--success), color-mix(in srgb, var(--success) 45%, var(--accent)));
+  box-shadow: 0 0 18px -2px color-mix(in srgb, var(--success) 60%, transparent);
+}
+.pc-rung-4 { height: 66%; animation-delay: calc(var(--motion-fast) * 5); }
+/* The little tag hanging over the winner. */
+.pc-rung-3::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 7px);
+  width: 22px;
+  height: 13px;
+  margin-left: -11px;
+  border-radius: 3px 7px 7px 3px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-alt));
+  transform-origin: 0 50%;
+  animation: rp-swing calc(var(--motion-slow) * 14) ease-in-out infinite alternate;
+}
+@keyframes pc-rise { from { transform: scaleY(0); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* While comparing, a light runs along the tags, shop by shop. */
+.pc-panel.is-busy .pc-rung:not(.pc-rung-3) { animation: pc-scan calc(var(--motion-slow) * 8) ease-in-out infinite; }
+.pc-panel.is-busy .pc-rung-1 { animation-delay: calc(var(--motion-slow) * 1.6); }
+.pc-panel.is-busy .pc-rung-2 { animation-delay: calc(var(--motion-slow) * 3.2); }
+.pc-panel.is-busy .pc-rung-4 { animation-delay: calc(var(--motion-slow) * 4.8); }
+.pc-panel.is-busy .pc-go::after { animation: rp-sheen calc(var(--motion-slow) * 6) var(--ease) infinite; }
+.pc-panel.is-busy .pc-go { opacity: 1; }
+@keyframes pc-scan {
+  0%, 100% { background: color-mix(in srgb, var(--text) 15%, transparent); }
+  20%      { background: color-mix(in srgb, var(--accent) 75%, transparent); }
+  45%      { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+}
+
+/* ---- the form --------------------------------------------------------------------- */
+
+.pc-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+.pc-field {
+  flex: 1 1 190px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  padding: 0 8px 0 15px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
+  color: var(--text-faint);
+  cursor: text;
+  transition: border-color var(--motion-fast) var(--ease), box-shadow var(--motion-base) var(--ease);
+}
+.pc-field:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+/* Scoped twice over so the page-wide input and select styles never win. */
+.pc-field .pc-input {
+  flex: 1;
+  width: auto;
+  border-radius: 0;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.pc-field .pc-input::placeholder { color: var(--text-faint); }
+.pc-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.pc-clear:hover { background: var(--surface-hover); color: var(--text); }
+.pc-clear[hidden] { display: none; }
+
+.pc-region-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding-left: 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-raised) 85%, transparent);
+  color: var(--text-faint);
+  transition: border-color var(--motion-fast) var(--ease);
+}
+.pc-region-wrap:hover, .pc-region-wrap:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.pc-region-wrap .pc-region {
+  width: auto;
+  height: 100%;
+  border-radius: 0 999px 999px 0;
+  padding: 0 14px 0 7px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pc-region-wrap .pc-region option { background: var(--bg-raised); color: var(--text); }
+.pc-go, .pc-go:hover { height: 44px; padding-top: 0; padding-bottom: 0; }
+
+/* What an empty box compares. */
+.pc-from {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.pc-from-text { display: inline-flex; align-items: center; gap: 6px; }
+.pc-from-text .icon-svg { color: var(--accent); }
+.pc-from-page {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: min(420px, 100%);
+  padding: 4px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease), background var(--motion-fast) var(--ease);
+  animation: rp-rise calc(var(--motion-base) * 2) var(--ease) both;
+}
+.pc-from-page:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: var(--surface-hover); }
+.pc-from-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-from-host { flex: none; font-size: 11px; color: var(--text-faint); }
+
+/* The hero's own "Compare prices", beside "Read this page". */
+.pc-hero-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease);
+}
+.pc-hero-button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 16%, transparent); transform: translateY(-1px); }
+.pc-hero-button:active:not(:disabled) { transform: none; }
+.pc-hero-button:disabled { opacity: 0.5; cursor: default; }
+
+/* ---- waiting ------------------------------------------------------------------------ */
+
+.pc-wait-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  animation: pc-breathe calc(var(--motion-slow) * 6) ease-in-out infinite;
+}
+@keyframes pc-breathe { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 10%, transparent); } }
+.pc-wait-rows { display: flex; flex-direction: column; gap: 4px; }
+.pc-wait-row {
+  display: grid;
+  grid-template-columns: 28px 140px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  animation: rp-rise calc(var(--motion-base) * 2) var(--ease) both;
+  animation-delay: calc(var(--motion-fast) * var(--i, 0));
+}
+.pc-wait-name { font-size: 12.5px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-wait-bar {
+  height: 9px;
+  border-radius: 5px;
+  background: linear-gradient(90deg,
+    var(--surface-active) 0%,
+    color-mix(in srgb, var(--accent) 22%, var(--surface-active)) 50%,
+    var(--surface-active) 100%);
+  background-size: 220% 100%;
+  animation: rp-shimmer calc(var(--motion-slow) * 7) linear infinite;
+}
+.pc-wait-row:nth-child(2n) .pc-wait-bar { width: 78%; }
+.pc-wait-row:nth-child(3n) .pc-wait-bar { width: 62%; }
+
+/* ---- the comparison ------------------------------------------------------------------ */
+
+.pc-result {
+  container-type: inline-size;
+  animation: rp-rise calc(var(--motion-base) * 2.2) var(--ease) both;
+}
+
+.pc-result-head { margin-bottom: 16px; }
+.pc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pc-chips .rp-kind { margin: 0; }
+.pc-chips .rp-model { margin-left: auto; }
+.pc-approx {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 30%, transparent) inset;
+  color: var(--warn);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.pc-product {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: -0.2px;
+  user-select: text;
+}
+.pc-basis { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; color: var(--text-dim); }
+.pc-basis .icon-svg { flex: none; margin-top: 2px; }
+.pc-basis-search .icon-svg { color: var(--accent); }
+.pc-basis-knowledge .icon-svg { color: var(--accent-alt); }
+
+.pc-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.pc-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-raised) 60%, transparent);
+  animation: rp-rise calc(var(--motion-base) * 2.4) var(--ease) both;
+}
+.pc-stat:nth-child(2) { animation-delay: calc(var(--motion-fast) * 1); }
+.pc-stat:nth-child(3) { animation-delay: calc(var(--motion-fast) * 2); }
+.pc-stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px; color: var(--text-faint); }
+.pc-stat-value {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
+}
+.pc-stat-note { font-size: 11.5px; line-height: 1.4; color: var(--text-dim); }
+.pc-stat-best {
+  position: relative;
+  overflow: clip;
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--success) 18%, transparent), transparent 60%),
+    color-mix(in srgb, var(--bg-raised) 60%, transparent);
+}
+.pc-stat-best .pc-stat-label { color: var(--success); }
+.pc-stat-best .pc-stat-value { color: var(--success); }
+.pc-stat-best.is-empty { border-color: var(--border-soft); background: color-mix(in srgb, var(--bg-raised) 60%, transparent); }
+.pc-stat-best.is-empty .pc-stat-label, .pc-stat-best.is-empty .pc-stat-value { color: var(--text-faint); }
+/* One sweep of light across the winning figure as it lands. */
+.pc-stat-best:not(.is-empty)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, color-mix(in srgb, #fff 16%, transparent) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: rp-sheen calc(var(--motion-slow) * 5) var(--ease) calc(var(--motion-base) * 3) 1 both;
+  pointer-events: none;
+}
+
+.pc-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.pc-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Sort: a segmented control. */
+.pc-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 3px 3px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-raised) 70%, transparent);
+  color: var(--text-faint);
+}
+.pc-sort > .icon-svg { margin-right: 4px; }
+.pc-sort-option {
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
+}
+.pc-sort-option:hover { color: var(--text); background: var(--surface-hover); }
+.pc-sort-option.selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent) inset;
+}
+
+/* The table: one grid per row, sharing fixed tracks so the columns line up. */
+.pc-table { display: flex; flex-direction: column; }
+.pc-rows { display: flex; flex-direction: column; gap: 2px; }
+.pc-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(40px, 1fr) 124px 46px 88px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  transition: background var(--motion-fast) var(--ease);
+}
+.pc-rows > .pc-row {
+  animation: rp-rise calc(var(--motion-base) * 2) var(--ease) both;
+  animation-delay: calc(var(--motion-fast) * 0.6 * var(--i, 0) + var(--motion-base));
+}
+.pc-rows > .pc-row:hover { background: var(--surface-hover); }
+.pc-rows > .pc-row + .pc-row::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: -1px;
+  height: 1px;
+  background: var(--border-soft);
+}
+.pc-row-head { padding-top: 10px; padding-bottom: 6px; }
+.pc-th { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-faint); }
+.pc-th-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.pc-th-button .icon-svg { opacity: 0.45; }
+.pc-th-button:hover { color: var(--text); }
+.pc-th[aria-sort='ascending'] .pc-th-button, .pc-th[aria-sort='descending'] .pc-th-button { color: var(--accent); }
+.pc-th[aria-sort='ascending'] .icon-svg, .pc-th[aria-sort='descending'] .icon-svg { opacity: 1; }
+.pc-cell-price, .pc-cell-link { text-align: right; justify-self: end; }
+.pc-cell-conf { justify-self: center; }
+
+.pc-cell-shop { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.pc-mono {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: color-mix(in srgb, hsl(var(--hue, 210) 75% 52%) 20%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, hsl(var(--hue, 210) 75% 52%) 30%, transparent) inset;
+  color: color-mix(in srgb, hsl(var(--hue, 210) 80% 55%) 70%, var(--text));
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.pc-mono-brand {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 30%, transparent), color-mix(in srgb, var(--accent-alt) 30%, transparent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent) inset;
+  color: var(--accent);
+}
+.pc-shop-text { min-width: 0; }
+.pc-shop-name { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 7px; font-size: 13px; font-weight: 500; color: var(--text); }
+.pc-shop-note { margin-top: 1px; font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.pc-badge-best {
+  background: var(--success);
+  color: var(--bg);
+  animation: rp-pop calc(var(--motion-base) * 3) cubic-bezier(.2, 1.4, .4, 1) both;
+  animation-delay: calc(var(--motion-base) * 4);
+}
+.pc-badge-tied { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+.is-tied .pc-price { color: var(--success); }
+.is-tied .pc-bar-fill { background: linear-gradient(90deg, color-mix(in srgb, var(--success) 45%, transparent), color-mix(in srgb, var(--success) 80%, transparent)); }
+.pc-badge-page { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+
+/* How each price sits between the cheapest and the dearest. */
+.pc-bar {
+  position: relative;
+  display: block;
+  height: 7px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  overflow: hidden;
+}
+.pc-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--w, 0%);
+  border-radius: 4px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), var(--accent));
+  transform-origin: left;
+  animation: pc-grow calc(var(--motion-slow) * 3) cubic-bezier(.2, .8, .2, 1) both;
+  animation-delay: calc(var(--motion-fast) * 0.6 * var(--i, 0) + var(--motion-base) * 2);
+}
+@keyframes pc-grow { from { transform: scaleX(0); } to { transform: none; } }
+.is-best .pc-bar-fill { background: linear-gradient(90deg, color-mix(in srgb, var(--success) 55%, transparent), var(--success)); }
+.is-blank .pc-bar { background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 9%, transparent) 0 4px, transparent 4px 8px); }
+
+.pc-cell-price { display: flex; flex-direction: column; align-items: flex-end; }
+.pc-price { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); white-space: nowrap; user-select: text; }
+.pc-price-extra { font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text-faint); }
+.pc-price-none { font-size: 12px; font-style: italic; color: var(--text-faint); white-space: nowrap; }
+.is-best .pc-price { color: var(--success); font-size: 15px; }
+
+.pc-conf { display: inline-flex; gap: 3px; }
+.pc-dot { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--text) 14%, transparent); }
+.pc-dot.on { background: var(--accent); }
+.pc-conf-page .pc-dot.on { background: var(--success); }
+.pc-conf-low .pc-dot.on { background: var(--warn); }
+.pc-conf-none { font-size: 12px; color: var(--text-faint); }
+
+.pc-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease);
+}
+.pc-search:hover, .pc-row:hover .pc-search { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); color: var(--accent); }
+.pc-search:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+/* The winning row: lit, with a stripe down its edge. */
+.pc-rows > .pc-row.is-best {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--success) 14%, transparent), color-mix(in srgb, var(--success) 3%, transparent) 70%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 35%, transparent) inset;
+}
+.pc-rows > .pc-row.is-best::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--success);
+}
+.pc-rows > .pc-row.is-best + .pc-row::before, .pc-rows > .pc-row.is-best::before { display: none; }
+.pc-rows > .pc-row.is-blank .pc-shop-name { color: var(--text-dim); }
+
+/* What the assistant made of it. */
+.pc-advice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.pc-advice > :only-child { grid-column: 1 / -1; }
+.pc-advice > * { animation: rp-rise calc(var(--motion-base) * 2.4) var(--ease) both; animation-delay: calc(var(--motion-base) * 3); }
+.pc-tip::before { background: var(--success) !important; }
+
+.pc-sources { margin-top: 16px; }
+.pc-source-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.pc-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 260px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.pc-source span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-source:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+/* What Google was asked: quieter than the sources, dashed like a query. */
+.pc-queries { margin-top: 8px; align-items: center; }
+.pc-queries-label { font-size: 11px; color: var(--text-dim); margin-right: 2px; }
+.pc-query { border-style: dashed; background: transparent; }
+
+.pc-disclaimer { color: var(--text-dim); }
+.pc-disclaimer .icon-svg { color: var(--warn); }
+.pc-disclaimer strong { color: var(--text); font-weight: 600; }
+
+/* A narrow window drops the bars before anything else. */
+@container (max-width: 600px) {
+  .pc-row { grid-template-columns: minmax(0, 1fr) 112px 40px 82px; gap: 10px; }
+  .pc-cell-bar { display: none; }
+  .pc-stat-value { font-size: 18px; }
+}
+@container (max-width: 470px) {
+  .pc-stats { grid-template-columns: 1fr 1fr; }
+  .pc-stats > :first-child { grid-column: 1 / -1; }
+  .pc-row { grid-template-columns: minmax(0, 1fr) 104px 74px; }
+  .pc-cell-conf { display: none; }
+  .pc-advice { grid-template-columns: 1fr; }
+}
+
+/* ---- compare open products ----------------------------------------------------------- */
+
+.cmp-panel { display: flex; align-items: center; gap: 16px; }
+.cmp-panel-mark {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  width: 52px;
+  height: 40px;
+}
+.cmp-panel-mark span {
+  flex: 1;
+  border-radius: 5px 5px 2px 2px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.cmp-panel-mark span:nth-child(1) { height: 70%; }
+.cmp-panel-mark span:nth-child(2) { height: 100%; border-color: var(--accent-alt); background: color-mix(in srgb, var(--accent-alt) 16%, transparent); }
+.cmp-panel-mark span:nth-child(3) { height: 82%; }
+.cmp-panel-copy { flex: 1; min-width: 0; }
+.cmp-panel-title { font-size: 14px; font-weight: 500; margin-bottom: 3px; }
+.cmp-panel-text { margin: 0; font-size: 12.5px; line-height: 1.55; color: var(--text-dim); }
+.cmp-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease);
+}
+.cmp-go:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 16%, transparent); transform: translateY(-1px); }
+.cmp-go:disabled { opacity: 0.6; cursor: default; }
+
+.cmp-result { margin-top: 14px; animation: rp-rise calc(var(--motion-base) * 2.2) var(--ease) both; }
+.cmp-scroll { overflow-x: auto; margin: 0 -4px; padding: 0 4px 4px; }
+.cmp-table {
+  display: grid;
+  grid-template-columns: 104px repeat(var(--n, 2), minmax(170px, 1fr));
+  min-width: calc(104px + var(--n, 2) * 176px);
+}
+.cmp-table > div { padding: 9px 10px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; line-height: 1.5; user-select: text; }
+.cmp-label { font-size: 10.5px !important; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-faint); }
+.cmp-head { display: flex; flex-direction: column; gap: 6px; border-bottom-color: var(--border) !important; }
+.cmp-name { font-size: 13.5px; font-weight: 500; line-height: 1.4; }
+.cmp-from {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 8px 2px 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-active);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.cmp-from:hover { color: var(--accent); }
+.cmp-from .rp-mark { width: 18px; height: 18px; }
+.cmp-from .rp-mark img { width: 12px; height: 12px; }
+.cmp-from .rp-mark-letter { font-size: 10px; }
+.cmp-price-row { font-size: 15px !important; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cmp-lowest {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--success) 13%, transparent), transparent);
+  box-shadow: 0 -2px 0 var(--success) inset;
+}
+.cmp-lowest .cmp-price-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--success);
+  color: var(--bg);
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 2px;
+}
+.cmp-missing { color: var(--text-faint); font-style: italic; }
+.cmp-prices-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.cmp-prices-link:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.cmp-verdict { margin-top: 14px; }
+
+@media (max-width: 760px) {
+  .pc-panel { padding: 20px; }
+  .pc-panel-top { grid-template-columns: 1fr; }
+  .pc-ladder { display: none; }
+  .cmp-panel { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-panel-glow, .pc-rung, .pc-rung-3::after, .pc-from-page, .pc-wait-mark, .pc-wait-row, .pc-wait-bar,
+  .pc-result, .pc-stat, .pc-stat-best::after, .pc-rows > .pc-row, .pc-bar-fill, .pc-badge-best,
+  .pc-advice > *, .pc-go::after, .cmp-result { animation: none !important; }
+  .pc-stat-best::after { display: none; }
+}

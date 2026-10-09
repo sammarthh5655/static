@@ -72,7 +72,7 @@ const MODES = {
   shopping: {
     id: 'shopping',
     name: 'Shopping',
-    tagline: 'Compare products side by side',
+    tagline: 'Compare products and prices',
     icon: 'search',
     page: 'browser://shopping',
     group: 'work',
