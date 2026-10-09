@@ -92,18 +92,24 @@ function linkFrom(event) {
   return url.trim();
 }
 
-function tabGlyph(tab) {
-  const glyph = element('span', { class: 'vt-icon' });
-  const letter = () => element('span', { class: 'vt-letter',
-    text: (tab.title || tab.url || '?').replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '·' });
+const initialOf = (tab) => (tab.title || tab.url || '?').replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '·';
+
+/** What a tab's icon shows; it is only rebuilt when this changes. */
+const iconKey = (tab) => (tab.loading ? 'spin' : tab.favicon ? 'img:' + tab.favicon : tab.pinned ? 'letter:' + initialOf(tab) : 'glyph');
+
+/** A tab's icon: its favicon, a spinner while it loads, or a letter. `swapped` hears of a favicon that failed. */
+function iconOf(tab, swapped = () => {}) {
+  const letter = () => element('span', { class: 'vt-letter', text: initialOf(tab) });
   const fallback = () => (tab.pinned ? letter() : icon('search', { size: 14 }));
-  if (tab.loading) glyph.append(element('span', { class: 'vt-spinner' }));
-  else if (tab.favicon) {
-    const img = element('img', { src: tab.favicon, alt: '' });
-    img.addEventListener('error', () => img.replaceWith(fallback()));
-    glyph.append(img);
-  } else glyph.append(fallback());
-  return glyph;
+  if (tab.loading) return element('span', { class: 'vt-spinner' });
+  if (!tab.favicon) return fallback();
+  const img = element('img', { src: tab.favicon, alt: '' });
+  img.addEventListener('error', () => {
+    const stand = fallback();
+    img.replaceWith(stand);
+    swapped(stand, img);
+  });
+  return img;
 }
 
 /** "id:muted" for each tab that showed a speaker at the last redraw. */
@@ -128,7 +134,7 @@ function speakerGlyph(muted, size) {
     path.setAttribute('class', cls);
     svg.append(path);
   }
-  // Redrawn on every change; the waves keep their beat across redraws.
+  // The waves keep their beat when a speaker is drawn again.
   svg.style.setProperty('--wave-phase', -(Date.now() % 1190) + 'ms');
   return svg;
 }
@@ -149,77 +155,174 @@ function soundButton(tab, { badge = false } = {}) {
 }
 
 /** With hover cards on, the card says it all; a tooltip on top would only cover it. */
-const tip = (text) => (state?.settings?.tabPreviews === false ? { title: text } : {});
+function setTip(node, text) {
+  if (state?.settings?.tabPreviews === false) node.title = text;
+  else node.removeAttribute('title');
+}
 
-function row(tab, group, visible) {
-  const sleeping = state.organizer?.sleeping?.includes(tab.id);
-  const sound = !!(tab.audible || tab.muted);
-  const node = element('div', {
-    class: 'vt-tab' + (tab.active ? ' active' : '') + (tab.splitSide ? ' split' : '') + (group ? ' grouped' : '')
-      + (sleeping ? ' sleeping' : '') + (picked.has(tab.id) ? ' picked' : '') + (sound ? ' has-sound' : ''),
-    draggable: 'true', 'data-id': tab.id, ...tip(tab.title || tab.url || ''),
-    role: 'tab', 'aria-selected': String(!!tab.active),
-    'aria-label': (tab.title || 'New tab') + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''),
+/* ---- kept, not redrawn ------------------------------------------------------
+   As along the top (see chrome.js), each tab keeps one node for as long as
+   it is open and only what changed is touched, so the list can move: a
+   closed tab folds away while the rows below close up, a new one opens out,
+   a moved one glides, and a folded group's rows tuck up under its header.
+   Timings and the switch that stills it all are in shared/motion.js. */
+const kept = {
+  rows: new Map(),      // tab id -> its row in the list
+  pins: new Map(),      // tab id -> its square in the pinned row
+  chips: new Map(),     // group id -> its header
+  parts: new WeakMap(), // row or square -> its icon, title, speaker
+  shape: '',
+  workspace: null,
+  folded: new Set(),    // tab ids tucked into a folded group at the last change
+};
+
+const tabById = (id) => state?.tabs.find((t) => t.id === id);
+function visibleTabs() {
+  const workspace = state?.organizer?.activeWorkspace || 'main';
+  return (state?.tabs || []).filter((t) => (t.workspaceId || 'main') === workspace);
+}
+
+/** Listeners look the tab up when they fire: the node outlives any one state. */
+function wire(node, id) {
+  node.addEventListener('click', (event) => { const tab = tabById(id); if (tab) clickTab(tab, event, visibleTabs()); });
+  node.addEventListener('auxclick', (event) => { if (event.button === 1) invoke('tabs:close', { id }); });
+  node.addEventListener('contextmenu', (event) => {
+    const tab = tabById(id);
+    if (tab) tabMenu(tab, event); else event.preventDefault();
   });
+}
+
+/**
+ * The icon slot of a row or square, rebuilt only when what it shows changes.
+ * A favicon that failed once is not asked for again; what stands in for it
+ * follows the title, as it would on a tab without one.
+ */
+function freshIcon(parts, tab) {
+  const shown = tab.favicon && parts.broken === tab.favicon ? { ...tab, favicon: '' } : tab;
+  const key = iconKey(shown);
+  if (parts.iconKey === key) return;
+  parts.iconKey = key;
+  parts.icon = iconOf(shown, (stand, img) => {
+    // Only while it is still the icon shown: a newer one may have replaced it.
+    if (parts.icon !== img) return;
+    parts.icon = stand;
+    parts.broken = shown.favicon;
+    parts.iconKey = iconKey({ ...shown, favicon: '' });
+  });
+}
+
+/** Set a node's children to `wanted` only if they differ. */
+function fill(node, wanted) {
+  const list = wanted.filter(Boolean);
+  const children = node.children;
+  if (children.length !== list.length || list.some((part, i) => children[i] !== part)) node.replaceChildren(...list);
+}
+
+function drawRow(tab, group) {
+  let node = kept.rows.get(tab.id);
+  if (!node) {
+    node = element('div', { class: 'vt-tab', draggable: 'true', 'data-id': tab.id, role: 'tab' });
+    const close = element('button', { class: 'vt-close', title: 'Close tab', 'aria-label': 'Close tab' }, [icon('close', { size: 12 })]);
+    const id = tab.id;
+    close.addEventListener('click', (event) => { event.stopPropagation(); invoke('tabs:close', { id }); });
+    kept.parts.set(node, { glyph: element('span', { class: 'vt-icon' }), title: element('span', { class: 'vt-title' }), close });
+    wire(node, id);
+    kept.rows.set(id, node);
+  }
+  const parts = kept.parts.get(node);
+  const sleeping = !!state.organizer?.sleeping?.includes(tab.id);
+  const sound = !!(tab.audible || tab.muted);
+  node.classList.toggle('active', !!tab.active);
+  node.classList.toggle('split', !!tab.splitSide);
+  node.classList.toggle('grouped', !!group);
+  node.classList.toggle('sleeping', sleeping);
+  node.classList.toggle('picked', picked.has(tab.id));
+  node.classList.toggle('has-sound', sound);
+  setTip(node, tab.title || tab.url || '');
+  node.setAttribute('aria-selected', String(!!tab.active));
+  node.setAttribute('aria-label', (tab.title || 'New tab') + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''));
   if (group) node.style.setProperty('--group-color', group.color);
+  else node.style.removeProperty('--group-color');
 
-  const close = element('button', { class: 'vt-close', title: 'Close tab', 'aria-label': 'Close tab' }, [icon('close', { size: 12 })]);
-  close.addEventListener('click', (event) => { event.stopPropagation(); invoke('tabs:close', { id: tab.id }); });
-
-  const glyph = tabGlyph(tab);
+  freshIcon(parts, tab);
   // Folded to icons, the speaker becomes a badge on the icon, as on a pinned square.
-  if (sound) glyph.append(soundButton(tab, { badge: true }));
-  node.append(glyph, element('span', { class: 'vt-title', text: tab.title || 'New tab' }));
-  if (sound) node.append(soundButton(tab));
-  node.append(close);
-  wire(node, tab, visible);
+  const speaker = sound ? String(!!tab.muted) : '';
+  if (parts.speaker !== speaker) {
+    parts.speaker = speaker;
+    parts.badge = sound ? soundButton(tab, { badge: true }) : null;
+    parts.sound = sound ? soundButton(tab) : null;
+  }
+  fill(parts.glyph, [parts.icon, parts.badge]);
+  const title = tab.title || 'New tab';
+  if (parts.title.textContent !== title) parts.title.textContent = title;
+  fill(node, [parts.glyph, parts.title, parts.sound, parts.close]);
   return node;
 }
 
 /** A pinned tab down the side: a favicon square in the row at the top. */
-function pinnedSquare(tab, visible) {
-  const node = element('div', {
-    class: 'vt-pin' + (tab.active ? ' active' : '') + (picked.has(tab.id) ? ' picked' : ''),
-    draggable: 'true', 'data-id': tab.id, ...tip((tab.title || tab.url || 'New tab') + ' (pinned)'),
-    role: 'tab', 'aria-selected': String(!!tab.active),
-    'aria-label': (tab.title || 'New tab') + ' (pinned)' + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''),
-  }, [tabGlyph(tab)]);
-  if (tab.audible || tab.muted) node.append(soundButton(tab, { badge: true }));
-  wire(node, tab, visible);
+function drawPin(tab) {
+  let node = kept.pins.get(tab.id);
+  if (!node) {
+    node = element('div', { class: 'vt-pin', draggable: 'true', 'data-id': tab.id, role: 'tab' });
+    kept.parts.set(node, { glyph: element('span', { class: 'vt-icon' }) });
+    wire(node, tab.id);
+    kept.pins.set(tab.id, node);
+  }
+  const parts = kept.parts.get(node);
+  node.classList.toggle('active', !!tab.active);
+  node.classList.toggle('picked', picked.has(tab.id));
+  setTip(node, (tab.title || tab.url || 'New tab') + ' (pinned)');
+  node.setAttribute('aria-selected', String(!!tab.active));
+  node.setAttribute('aria-label', (tab.title || 'New tab') + ' (pinned)' + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''));
+  freshIcon(parts, tab);
+  const speaker = tab.audible || tab.muted ? String(!!tab.muted) : '';
+  if (parts.speaker !== speaker) {
+    parts.speaker = speaker;
+    parts.badge = speaker ? soundButton(tab, { badge: true }) : null;
+  }
+  fill(parts.glyph, [parts.icon]);
+  fill(node, [parts.glyph, parts.badge]);
   return node;
 }
 
-function wire(node, tab, visible) {
-  node.addEventListener('click', (event) => clickTab(tab, event, visible));
-  node.addEventListener('auxclick', (event) => { if (event.button === 1) invoke('tabs:close', { id: tab.id }); });
-  node.addEventListener('contextmenu', (event) => tabMenu(tab, event));
-}
-
 /** A group's header: a filled pill in its colour; click folds, right-click opens its menu. */
-function groupChip(group, count) {
-  const chip = element('button', {
-    class: 'vt-group' + (group.collapsed ? ' collapsed' : ''), 'data-group-id': group.id,
-    title: (group.collapsed ? 'Expand ' : 'Collapse ') + group.name, 'aria-expanded': String(!group.collapsed),
-  }, [
-    element('span', { class: 'vt-chevron' }, [icon('forward', { size: 12 })]),
-    element('span', { class: 'vt-group-name', text: group.name }),
-    element('span', { class: 'vt-group-count', text: String(count) }),
-  ]);
+function drawChip(group, count) {
+  let chip = kept.chips.get(group.id);
+  if (!chip) {
+    const id = group.id;
+    chip = element('button', { class: 'vt-group', 'data-group-id': id }, [
+      element('span', { class: 'vt-chevron' }, [icon('forward', { size: 12 })]),
+      element('span', { class: 'vt-group-name' }),
+      element('span', { class: 'vt-group-count' }),
+    ]);
+    chip.addEventListener('click', () => {
+      const current = state?.organizer?.groups?.find((g) => g.id === id);
+      if (current) invoke('organizer:group', { id, collapsed: !current.collapsed });
+    });
+    chip.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      invoke('organizer:chip-menu', { id,
+        anchor: { left: event.clientX, right: event.clientX, top: event.clientY, bottom: event.clientY, width: 0, height: 0 } });
+    });
+    kept.chips.set(id, chip);
+  }
+  chip.classList.toggle('collapsed', !!group.collapsed);
+  chip.title = (group.collapsed ? 'Expand ' : 'Collapse ') + group.name;
+  chip.setAttribute('aria-expanded', String(!group.collapsed));
   chip.style.setProperty('--group-color', group.color);
-  chip.addEventListener('click', () => invoke('organizer:group', { id: group.id, collapsed: !group.collapsed }));
-  chip.addEventListener('contextmenu', (event) => {
-    event.preventDefault();
-    invoke('organizer:chip-menu', { id: group.id,
-      anchor: { left: event.clientX, right: event.clientX, top: event.clientY, bottom: event.clientY, width: 0, height: 0 } });
-  });
+  const [, name, tally] = chip.children;
+  if (name.textContent !== group.name) name.textContent = group.name;
+  if (tally.textContent !== String(count)) tally.textContent = String(count);
   return chip;
 }
 
 function render() {
-  if (!state || dragId) return; // replacing a dragged node cancels the drag
+  if (!state || dragId) return; // moving a dragged node cancels the drag
   const settings = state.settings || {};
   document.body.classList.toggle('collapsed', !!settings.verticalTabsCollapsed);
   $('#fold').title = settings.verticalTabsCollapsed ? 'Expand tabs' : 'Collapse tabs';
+  // Animations just turned off: anything still moving lands at once.
+  if (!motion.duration()) motion.settle();
 
   const organizer = state.organizer || { groups: [], workspaces: [], activeWorkspace: 'main', sleeping: [] };
   // Only worth a line once there is more than one workspace to be in.
@@ -231,25 +334,125 @@ function render() {
 
   // Pinned tabs: a compact row of favicon squares at the top, as in Chrome.
   const pinned = visible.filter((t) => t.pinned);
-  $('#pinned').replaceChildren(...pinned.map((tab) => pinnedSquare(tab, visible)));
-  $('#pinned').hidden = !pinned.length;
+  const squares = pinned.map((tab) => drawPin(tab));
+  const shape = pinned.map((t) => t.id);
+  shape.push('|');
 
   const rest = visible.filter((t) => !t.pinned);
+  const groups = new Map((organizer.groups || []).map((g) => [g.id, g]));
   const painted = new Set();
-  const nodes = [];
+  const folded = new Set();
+  const rows = [];
   for (const tab of rest) {
-    const group = organizer.groups.find((g) => g.id === tab.groupId);
+    const group = groups.get(tab.groupId);
     if (group && !painted.has(group.id)) {
       painted.add(group.id);
-      nodes.push(groupChip(group, rest.filter((t) => t.groupId === group.id).length));
+      rows.push(drawChip(group, rest.filter((t) => t.groupId === group.id).length));
+      shape.push('[' + group.id);
     }
-    if (group?.collapsed && !tab.active) continue;
-    nodes.push(row(tab, group, visible));
+    if (group?.collapsed && !tab.active) { folded.add(tab.id); continue; }
+    rows.push(drawRow(tab, group));
+    shape.push(tab.id);
   }
-  $('#list').replaceChildren(...nodes);
+  const key = shape.join(' ');
+  if (key !== kept.shape || organizer.activeWorkspace !== kept.workspace) {
+    place(squares, rows, { key, workspace: organizer.activeWorkspace, folded });
+  }
   sounding = new Set(visible.filter((t) => t.audible || t.muted).map((t) => t.id + ':' + !!t.muted));
   // The tab under the pointer may have just closed.
   if (hover.id && !visible.some((t) => t.id === hover.id)) hidePreview();
+}
+
+/**
+ * Put the squares and rows in place and play the change: one layout read
+ * before it, one after, and transforms and opacity in between.
+ */
+function place(squares, rows, next) {
+  const animate = motion.duration() > 0 && !!kept.shape && next.workspace === kept.workspace;
+  const wasFolded = kept.folded;
+  kept.shape = next.key;
+  kept.workspace = next.workspace;
+  kept.folded = next.folded;
+
+  const wanted = new Set([...squares, ...rows]);
+  const going = [...pinRow.children, ...list.children].filter((node) => !wanted.has(node) && !node.classList.contains('leaving'));
+  for (const map of [kept.rows, kept.pins, kept.chips]) {
+    for (const [id, node] of map) if (!wanted.has(node)) map.delete(id);
+  }
+
+  // READ: where everything is drawn now.
+  let first = null;
+  let gone = [];
+  if (animate) {
+    first = motion.measure(wanted);
+    const boxes = new Map([[list, list.getBoundingClientRect()], [pinRow, pinRow.getBoundingClientRect()]]);
+    gone = going.map((node) => {
+      const box = node.getBoundingClientRect();
+      const look = getComputedStyle(node);
+      const host = node.parentElement;
+      return { node, id: node.dataset.id, box, host, hostBox: boxes.get(host), opacity: Number(look.opacity),
+        seen: box.height > 0 && box.bottom > boxes.get(host).top && box.top < boxes.get(host).bottom };
+    });
+  }
+
+  // WRITE: lift what is leaving out where it is, then put the rest in place.
+  if (animate) {
+    motion.halt(first.keys());
+    for (const leaving of gone) if (leaving.seen) motion.lift(leaving.node, leaving.host, leaving.box, leaving.hostBox);
+  }
+  pinRow.hidden = !squares.length;
+  motion.arrange(pinRow, squares);
+  motion.arrange(list, rows);
+  if (!animate) return;
+
+  // READ: where everything has landed.
+  const entering = [...wanted].filter((node) => !first.has(node));
+  const last = motion.measure([...first.keys(), ...entering]);
+
+  // WRITE: play it.
+  motion.glide(first, last);
+  const headerOf = (id) => {
+    const groupId = tabById(id)?.groupId;
+    return groupId ? last.get(kept.chips.get(groupId)) : null;
+  };
+  for (const node of entering) {
+    const box = last.get(node);
+    if (!box) continue;
+    if (node.classList.contains('vt-tab')) {
+      const header = wasFolded.has(node.dataset.id) ? headerOf(node.dataset.id) : null;
+      // Unfolded: down from under its header. New: opens out in its place.
+      motion.enter(node, header ? [
+        { transform: 'translateY(' + (header.bottom - box.bottom) + 'px)', clipPath: 'inset(100% 0 0 0)', opacity: 0 },
+        { transform: 'none', clipPath: 'inset(0 0 0 0)', opacity: 1 },
+      ] : [
+        { clipPath: 'inset(0 0 100% 0 round 10px)', opacity: 0, transform: 'translateX(-8px)' },
+        { opacity: 1, offset: 0.55 },
+        { clipPath: 'inset(0 0 0 0 round 10px)', opacity: 1, transform: 'none' },
+      ]);
+    } else if (node.classList.contains('vt-pin')) {
+      motion.enter(node, [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'none', opacity: 1 }]);
+    } else {
+      motion.enter(node, [{ transform: 'translateY(-4px)', opacity: 0 }, { transform: 'none', opacity: 1 }]);
+    }
+  }
+  for (const leaving of gone) {
+    if (!leaving.seen) continue;
+    const { node, box } = leaving;
+    if (node.classList.contains('vt-tab')) {
+      // Folded away: up under its header. Closed: closes up where it was.
+      const header = next.folded.has(leaving.id) ? headerOf(leaving.id) : null;
+      // Mostly solid while it closes up, fading at the end (as along the top).
+      motion.leave(node, [
+        { height: box.height + 'px', opacity: leaving.opacity, transform: 'none' },
+        { opacity: leaving.opacity * 0.85, offset: 0.45 },
+        { height: '0px', opacity: 0, transform: header ? 'translateY(' + (header.bottom - box.top) + 'px)' : 'translateX(-10px)' },
+      ]);
+    } else if (node.classList.contains('vt-pin')) {
+      motion.leave(node, [{ transform: 'none', opacity: leaving.opacity }, { transform: 'scale(.6)', opacity: 0 }]);
+    } else {
+      motion.leave(node, [{ opacity: leaving.opacity }, { opacity: 0 }]);
+    }
+  }
 }
 
 /* ---- hover previews -------------------------------------------------------
@@ -272,7 +475,11 @@ function hoverTab(id) {
 }
 
 async function showPreview(id) {
-  const node = document.querySelector(`.vt-tab[data-id="${CSS.escape(id)}"], .vt-pin[data-id="${CSS.escape(id)}"]`);
+  const find = () => document.querySelector(`.vt-tab[data-id="${CSS.escape(id)}"], .vt-pin[data-id="${CSS.escape(id)}"]`);
+  if (!find()) return;
+  // A row still sliding into place is measured where it comes to rest.
+  await motion.settled(find());
+  const node = find();
   if (!node || hover.id !== id || dragId) return;
   const box = node.getBoundingClientRect();
   hover.asking++;
@@ -344,7 +551,7 @@ function dropTarget(event) {
   const tabOf = (n) => state.tabs.find((t) => t.id === n?.dataset.id);
   if (dragged.pinned) {
     // Along the pinned row, by the pointer's place in it.
-    const squares = [...pinRow.querySelectorAll('.vt-pin')].filter((n) => !moving.includes(n.dataset.id));
+    const squares = [...pinRow.querySelectorAll('.vt-pin:not(.leaving)')].filter((n) => !moving.includes(n.dataset.id));
     const at = squares.findIndex((n) => {
       const b = n.getBoundingClientRect();
       return event.clientY < b.bottom && event.clientX < b.left + b.width / 2;
@@ -352,7 +559,7 @@ function dropTarget(event) {
     return { groupId: null, beforeId: at >= 0 ? squares[at].dataset.id : null,
       node: squares[at] || squares.at(-1), side: at >= 0 ? 'before' : 'after', pinned: true };
   }
-  const rows = [...list.querySelectorAll('.vt-tab')].filter((n) => !moving.includes(n.dataset.id));
+  const rows = [...list.querySelectorAll('.vt-tab:not(.leaving)')].filter((n) => !moving.includes(n.dataset.id));
   if (!rows.length) return { groupId: null, beforeId: null };
   const boxes = rows.map((n) => n.getBoundingClientRect());
   const y = event.clientY;
@@ -390,7 +597,14 @@ for (const area of [list, pinRow]) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-static-tab', dragId);
   });
-  area.addEventListener('dragend', () => { dragId = null; clearMarks(); invoke('split:drag', { id: null }); render(); });
+  area.addEventListener('dragend', () => {
+    dragId = null;
+    clearMarks();
+    // Rows are kept now, not redrawn, so the dimming has to be taken off.
+    document.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
+    invoke('split:drag', { id: null });
+    render();
+  });
 }
 
 pinRow.addEventListener('dragover', (event) => {

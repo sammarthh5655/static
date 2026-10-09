@@ -53,15 +53,21 @@ const act = (action) => invoke('ui:action', { action });
  */
 
 let appliedTheme = '';
+// Bumped whenever the theme changes, so measurements that depend on it
+// (a font size, a radius) are taken again.
+let themeGeneration = 0;
 
 function applyTheme(settings) {
   const key = JSON.stringify(window.theme.cssVariables(settings));
   if (key === appliedTheme) return;
   appliedTheme = key;
+  themeGeneration++;
   const vars = window.theme.cssVariables(settings);
   for (const [name, value] of Object.entries(vars)) {
     document.documentElement.style.setProperty(name, value);
   }
+  // Animations just turned off: anything still moving lands at once.
+  if (!motion.duration()) motion.settle();
 }
 
 /* ---- static chrome (built once) ------------------------------------------ */
@@ -353,10 +359,24 @@ function render() {
   renderToolbar();
   renderBookmarks();
   renderNotice();
+  drawnOnce = true;
 }
 
-/** A tab's icon: its favicon, a spinner while it loads, or a letter. */
-function tabIcon(tab, size = 16) {
+/** The first letter of a tab's title, for a pinned tab with no favicon. */
+const initialOf = (tab) => (tab.title || tab.url || '?').replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '·';
+
+/**
+ * What a tab's icon shows, as a key: the icon is only rebuilt when this
+ * changes, so a favicon is not reloaded (and a spinner not restarted) on
+ * every state push.
+ */
+const iconKey = (tab) => (tab.loading ? 'spin' : tab.favicon ? 'img:' + tab.favicon : tab.pinned ? 'letter:' + initialOf(tab) : 'glyph');
+
+/**
+ * A tab's icon: its favicon, a spinner while it loads, or a letter.
+ * `swapped` hears about a favicon that failed and was replaced.
+ */
+function tabIcon(tab, size = 16, swapped = () => {}) {
   if (tab.loading) {
     const spinner = document.createElement('div');
     spinner.className = 'spinner';
@@ -367,7 +387,7 @@ function tabIcon(tab, size = 16) {
   const letter = () => {
     const mark = document.createElement('span');
     mark.className = 'tab-letter';
-    mark.textContent = (tab.title || tab.url || '?').replace(/^[^\p{L}\p{N}]+/u, '').charAt(0).toUpperCase() || '·';
+    mark.textContent = initialOf(tab);
     return mark;
   };
   const fallback = () => (tab.pinned ? letter() : window.ui.icon('search', { size: 14 }));
@@ -376,7 +396,11 @@ function tabIcon(tab, size = 16) {
   img.className = 'favicon';
   img.width = size; img.height = size;
   img.src = tab.favicon;
-  img.onerror = () => img.replaceWith(fallback());
+  img.onerror = () => {
+    const stand = fallback();
+    img.replaceWith(stand);
+    swapped(stand, img);
+  };
   return img;
 }
 
@@ -422,8 +446,8 @@ function soundButton(tab, { badge = false } = {}) {
   button.setAttribute('aria-label', button.title);
   button.setAttribute('aria-pressed', String(!!tab.muted));
   button.draggable = false;
-  // The strip is redrawn on every change; only a speaker that has just
-  // appeared pops in, and the waves keep their beat across redraws.
+  // Only a speaker that has just appeared pops in - not one on a tab that
+  // was drawn again (unfolded, say) - and the waves keep their beat.
   if (!local.sounding.has(tab.id + ':' + !!tab.muted)) button.classList.add('is-new');
   const glyph = speakerGlyph(!!tab.muted, badge ? 10 : 15);
   glyph.style.setProperty('--wave-phase', -(Date.now() % 1190) + 'ms');
@@ -436,53 +460,141 @@ function soundButton(tab, { badge = false } = {}) {
   return button;
 }
 
-function tabNode(tab, organizer, visible, group) {
-  const sleeping = organizer.sleeping.includes(tab.id);
-  const sound = !!(tab.audible || tab.muted);
+/* ---- the tab strip ---------------------------------------------------------
+   Kept, not redrawn. Each tab has one node for as long as it is open, found
+   by its id and brought up to date in place, and a change inserts, moves or
+   removes only the nodes it touched. The strip used to be rebuilt from
+   nothing on every state push, so a closing tab simply vanished, a new one
+   popped in and a dragged one jumped. Kept nodes can move instead (see
+   shared/motion.js):
+   - a closing tab narrows to nothing as it fades, and its neighbours close
+     the gap; it is only a picture by then - no clicks, no hover card;
+   - a new tab grows into its place while its neighbours make room;
+   - a tab moved - dragged, pinned, grouped, organised - glides there;
+   - a folded group's tabs slide into its chip, and back out of it.
+   Every move is short and answers something the person just did; nothing
+   moves on its own, and the animations setting stills all of it. */
+
+const strip = {
+  host: document.querySelector('.strip'),
+  tabs: new Map(),      // tab id -> its node
+  parts: new WeakMap(), // tab node -> its icon, title, speaker and close button
+  groups: new Map(),    // group id -> the wrapper its tabs sit in
+  chips: new Map(),     // group id -> its chip
+  rule: null,           // the hairline after the pinned tabs
+  shape: '',            // the order drawn at the last change
+  workspace: null,
+  folded: new Set(),    // tab ids tucked into a folded group at the last change
+  floors: '',           // what the groups' minimum widths were worked out for
+  unclip: 0,
+};
+
+const tabById = (id) => state.tabs.find((t) => t.id === id);
+
+/** The tabs on the strip: those in the workspace being shown. */
+function visibleTabs() {
+  const workspace = state.organizer?.activeWorkspace || 'main';
+  return state.tabs.filter((t) => (t.workspaceId || 'main') === workspace);
+}
+
+/**
+ * A tab's node, made once. Its listeners look the tab up when they fire,
+ * because the node outlives any one state.
+ */
+function makeTab(id) {
   const node = document.createElement('div');
-  node.className = 'tab' + (tab.active ? ' active' : '') + (tab.pinned ? ' pinned' : '')
-    + (tab.splitSide ? ' split-' + tab.splitSide : '') + (sleeping ? ' sleeping' : '')
-    + (group ? ' grouped' : '') + (local.picked.has(tab.id) ? ' picked' : '')
-    + (sound ? ' has-sound' : '');
+  node.className = 'tab';
   node.draggable = true;
-  node.dataset.id = tab.id;
+  node.dataset.id = id;
+  node.setAttribute('role', 'tab');
+  node.addEventListener('click', (event) => {
+    const tab = tabById(id);
+    if (tab) clickTab(tab, event, visibleTabs());
+  });
+  node.addEventListener('auxclick', (event) => {
+    if (event.button === 1) invoke('tabs:close', { id });
+  });
+  node.addEventListener('contextmenu', (event) => {
+    const tab = tabById(id);
+    if (tab) tabContextMenu(tab, event);
+    else event.preventDefault();
+  });
+  strip.tabs.set(id, node);
+  strip.parts.set(node, {});
+  return node;
+}
+
+function closeButton(id) {
+  const close = document.createElement('button');
+  close.className = 'close';
+  close.type = 'button';
+  close.title = 'Close tab';
+  close.append(window.ui.icon('close', { size: 13 }));
+  close.addEventListener('click', (event) => {
+    event.stopPropagation();
+    invoke('tabs:close', { id });
+  });
+  return close;
+}
+
+/** Bring a tab's node up to date, rebuilding only the parts that changed. */
+function drawTab(tab, sleeping, group) {
+  const node = strip.tabs.get(tab.id) || makeTab(tab.id);
+  const parts = strip.parts.get(node);
+  const sound = !!(tab.audible || tab.muted);
+  // Toggled one by one, never assigned: a drop marker or the narrow flag
+  // set elsewhere must survive a redraw.
+  node.classList.toggle('active', !!tab.active);
+  node.classList.toggle('pinned', !!tab.pinned);
+  node.classList.toggle('split-left', tab.splitSide === 'left');
+  node.classList.toggle('split-right', tab.splitSide === 'right');
+  node.classList.toggle('sleeping', sleeping);
+  node.classList.toggle('grouped', !!group);
+  node.classList.toggle('picked', local.picked.has(tab.id));
+  node.classList.toggle('has-sound', sound);
   // With hover cards on, the card says all this and more; a tooltip on top
   // of it would only cover it.
   if (state.settings?.tabPreviews === false) {
     node.title = (tab.title || 'New tab') + (tab.pinned ? ' (pinned)' : '') + (sleeping ? ' - sleeping' : '');
-  }
-  node.setAttribute('role', 'tab');
+  } else node.removeAttribute('title');
   node.setAttribute('aria-selected', String(!!tab.active));
   node.setAttribute('aria-label', (tab.title || 'New tab') + (tab.muted ? ', muted' : tab.audible ? ', playing sound' : ''));
-  node.append(tabIcon(tab));
 
+  // A favicon that failed once is not asked for again: the tab shows what
+  // stands in for it, which follows pinning (a letter) and unpinning (a
+  // glyph) and the title like the icon of any tab without one.
+  const shown = tab.favicon && parts.broken === tab.favicon ? { ...tab, favicon: '' } : tab;
+  const icon = iconKey(shown);
+  if (parts.iconKey !== icon) {
+    parts.iconKey = icon;
+    parts.icon = tabIcon(shown, 16, (stand, img) => {
+      // Only while it is still the icon shown: a spinner or a newer favicon
+      // may have taken its place before it failed.
+      if (parts.icon !== img) return;
+      parts.icon = stand;
+      parts.broken = shown.favicon;
+      parts.iconKey = iconKey({ ...shown, favicon: '' });
+    });
+  }
   // A pinned tab is a small square with just its icon, as in Chrome: no
   // title, no close button. Its title is in the tooltip; sound is a badge.
-  if (tab.pinned && sound) node.append(soundButton(tab, { badge: true }));
-  if (!tab.pinned) {
-    const title = document.createElement('span');
-    title.className = 'title';
-    title.textContent = (sleeping ? '◌ ' : '') + (tab.title || 'New tab');
-    node.append(title);
-    if (sound) node.append(soundButton(tab));
-
-    const close = document.createElement('button');
-    close.className = 'close';
-    close.type = 'button';
-    close.title = 'Close tab';
-    close.append(window.ui.icon('close', { size: 13 }));
-    close.addEventListener('click', (event) => {
-      event.stopPropagation();
-      invoke('tabs:close', { id: tab.id });
-    });
-    node.append(close);
+  const speaker = sound ? (tab.pinned ? 'badge:' : 'row:') + !!tab.muted : '';
+  if (parts.speaker !== speaker) {
+    parts.speaker = speaker;
+    parts.sound = sound ? soundButton(tab, { badge: !!tab.pinned }) : null;
   }
-
-  node.addEventListener('click', (event) => clickTab(tab, event, visible));
-  node.addEventListener('auxclick', (event) => {
-    if (event.button === 1) invoke('tabs:close', { id: tab.id });
-  });
-  node.addEventListener('contextmenu', (event) => tabContextMenu(tab, event));
+  if (!tab.pinned) {
+    if (!parts.title) {
+      parts.title = document.createElement('span');
+      parts.title.className = 'title';
+    }
+    const text = (sleeping ? '◌ ' : '') + (tab.title || 'New tab');
+    if (parts.title.textContent !== text) parts.title.textContent = text;
+    parts.close ||= closeButton(tab.id);
+  }
+  const wanted = (tab.pinned ? [parts.icon, parts.sound] : [parts.icon, parts.title, parts.sound, parts.close]).filter(Boolean);
+  const children = node.children;
+  if (children.length !== wanted.length || wanted.some((part, i) => children[i] !== part)) node.replaceChildren(...wanted);
   return node;
 }
 
@@ -491,34 +603,61 @@ function tabNode(tab, organizer, visible, group) {
  * many tabs it holds when folded. Click folds and unfolds; right-click opens
  * the group's own menu (rename, colour, ungroup, close).
  */
-function groupChip(group, count) {
+function makeChip(id) {
   const chip = document.createElement('button');
   chip.type = 'button';
-  chip.className = 'tab-group-chip' + (group.collapsed ? ' collapsed' : '');
-  chip.dataset.groupId = group.id;
-  chip.title = (group.collapsed ? 'Expand ' : 'Collapse ') + group.name + ' (' + count + (count === 1 ? ' tab)' : ' tabs)');
-  chip.setAttribute('aria-expanded', String(!group.collapsed));
+  chip.className = 'tab-group-chip';
+  chip.dataset.groupId = id;
   const name = document.createElement('span');
   name.className = 'chip-name';
-  name.textContent = group.name;
   chip.append(name);
-  if (group.collapsed) {
-    const badge = document.createElement('span');
-    badge.className = 'chip-count';
-    badge.textContent = String(count);
-    chip.append(badge);
-  }
-  chip.addEventListener('click', () => invoke('organizer:group', { id: group.id, collapsed: !group.collapsed }));
+  chip.addEventListener('click', () => {
+    const group = state.organizer?.groups?.find((g) => g.id === id);
+    if (group) invoke('organizer:group', { id, collapsed: !group.collapsed });
+  });
   chip.addEventListener('contextmenu', (event) => {
     event.preventDefault();
     closeOverlayMenu();
-    invoke('organizer:chip-menu', { id: group.id, anchor: pointAt(event) });
+    invoke('organizer:chip-menu', { id, anchor: pointAt(event) });
   });
   return chip;
 }
 
+function drawChip(chip, group, count) {
+  chip.classList.toggle('collapsed', !!group.collapsed);
+  chip.title = (group.collapsed ? 'Expand ' : 'Collapse ') + group.name + ' (' + count + (count === 1 ? ' tab)' : ' tabs)');
+  chip.setAttribute('aria-expanded', String(!group.collapsed));
+  if (chip.firstChild.textContent !== group.name) chip.firstChild.textContent = group.name;
+  // Folded: how many tabs are inside. The badge pops in once, when it folds.
+  let badge = chip.querySelector('.chip-count');
+  if (group.collapsed) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'chip-count';
+      chip.append(badge);
+    }
+    if (badge.textContent !== String(count)) badge.textContent = String(count);
+  } else badge?.remove();
+}
+
+/** A group's wrapper, which runs its colour under the chip and every tab in it. */
+function drawGroup(group, count) {
+  let wrap = strip.groups.get(group.id);
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.className = 'tab-group';
+    wrap.dataset.group = group.id;
+    strip.groups.set(group.id, wrap);
+    strip.chips.set(group.id, makeChip(group.id));
+  }
+  wrap.classList.toggle('collapsed', !!group.collapsed);
+  wrap.style.setProperty('--group-color', group.color);
+  drawChip(strip.chips.get(group.id), group, count);
+  return wrap;
+}
+
 function renderTabs() {
-  // Replacing dragged DOM nodes cancels Chromium's native drag session.
+  // Moving a dragged node cancels Chromium's native drag session.
   if (local.dragId) return;
   const active = state.tabs.find(t => t.active);
   el.windowTitle.textContent = active?.title ? active.title + ' — static' : 'static';
@@ -534,42 +673,54 @@ function renderTabs() {
 
   // Pinned squares first, then a hairline, then everything else - groups
   // wrapped so their colour runs under the chip and every tab in them.
-  const nodes = [];
+  const sleeping = new Set(organizer.sleeping || []);
+  const groups = new Map((organizer.groups || []).map((g) => [g.id, g]));
+  const top = [];
+  const inside = new Map(); // group wrapper -> its chip, then its tabs
+  const folded = new Set();
+  const shape = [];
   const pinned = visible.filter((t) => t.pinned);
-  for (const tab of pinned) nodes.push(tabNode(tab, organizer, visible, null));
+  for (const tab of pinned) {
+    top.push(drawTab(tab, sleeping.has(tab.id), null));
+    shape.push(tab.id);
+  }
   const rest = visible.filter((t) => !t.pinned);
   if (pinned.length && rest.length) {
-    const rule = document.createElement('span');
-    rule.className = 'pinned-rule';
-    nodes.push(rule);
+    if (!strip.rule) {
+      strip.rule = document.createElement('span');
+      strip.rule.className = 'pinned-rule';
+    }
+    top.push(strip.rule);
+    shape.push('|');
   }
-  const wrappers = new Map();
+  const counts = new Map();
+  for (const tab of rest) if (groups.has(tab.groupId)) counts.set(tab.groupId, (counts.get(tab.groupId) || 0) + 1);
   for (const tab of rest) {
-    const group = organizer.groups.find(g => g.id === tab.groupId);
-    if (!group) { nodes.push(tabNode(tab, organizer, visible, null)); continue; }
-    let wrap = wrappers.get(group.id);
-    if (!wrap) {
-      const count = rest.filter((t) => t.groupId === group.id).length;
-      wrap = document.createElement('div');
-      wrap.className = 'tab-group' + (group.collapsed ? ' collapsed' : '');
-      wrap.dataset.group = group.id;
-      wrap.style.setProperty('--group-color', group.color);
-      wrap.append(groupChip(group, count));
-      wrappers.set(group.id, wrap);
-      nodes.push(wrap);
+    const group = groups.get(tab.groupId);
+    if (!group) {
+      top.push(drawTab(tab, sleeping.has(tab.id), null));
+      shape.push(tab.id);
+      continue;
+    }
+    let wrap = strip.groups.get(group.id);
+    if (!wrap || !inside.has(wrap)) {
+      wrap = drawGroup(group, counts.get(group.id));
+      inside.set(wrap, [strip.chips.get(group.id)]);
+      top.push(wrap);
+      shape.push('[' + group.id);
     }
     // A folded group still shows the tab you are on, so it never vanishes.
-    if (group.collapsed && !tab.active) continue;
-    wrap.append(tabNode(tab, organizer, visible, group));
+    if (group.collapsed && !tab.active) {
+      folded.add(tab.id);
+      continue;
+    }
+    inside.get(wrap).push(drawTab(tab, sleeping.has(tab.id), group));
+    shape.push(group.id + '>' + tab.id);
   }
-  el.tabs.replaceChildren(...nodes);
-  // A crowded strip shrinks a group's tabs to their 56px minimum like any
-  // other, and no further (see .tab-group in chrome.css): the chip, then each
-  // tab and the 2px gap before it.
-  for (const wrap of wrappers.values()) {
-    const chip = wrap.querySelector('.tab-group-chip');
-    wrap.style.minWidth = (chip.offsetWidth + 2 + wrap.querySelectorAll('.tab').length * 58) + 'px';
-  }
+  const key = shape.join(' ');
+  if (key !== strip.shape || organizer.activeWorkspace !== strip.workspace) {
+    placeTabs(top, inside, { key, workspace: organizer.activeWorkspace, folded });
+  } else setFloors(inside);
   markNarrowTabs();
   local.sounding = new Set(visible.filter((t) => t.audible || t.muted).map((t) => t.id + ':' + !!t.muted));
   // The tab under the pointer may have just closed.
@@ -577,15 +728,185 @@ function renderTabs() {
 }
 
 /**
+ * Put the strip's nodes where `top` and `inside` say, and play the change.
+ *
+ * Reads and writes are kept apart so the browser lays the strip out twice
+ * in all, however many tabs there are: once to see where everything is
+ * drawn now, once to see where it has landed.
+ */
+function placeTabs(top, inside, next) {
+  // Moves only ever answer a change on this strip: not the first draw, not
+  // a switch to another workspace's tabs, and not while the strip is hidden.
+  const animate = motion.duration() > 0 && !!strip.shape && next.workspace === strip.workspace
+    && !document.body.classList.contains('vertical-tabs');
+  const wasFolded = strip.folded;
+  strip.shape = next.key;
+  strip.workspace = next.workspace;
+  strip.folded = next.folded;
+
+  const wanted = new Set(top);
+  for (const list of inside.values()) for (const node of list) wanted.add(node);
+  const going = [...el.tabs.querySelectorAll('.tab, .tab-group-chip, .pinned-rule')].filter((node) => !wanted.has(node));
+  for (const [id, node] of strip.tabs) if (!wanted.has(node)) strip.tabs.delete(id);
+  for (const [id, wrap] of strip.groups) {
+    if (!wanted.has(wrap)) { strip.groups.delete(id); strip.chips.delete(id); }
+  }
+  // A hairline on its way out is a ghost now; the next one is made afresh.
+  if (strip.rule && !wanted.has(strip.rule)) strip.rule = null;
+
+  // READ: where everything is drawn now, and how each leaving node looks.
+  let first = null;
+  let gone = [];
+  let hostBox = null;
+  let crowded = false;
+  if (animate) {
+    first = motion.measure([...wanted, el.newtab]);
+    hostBox = strip.host.getBoundingClientRect();
+    const view = el.tabs.getBoundingClientRect();
+    crowded = el.tabs.scrollWidth > el.tabs.clientWidth + 1;
+    gone = going.map((node) => {
+      const box = node.getBoundingClientRect();
+      const look = getComputedStyle(node);
+      // A tab closed while it was still growing in leaves from the width it
+      // had reached, not its full one.
+      const clip = /^inset\(\S+ ([\d.]+)%/.exec(look.clipPath);
+      const shown = clip ? Math.max(0, 1 - clip[1] / 100) : 1;
+      return {
+        node, id: node.dataset.id,
+        box: { left: box.left, top: box.top, width: box.width * shown, height: box.height },
+        opacity: Number(look.opacity),
+        paint: { background: look.backgroundColor, color: look.color },
+        // Only what can be seen leaves slowly; a tab scrolled out of sight just goes.
+        seen: box.width > 0 && box.right > view.left && box.left < view.right,
+      };
+    });
+  }
+
+  // WRITE: lift the leaving nodes out where they are, then put every node
+  // that stays in its new place.
+  if (animate) {
+    motion.halt(first.keys());
+    for (const leaving of gone) if (leaving.seen) motion.lift(leaving.node, strip.host, leaving.box, hostBox, leaving.paint);
+  }
+  motion.arrange(el.tabs, top);
+  for (const [wrap, list] of inside) motion.arrange(wrap, list);
+  setFloors(inside);
+  if (!animate) return;
+
+  // READ: where everything has landed.
+  const entering = [...wanted].filter((node) => !first.has(node));
+  const last = motion.measure([...first.keys(), ...entering]);
+  // A strip that has just filled up scrolls now; letting it spill would draw
+  // its tabs over the buttons beside it. (Laid out already: no extra cost.)
+  crowded ||= el.tabs.scrollWidth > el.tabs.clientWidth + 1;
+
+  // WRITE: play it all, from where it was to where it is. While it plays, an
+  // uncrowded strip lets tabs slide past its edge rather than clipping them.
+  if (crowded) {
+    clearTimeout(strip.unclip);
+    el.tabs.classList.remove('is-moving');
+  } else {
+    el.tabs.classList.add('is-moving');
+    clearTimeout(strip.unclip);
+    strip.unclip = setTimeout(() => el.tabs.classList.remove('is-moving'), motion.duration() + 80);
+  }
+  motion.glide(first, last, {
+    parentOf: (node) => (node.parentElement?.classList.contains('tab-group') ? node.parentElement : null),
+    stretch: (node) => node.classList.contains('tab'),
+  });
+  const chipOf = (id) => {
+    const groupId = tabById(id)?.groupId;
+    return groupId ? last.get(strip.chips.get(groupId)) : null;
+  };
+  for (const node of entering) {
+    const box = last.get(node);
+    if (!box) continue;
+    if (node.classList.contains('tab')) {
+      const id = node.dataset.id;
+      const chip = wasFolded.has(id) ? chipOf(id) : null;
+      // Unfolded: out from under the chip. New: grows into its place.
+      if (chip) {
+        motion.enter(node, [
+          { transform: 'translateX(' + (chip.right - box.left) + 'px)', clipPath: 'inset(0 100% 0 0)', opacity: 0 },
+          { transform: 'none', clipPath: 'inset(0 0 0 0)', opacity: 1 },
+        ]);
+      } else {
+        motion.enter(node, [
+          { clipPath: 'inset(0 100% 0 0 round 8px 8px 0 0)', opacity: 0 },
+          { opacity: 1, offset: 0.55 },
+          { clipPath: 'inset(0 0 0 0 round 8px 8px 0 0)', opacity: 1 },
+        ]);
+      }
+    } else if (node.classList.contains('tab-group-chip')) {
+      motion.enter(node, [{ transform: 'scale(.6)', opacity: 0 }, { transform: 'none', opacity: 1 }]);
+    } else if (node === strip.rule) {
+      motion.enter(node, [{ opacity: 0 }, { opacity: 1 }]);
+    }
+  }
+  // A group's coloured underline stretches and shrinks with it, rather than
+  // jumping to its new length while its tabs are still on the way.
+  for (const wrap of inside.keys()) {
+    const now = last.get(wrap);
+    if (!now || now.width <= 0) continue;
+    const was = first.get(wrap);
+    const from = Math.min(8, was ? was.width / now.width : 0);
+    if (Math.abs(from - 1) < 0.01) continue;
+    motion.enter(wrap, [
+      { transform: 'scaleX(' + from + ')', transformOrigin: '0 0' },
+      { transform: 'none', transformOrigin: '0 0' },
+    ], { pseudoElement: '::after', moving: true });
+  }
+  for (const leaving of gone) {
+    if (!leaving.seen) continue;
+    const node = leaving.node;
+    if (node.classList.contains('tab-group-chip')) {
+      motion.leave(node, [{ transform: 'none', opacity: 1 }, { transform: 'scale(.6)', opacity: 0 }]);
+    } else if (node.classList.contains('pinned-rule')) {
+      motion.leave(node, [{ opacity: 1 }, { opacity: 0 }]);
+    } else {
+      // Folded away: into its chip. Closed: narrows to nothing where it was.
+      // It stays mostly solid while it narrows and fades in the last part
+      // of the move, so the eye sees the tab itself close up rather than a
+      // gap that was already empty.
+      const chip = next.folded.has(leaving.id) ? chipOf(leaving.id) : null;
+      const end = { width: '0px', paddingLeft: '0px', paddingRight: '0px', opacity: 0 };
+      if (chip) end.transform = 'translateX(' + (chip.right - leaving.box.left) + 'px)';
+      motion.leave(node, [
+        { width: leaving.box.width + 'px', opacity: leaving.opacity, transform: 'none' },
+        { opacity: leaving.opacity * 0.85, offset: 0.45 },
+        end,
+      ]);
+    }
+  }
+}
+
+/**
+ * A crowded strip shrinks a group's tabs to their 56px minimum like any
+ * other, and no further (see .tab-group in chrome.css): the chip, then each
+ * tab and the 2px gap before it. Worked out only when a group's contents
+ * change, and every chip is measured before any floor is written, so the
+ * strip is laid out once rather than once per group.
+ */
+function setFloors(inside) {
+  const key = themeGeneration + (document.body.classList.contains('vertical-tabs') ? 'v' : 'h') + [...inside]
+    .map(([wrap, list]) => wrap.dataset.group + ':' + list[0].textContent + ':' + list.length).join('|');
+  if (key === strip.floors) return;
+  strip.floors = key;
+  const widths = [...inside].map(([wrap, list]) => [wrap, list[0].offsetWidth, list.length - 1]);
+  for (const [wrap, chip, tabs] of widths) wrap.style.minWidth = (chip + 2 + tabs * 58) + 'px';
+}
+
+/**
  * A crowded strip squeezes tabs down to 56px, where an icon, a speaker and a
  * close button cannot all fit. There the speaker takes the icon's place, as
  * in Chrome, and a tab in the background gives up its close button (middle
- * click still closes it). Only tabs making sound change at all.
+ * click still closes it). Only tabs making sound change at all - all of them
+ * measured first, then all of them marked, so the strip is laid out once.
  */
 function markNarrowTabs() {
-  for (const node of el.tabs.querySelectorAll('.tab.has-sound:not(.pinned)')) {
-    node.classList.toggle('narrow', node.offsetWidth < 96);
-  }
+  const nodes = [...el.tabs.querySelectorAll('.tab.has-sound:not(.pinned)')];
+  const narrow = nodes.map((node) => node.offsetWidth < 96);
+  nodes.forEach((node, i) => node.classList.toggle('narrow', narrow[i]));
 }
 new ResizeObserver(() => markNarrowTabs()).observe(el.tabs);
 
@@ -650,11 +971,25 @@ function displayUrl(url) {
   return url;
 }
 
+/** Whether the chrome has drawn once: nothing eases in on the first paint. */
+let drawnOnce = false;
+
 function renderBookmarks() {
   const show = !!state.settings?.bookmarksBar;
+  const appearing = show && el.bookmarks.hidden && drawnOnce;
   el.bookmarks.hidden = !show;
   if (!show) return;
+  fillBookmarks();
+  // Turned on: main makes room for the bar at once (the page is not slid
+  // down frame by frame), and its bookmarks settle into it one after another.
+  if (appearing) {
+    [...el.bookmarks.children].slice(0, 16).forEach((node, i) => {
+      motion.enter(node, [{ opacity: 0, transform: 'translateY(-5px)' }, { opacity: 1, transform: 'none' }], { delay: Math.min(i * 12, 48) });
+    });
+  }
+}
 
+function fillBookmarks() {
   if (!state.bookmarks.length) {
     const empty = document.createElement('span');
     empty.className = 'empty';
@@ -693,10 +1028,48 @@ function faviconFor(url) {
   } catch { return ''; }
 }
 
+/**
+ * The notice: it rises in, and fades away rather than vanishing mid-word. A
+ * second message while one is up just takes its place.
+ */
+const notice = { leaving: null };
+
 function renderNotice() {
-  const notice = state.notice;
-  el.notice.hidden = !notice;
-  if (notice) el.notice.textContent = notice.message;
+  const current = state.notice;
+  if (current) {
+    if (notice.leaving) {
+      const leaving = notice.leaving;
+      notice.leaving = null;
+      leaving.cancel();
+    }
+    const appearing = el.notice.hidden;
+    el.notice.textContent = current.message;
+    el.notice.hidden = false;
+    if (appearing && drawnOnce) {
+      motion.enter(el.notice, [
+        { opacity: 0, transform: 'translate(-50%, 8px) scale(.97)' },
+        { opacity: 1, transform: 'translate(-50%, 0) scale(1)' },
+      ], { scale: 1.2 });
+    }
+    return;
+  }
+  if (el.notice.hidden || notice.leaving) return;
+  const ms = motion.duration();
+  if (!ms) { el.notice.hidden = true; return; }
+  const leaving = el.notice.animate([
+    { opacity: 1, transform: 'translate(-50%, 0)' },
+    { opacity: 0, transform: 'translate(-50%, 4px)' },
+  ], { duration: ms, easing: motion.ease(), fill: 'forwards', id: 'motion-leave' });
+  notice.leaving = leaving;
+  const done = () => {
+    if (notice.leaving !== leaving) return;
+    notice.leaving = null;
+    el.notice.hidden = true;
+    leaving.cancel();
+  };
+  leaving.finished.then(done, done);
+  // A view that is not being composited may never finish it.
+  setTimeout(done, ms + 160);
 }
 
 /* ---- omnibox suggestions -------------------------------------------------- */
@@ -886,7 +1259,11 @@ function hoverTab(id) {
 }
 
 async function showPreview(id) {
-  const node = el.tabs.querySelector(`.tab[data-id="${CSS.escape(id)}"]`);
+  let node = el.tabs.querySelector(`.tab[data-id="${CSS.escape(id)}"]`);
+  if (!node) return;
+  // A tab still sliding into place is measured where it comes to rest.
+  await motion.settled(node);
+  node = el.tabs.querySelector(`.tab[data-id="${CSS.escape(id)}"]`);
   if (!node || hover.id !== id || local.dragId) return;
   hover.asking++;
   const shown = await invoke('tabs:preview', { id, anchor: anchorRect(node) }).finally(() => { hover.asking--; });

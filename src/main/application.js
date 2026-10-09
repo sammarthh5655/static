@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog, net } = require('electron');
+const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog, net, systemPreferences } = require('electron');
 const { pathToFileURL, fileURLToPath } = require('node:url');
 const { requests, events } = require('../shared/channels');
 const { ENGINES, internalPage, resolveInput, allowedURL } = require('../shared/urls');
@@ -1955,6 +1955,14 @@ class BrowserApplication {
   animateSidebar(toOpen) {
     clearInterval(this.sidebarAnim);
     const target = toOpen ? 1 : 0;
+    // Animations off, in Static or in the system: the panel is simply there,
+    // or simply gone, like everything else.
+    if (!this.#motionOn()) {
+      this.sidebarAnim = null;
+      this.sidebarProgress = target;
+      this.layout();
+      return;
+    }
     const start = this.sidebarProgress ?? (toOpen ? 0 : 1);
     const began = Date.now();
     const DURATION = 190;
@@ -1972,6 +1980,19 @@ class BrowserApplication {
         this.layout();
       }
     }, 16);
+  }
+
+  /**
+   * Whether things may move: the animations setting is on and the system has
+   * not asked for less motion. The renderers read the same two switches
+   * (theme.js and prefers-reduced-motion); this is the one for what main
+   * animates itself.
+   */
+  #motionOn() {
+    if (this.settings?.value?.animations === false) return false;
+    try {
+      return !systemPreferences.getAnimationSettings?.()?.prefersReducedMotion;
+    } catch { return true; }
   }
 
   /** Open, close or toggle the sidebar. */
