@@ -38,7 +38,7 @@ const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
-const { PageTools } = require('../features/pagetools');
+const { PageTools, WORLD: PAGE_WORLD } = require('../features/pagetools');
 const wallpapers = require('../features/wallpapers');
 const feedback = require('../features/feedback');
 const importer = require('../features/importer');
@@ -46,7 +46,7 @@ const { Autofill, fillValues } = require('../features/autofill');
 const { kindOf, luhn } = require('../shared/autofill-fields');
 const { siteOf } = require('../shared/tabsearch');
 const os = require('node:os');
-const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM } =
+const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM, READ_PAGE } =
   require('../features/workspaces');
 
 /**
@@ -2127,6 +2127,152 @@ class BrowserApplication {
     return null;
   }
 
+  /**
+   * The web page someone means by "this page" while they are on a mode page.
+   *
+   * In split view it is the page beside them - the one they are looking at.
+   * Otherwise it is the web tab they were on most recently: lastWebTabId when
+   * that tab still shows a web page, else whichever web tab was last in front
+   * (a tab can have been navigated to a browser page since it was recorded).
+   * Tabs in the same workspace win, so another workspace's page never answers.
+   */
+  #recentWebTab(sender) {
+    if (!this.tabs) return null;
+    const isWeb = (tab) => !!tab && !tab.state.internalUrl
+      && /^https?:/i.test(tab.state.displayUrl || '')
+      && !tab.view.webContents.isDestroyed();
+    const own = sender ? this.#tabByContents(sender) : null;
+    const partner = own?.splitWith ? this.tabs.tabs.get(own.splitWith) : null;
+    if (isWeb(partner)) return partner;
+
+    const web = [...this.tabs.tabs.values()].filter(isWeb);
+    const sameSpace = own ? web.filter((tab) => tab.workspaceId === own.workspaceId) : [];
+    const pool = sameSpace.length ? sameSpace : web;
+    const recorded = pool.find((tab) => tab.id === this.lastWebTabId);
+    const latest = pool.reduce((best, tab) => (!best || tab.lastActiveAt > best.lastActiveAt ? tab : best), null);
+    return recorded && (!latest || recorded.lastActiveAt >= latest.lastActiveAt) ? recorded : latest;
+  }
+
+  /** Title, address and icon of a tab, for naming the page that was read. */
+  #pageIdentity(tab) {
+    const url = tab.state.displayUrl || '';
+    let host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { /* left blank */ }
+    const favicon = /^https?:/i.test(tab.state.favicon || '') ? tab.state.favicon : '';
+    return { id: tab.id, title: tab.state.title || host || url, url, host, favicon, loading: !!tab.state.loading };
+  }
+
+  /**
+   * Readable text of a web tab.
+   *
+   * Taken from the LIVE page rather than a detached copy: a copy is not laid
+   * out, so its innerText loses every line break and a read-aloud of it runs
+   * all the paragraphs together. Navigation, headers and footers are then
+   * subtracted by their own text - most of the bytes and none of the meaning.
+   *
+   * Text the person has selected wins over the whole page, so they can point
+   * at one clause. Shopping keeps forms (the price and buy box usually sit in
+   * one) and adds the page's product data and its review blocks up front,
+   * which on a long page would otherwise fall past the length cap.
+   *
+   * The page is still the page's: it can be slow, frozen or full of anything,
+   * so the result is coerced, capped, and given up on after a few seconds.
+   */
+  async #readableText(tab, { shopping = false } = {}) {
+    const wc = tab.view.webContents;
+    // A tab the organiser has put to sleep is frozen and would never answer,
+    // which would look like a page that "took too long". Wake it first, just
+    // as selecting it would.
+    await this.productivity?.organizer.wake(tab.id).catch(() => {});
+    const script = `(() => {
+      const tidy = (value) => String(value || '').replace(/[ \\t\\u00a0]+\\n/g, '\\n')
+        .replace(/\\n{3,}/g, '\\n\\n').trim();
+      const picked = tidy(window.getSelection ? getSelection().toString() : '');
+      if (picked.length >= 160) return { selection: true, text: picked };
+
+      const shopping = ${shopping ? 'true' : 'false'};
+      const main = document.querySelector('article, main, [role=main]');
+      const root = main && (main.innerText || '').length > 600 ? main : document.body;
+      if (!root) return { text: '' };
+      let text = root.innerText || '';
+      const chrome = shopping ? 'nav, header, footer' : 'nav, header, footer, aside, form';
+      for (const node of root.querySelectorAll(chrome)) {
+        const part = (node.innerText || '').trim();
+        // A block that is most of the page is the page (terms you accept
+        // inside a form, an article wrapped in a header), not its chrome.
+        if (part.length < 2 || part.length > text.length * 0.6) continue;
+        // A footer's words ("Privacy", "Terms") usually also appear in the
+        // text above it, so it is taken from the end rather than the start.
+        const at = node.closest('footer') ? text.lastIndexOf(part) : text.indexOf(part);
+        if (at >= 0) text = text.slice(0, at) + text.slice(at + part.length);
+      }
+      const words = tidy(text).split(/\\s+/).filter(Boolean).length;
+      if (!shopping) return { text: tidy(text), words };
+
+      // Structured product data: name, price, rating and sometimes whole reviews.
+      const facts = [];
+      for (const node of document.querySelectorAll('script[type="application/ld+json"]')) {
+        try {
+          const data = JSON.parse(node.textContent);
+          const list = [].concat(data, data && data['@graph'] || []);
+          for (const item of list) {
+            const type = [].concat(item && item['@type'] || []).join(' ');
+            if (/Product|Offer|AggregateRating|Review/i.test(type)) facts.push(JSON.stringify(item));
+          }
+        } catch (error) { /* malformed data is the page's problem */ }
+      }
+      for (const meta of document.querySelectorAll('meta[property^="product:"], meta[property^="og:price"], meta[itemprop="price"], meta[itemprop="priceCurrency"]')) {
+        facts.push((meta.getAttribute('property') || meta.getAttribute('itemprop')) + ': ' + meta.content);
+      }
+      const reviews = [];
+      const marked = document.querySelectorAll('[itemprop=review], [data-hook=review], [id*=review i], [class*=review i]');
+      for (const node of marked) {
+        if (reviews.length >= 12 || node.parentElement?.closest('[itemprop=review], [data-hook=review], [id*=review i], [class*=review i]')) continue;
+        const part = tidy(node.innerText);
+        if (part.length > 60) reviews.push(part.slice(0, 1500));
+      }
+      return {
+        words,
+        text: [
+          facts.length ? 'PRODUCT DATA ON THE PAGE:\\n' + facts.join('\\n').slice(0, 6000) : '',
+          reviews.length ? 'REVIEWS ON THE PAGE:\\n' + reviews.join('\\n---\\n').slice(0, 9000) : '',
+          'PAGE TEXT:\\n' + tidy(text),
+        ].filter(Boolean).join('\\n\\n'),
+      };
+    })()`;
+
+    let timer;
+    const result = await Promise.race([
+      // In our own isolated world, as the page tools run: the page shares its
+      // DOM but cannot redefine what this script calls (innerText, JSON.parse)
+      // to slip other text in, and gets no user gesture to open windows with.
+      wc.executeJavaScriptInIsolatedWorld(PAGE_WORLD, [{ code: script }]),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('That page took too long to read. Try again once it has finished loading.')), 8000);
+      }),
+    ]).catch((error) => {
+      throw new Error(/too long/.test(error.message) ? error.message : 'That page could not be read: ' + error.message);
+    }).finally(() => clearTimeout(timer));
+
+    const identity = this.#pageIdentity(tab);
+    const text = String(result?.text || '').slice(0, 50000);
+    if (text.replace(/^PAGE TEXT:\s*/, '').trim().length < 40) {
+      throw new Error(/\.pdf(?:$|[?#])/i.test(identity.url)
+        ? 'That is a PDF, which cannot be read here yet. Select all of it in the PDF and copy it, then paste the text in.'
+        : 'There is almost no text on ' + (identity.host || 'that page') + ' to read. Wait for it to finish loading, or open the page itself rather than a search result.');
+    }
+    return {
+      text,
+      selection: !!result?.selection,
+      // The page's own words: Shopping's extra product data and the reviews
+      // repeated up front are not more of the page.
+      words: Number.isFinite(result?.words) ? result.words : text.split(/\s+/).filter(Boolean).length,
+      title: identity.title,
+      url: identity.url,
+      host: identity.host,
+    };
+  }
+
   /** Full UI state. One shape, pushed on every change - the chrome is a pure
    *  render of this object, which keeps state bugs out of the renderer. */
   state() {
@@ -3565,34 +3711,88 @@ class BrowserApplication {
         : { tasks: Object.values(STUDENT_TASKS) }),
 
       /**
-       * Readable text of the active page.
+       * Readable text of the page the person is working from.
        *
-       * Scripts, styles and nav chrome are stripped in the page itself rather
-       * than sent to the model: they are most of the bytes and none of the
-       * meaning, and the prompt budget is finite.
+       * The page asking is a mode page, so it is the ACTIVE tab and has nothing
+       * worth reading: the web page they came from is read instead (see
+       * #recentWebTab), and the answer says which one it was.
        */
-      'workspace:page-text': async () => {
-        const tab = this.tabs?.active;
-        if (!tab) return { ok: false, error: 'No page is open.' };
-        if (tab.state.internalUrl) {
-          return { ok: false, error: 'Open a web page first - this is a browser page.' };
-        }
+      'workspace:page-text': async (sender) => {
+        const active = this.tabs?.active;
+        const tab = active && !active.state.internalUrl ? active : this.#recentWebTab(sender);
+        if (!tab) return { ok: false, error: 'Open a web page in a tab first, then come back here.' };
         try {
-          const text = await tab.view.webContents.executeJavaScript(`(() => {
-            const drop = 'script,style,noscript,svg,nav,header,footer,aside,iframe,form';
-            const root = document.querySelector('article, main, [role=main]') || document.body;
-            const clone = root.cloneNode(true);
-            clone.querySelectorAll(drop).forEach((node) => node.remove());
-            return (clone.innerText || '').replace(/\\n{3,}/g, '\\n\\n').trim();
-          })()`, true);
+          return { ok: true, ...await this.#readableText(tab) };
+        } catch (error) {
+          return { ok: false, error: error.message };
+        }
+      },
+
+      /** Which page "Read this page" would read, for the page to name it up front. */
+      'workspace:recent-page': (sender) => {
+        const tab = this.#recentWebTab(sender);
+        return tab ? { ok: true, ...this.#pageIdentity(tab) } : { ok: false };
+      },
+
+      /**
+       * "Read this page": the last web page, analysed by Legal or Shopping.
+       *
+       * The page text goes to the model inside markers, as material rather than
+       * instructions (see READ_PAGE). Only a known mode is accepted - the
+       * prompt is chosen here in main, never supplied by the page.
+       */
+      'workspace:read-page': async (sender, payload) => {
+        const spec = READ_PAGE[String(payload?.mode || '')];
+        if (!spec) return { ok: false, error: 'Unknown mode.' };
+        const tab = this.#recentWebTab(sender);
+        if (!tab) {
           return {
-            ok: true,
-            text: String(text || '').slice(0, 50000),
-            title: tab.state.title,
-            url: tab.state.displayUrl,
+            ok: false,
+            error: spec.mode === 'legal'
+              ? 'Open the terms, contract or judgment in a tab first, then come back and read it.'
+              : 'Open the product page in a tab first, then come back and read it.',
+          };
+        }
+
+        let page;
+        try {
+          page = await this.#readableText(tab, { shopping: spec.mode === 'shopping' });
+        } catch (error) {
+          return { ok: false, error: error.message, source: this.#pageIdentity(tab) };
+        }
+
+        this.aiController?.abort();
+        this.aiController = new AbortController();
+        // The title and address are the page's own words too (a <title> can
+        // say anything), so they go inside the markers with the text. A page
+        // that writes the closing marker itself must not get to end the quoted
+        // material early and speak in its own voice after it.
+        const fence = (value) => String(value || '').replace(/<<<PAGE|PAGE>>>/gi, ' ');
+        const prompt = [
+          ...(page.selection ? ['The reader selected one part of the page; analyse just that.'] : []),
+          '<<<PAGE',
+          'Page title: ' + (fence(page.title) || 'untitled'),
+          'Address: ' + fence(page.url),
+          '',
+          fence(page.text),
+          'PAGE>>>',
+        ].join('\n');
+        try {
+          const result = await gemini.generate({
+            prompt,
+            system: spec.system,
+            // As with the legal tasks: prefer the careful model, fall back
+            // rather than fail when it is out of quota.
+            preferModel: spec.mode === 'legal' ? gemini.QUALITY_MODEL : undefined,
+            signal: this.aiController.signal,
+          });
+          return {
+            ok: true, text: result.text, model: result.model, sections: spec.sections,
+            source: { ...this.#pageIdentity(tab), selection: page.selection, words: page.words },
+            pageText: page.text,
           };
         } catch (error) {
-          return { ok: false, error: 'Could not read this page: ' + error.message };
+          return { ok: false, error: error.message, source: this.#pageIdentity(tab) };
         }
       },
 

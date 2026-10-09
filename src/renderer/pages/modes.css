@@ -311,6 +311,22 @@
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-soft);
 }
+/* The result's own tools. .turn-tool is styled in ai.css, which these pages
+   do not load, so it is given its look here too. */
+.workspace-output-head .turn-tool {
+  padding: 4px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease), border-color var(--motion-fast) var(--ease);
+}
+.workspace-output-head .turn-tool:hover { background: var(--surface-hover); color: var(--text); }
+.workspace-output-head .turn-tool.active { border-color: var(--accent); color: var(--accent); }
+
 .workspace-output-title {
   flex: 1;
   font-size: 11px;

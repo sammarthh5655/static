@@ -11,6 +11,7 @@
 (function () {
 
 const { invoke, onState, element, icon } = window.page;
+const narrator = window.narrator;
 
 const mode = window.WORKSPACE_MODE || 'student';
 const isLegal = mode === 'legal';
@@ -22,10 +23,30 @@ let sourceText = '';
 let sourceLabel = '';
 let output = '';
 let outputModel = '';
+let outputError = false;
 let busy = false;
 let shellApi = null;
 
 const content = element('div');
+
+/**
+ * Legal leads with "Read this page" (readpage.js): the web page the person was
+ * just on, read in one go. Its page text can then become the source below, so
+ * a case brief or timeline of the same page is one more click.
+ */
+const readPage = isLegal
+  ? window.readPage.create({
+      mode,
+      disclaimer: () => disclaimer,
+      onUseAsSource: (text, source) => {
+        sourceText = text;
+        sourceArea.value = text;
+        sourceLabel = source.title || source.host || '';
+        updateMeta();
+        sourceArea.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      },
+    })
+  : null;
 
 /* ---- source --------------------------------------------------------------- */
 
@@ -66,27 +87,47 @@ const outputHead = element('div', { class: 'workspace-output-head' });
 
 function setOutput(text, isError = false) {
   output = text;
+  outputError = isError;
   outputArea.textContent = text;
   outputArea.classList.toggle('error', isError);
   renderOutputHead();
 }
 
 function renderOutputHead() {
+  const listening = narrator?.state().key === 'output' && (narrator.state().playing || narrator.state().paused);
   outputHead.replaceChildren(...[
     element('span', {
       class: 'workspace-output-title',
       text: activeTask ? (tasks.find((t) => t.id === activeTask)?.name || 'Result') : 'Result',
     }),
     outputModel ? element('span', { class: 'muted', text: outputModel }) : null,
+    // An error message is not worth listening to.
+    output && !busy && !outputError && narrator?.available()
+      ? element('button', {
+          class: 'turn-tool' + (listening ? ' active' : ''),
+          text: listening ? (narrator.state().paused ? 'Carry on' : 'Pause') : 'Listen',
+          onclick: () => {
+            if (listening) { narrator.toggle(); return; }
+            narrator.play({
+              title: (tasks.find((t) => t.id === activeTask)?.name || 'Result')
+                + (sourceLabel ? ' · ' + sourceLabel : ''),
+              items: narrator.paragraphs(output),
+              key: 'output',
+            });
+          },
+        })
+      : null,
     output && !busy
       ? element('button', {
           class: 'turn-tool', text: 'Copy',
           onclick: (event) => {
+            // Held now: an event's currentTarget is gone once it has been handled.
+            const button = event.currentTarget;
             navigator.clipboard.writeText(output).then(
-              () => { event.currentTarget.textContent = 'Copied'; },
-              () => { event.currentTarget.textContent = 'Copy failed'; },
+              () => { button.textContent = 'Copied'; },
+              () => { button.textContent = 'Copy failed'; },
             );
-            setTimeout(() => { event.currentTarget.textContent = 'Copy'; }, 1400);
+            setTimeout(() => { button.textContent = 'Copy'; }, 1400);
           },
         })
       : null,
@@ -94,6 +135,7 @@ function renderOutputHead() {
       ? element('button', {
           class: 'turn-tool', text: 'Save to Notes',
           onclick: async (event) => {
+            const button = event.currentTarget;
             await invoke('notes:add', {
               kind: 'summary',
               title: (tasks.find((t) => t.id === activeTask)?.name || 'Result')
@@ -101,8 +143,8 @@ function renderOutputHead() {
               body: output,
               tags: [mode],
             });
-            event.currentTarget.textContent = 'Saved';
-            setTimeout(() => { event.currentTarget.textContent = 'Save to Notes'; }, 1400);
+            button.textContent = 'Saved';
+            setTimeout(() => { button.textContent = 'Save to Notes'; }, 1400);
           },
         })
       : null,
@@ -117,6 +159,8 @@ async function runTask(task) {
   }
   activeTask = task.id;
   busy = true;
+  // The result being read aloud is about to be replaced.
+  if (narrator?.state().key === 'output') narrator.stop();
   outputModel = '';
   setOutput('Working…');
   renderTasks();
@@ -156,12 +200,17 @@ function renderTasks() {
 
 function render() {
   content.replaceChildren(...[
+    readPage ? readPage.hero : null,
+    readPage ? readPage.result : null,
+    readPage ? element('h2', { class: 'section-heading', text: 'Or work from your own text' }) : null,
+
     element('div', { class: 'panel-card' }, [
       element('div', { class: 'panel-card-head' }, [
         icon(isLegal ? 'bookmark' : 'sparkle', { size: 15 }),
         element('span', { class: 'panel-card-title', text: 'Source' }),
         element('button', {
-          class: 'pill', text: 'Use current page',
+          class: 'pill', text: 'Use the page I was on',
+          title: 'The web page in front of you, or the last one you were on',
           onclick: useCurrentPage,
         }),
         element('button', {
@@ -194,6 +243,8 @@ function render() {
     isLegal && disclaimer
       ? element('p', { class: 'muted limits-note', text: disclaimer })
       : null,
+
+    narrator ? narrator.dock : null,
   ].filter(Boolean));
 
   renderTasks();
@@ -214,6 +265,13 @@ invoke('workspace:tasks', { mode }).then((result) => {
   render();
 });
 
-onState((next) => { if (next?.modes) shellApi?.setState(next.modes); });
+// Pushed state changes whenever a tab does, which is also when the page that
+// "Read this page" would read can have changed.
+onState((next) => {
+  if (next?.modes) shellApi?.setState(next.modes);
+  readPage?.refresh();
+});
+
+narrator?.subscribe(() => { if (output && !busy) renderOutputHead(); });
 
 })();

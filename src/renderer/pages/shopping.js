@@ -20,6 +20,13 @@ let shellApi = null;
 
 const content = element('div');
 
+/**
+ * "Read this page" (readpage.js) leads: most shopping is one product at a
+ * time, and the question is whether THIS one is worth it. Comparing several
+ * open tabs follows below it.
+ */
+const readPage = window.readPage.create({ mode: 'shopping' });
+
 /* ---- parsing -------------------------------------------------------------- */
 
 const FIELDS = [
@@ -98,6 +105,10 @@ function render() {
   const parsed = result ? parse(result.text) : null;
 
   content.replaceChildren(...[
+    readPage.hero,
+    readPage.result,
+    element('h2', { class: 'section-heading', text: 'Or compare several products' }),
+
     element('div', { class: 'panel-card' }, [
       element('div', { class: 'panel-card-head' }, [
         icon('search', { size: 15 }),
@@ -142,6 +153,8 @@ function render() {
       ]),
       element('div', { class: 'compare-verdict', text: parsed.verdict }),
     ]) : null,
+
+    window.narrator ? window.narrator.dock : null,
   ].filter(Boolean));
 }
 
@@ -164,11 +177,16 @@ async function compare() {
 shellApi = window.shell.mount({
   mode: 'shopping',
   title: 'Shopping',
-  subtitle: 'Compare products side by side',
+  subtitle: 'Is it worth it? Read a product, or compare a few',
   content,
 });
 
-onState((next) => { if (next?.modes) shellApi?.setState(next.modes); });
+// Pushed whenever a tab changes, which is when the page "Read this page"
+// would read can change too.
+onState((next) => {
+  if (next?.modes) shellApi?.setState(next.modes);
+  readPage.refresh();
+});
 
 render();
 

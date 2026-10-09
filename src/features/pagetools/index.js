@@ -348,4 +348,4 @@ class PageTools {
   }
 }
 
-module.exports = { PageTools };
+module.exports = { PageTools, WORLD };

@@ -47,6 +47,7 @@ module.exports = {
     'passwords:passkeys', 'passwords:remove-passkey', 'passwords:answer', 'passwords:unlock-menu', 'autofill:no-auto-remove',
     'passwords:add', 'passwords:update', 'passwords:details', 'passwords:key-menu', 'menu:passthrough',
     'workspace:tasks', 'workspace:page-text', 'workspace:run', 'shopping:compare',
+    'workspace:recent-page', 'workspace:read-page',
     'shot:menu', 'shot:take', 'shot:region', 'shot:copy', 'shot:save', 'shot:reveal',
     'qr:show', 'reader:toggle', 'reader:article', 'reader:leave',
   ],
