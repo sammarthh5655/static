@@ -115,6 +115,9 @@ body.mac .window-controls { display: none; }
 /* ---- tab strip (40px) ---------------------------------------------------- */
 
 .strip {
+  /* Positioned so a closing tab can be lifted out exactly where it was and
+     narrow away there while its neighbours slide in (chrome.js#placeTabs). */
+  position: relative;
   display: flex;
   align-items: flex-end;
   height: 40px;
@@ -226,7 +229,10 @@ body.dropping .strip-drag::after {
 .tab.pinned.active::after {
   content: ''; position: absolute; left: 50%; bottom: 3px; width: 14px; height: 2px; margin-left: -7px;
   border-radius: 2px; background: var(--accent);
+  /* Drawn out from the middle as the tab becomes the one you are on. */
+  animation: pin-mark-in var(--motion-base) var(--ease);
 }
+@keyframes pin-mark-in { from { transform: scaleX(0); opacity: 0; } }
 .pinned-rule { flex: none; align-self: center; width: 1px; height: 16px; margin: 0 4px 4px; background: var(--border); }
 
 /* Ctrl/Cmd- or Shift-clicked: picked out to act on together. */
@@ -320,6 +326,13 @@ body.dropping .strip-drag::after {
 .tab-group-chip.chip-target { transform: scale(1.08); box-shadow: 0 0 0 3px color-mix(in srgb, var(--group-tone) 40%, transparent), 0 4px 14px color-mix(in srgb, var(--group-tone) 50%, transparent); }
 .strip-tool[hidden] { display: none; }
 .tabs { overflow-x: auto; scrollbar-width: none; min-width: 0; }
+/* While tabs slide into place on a strip with room to spare, the last one
+   may pass the strip's new edge for a moment; it is not cut off there. */
+.tabs.is-moving { overflow: visible; }
+
+/* A closing tab, lifted out of the strip: only a picture of itself now. */
+.tab.leaving, .tab-group-chip.leaving { pointer-events: none; }
+.tab.leaving .title { text-overflow: clip; }
 
 /* ---- sound ----------------------------------------------------------------
    A speaker on a tab making sound, its waves pulsing in turn; struck out
@@ -834,7 +847,7 @@ body.vertical-tabs .strip { display: none; }
 
 /* Asked for less motion: groups, pins and drops change without moving. */
 @media (prefers-reduced-motion: reduce) {
-  .chip-count, .tab.drop-before::before, .tab.drop-after::before { animation: none; }
+  .chip-count, .tab.drop-before::before, .tab.drop-after::before, .tab.pinned.active::after { animation: none; }
   .tab-sound, .tab-sound-badge, .speaker .wave { animation: none; }
   .strip-search:hover .icon-svg { transform: none; }
   .tab-group-chip, .menu-swatch-btn, .menu-swatch-btn .icon-svg { transition: none; }

@@ -24,6 +24,10 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 body.collapsed .vt-fold svg { transform: rotate(180deg); }
 
 .vt-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 2px 8px 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+/* Positioned so a closing row can be lifted out where it was and fold away
+   there while the rows below close up (vtabs.js#place). */
+.vt-list, .vt-pinned { position: relative; }
+.vt-tab.leaving, .vt-pin.leaving, .vt-group.leaving { pointer-events: none; overflow: hidden; }
 /* Group colours are stored pastel; light planets draw them deeper, and text
    on a filled colour is near-white or near-black as its lightness needs
    (the same rule as the strip along the top, in chrome.css). */
@@ -100,6 +104,13 @@ body { --drop-colour: var(--accent); }
   content: ''; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 3px;
   background: var(--accent); box-shadow: 0 0 10px var(--accent);
 }
+/* Drawn out from its middle as the row becomes the one you are on. Rows are
+   kept between redraws (vtabs.js), so this plays on a switch, not on every
+   change; timed from the theme, so animations off means it is just there. */
+.vt-tab.active:not(.grouped)::before { animation: vt-mark-in var(--motion-base, 0ms) var(--ease, ease); }
+@keyframes vt-mark-in { from { transform: scaleY(0); opacity: 0; } }
+/* Spelled out: the blanket rule below reaches elements, not their ::before. */
+@media (prefers-reduced-motion: reduce) { .vt-tab.active:not(.grouped)::before { animation: none; } }
 .vt-tab.grouped { margin-left: 10px; }
 .vt-tab.grouped { background: color-mix(in srgb, var(--group-tone) 7%, transparent); }
 .vt-tab.grouped:hover { background: color-mix(in srgb, var(--group-tone) 14%, var(--surface)); }

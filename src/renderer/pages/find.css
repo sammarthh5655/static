@@ -6,7 +6,9 @@ body { font: 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 6
   background: var(--menu-bg-solid, #1a1b1e); color: var(--text, #eee);
   border: 1px solid color-mix(in srgb, var(--accent, #5aa7f0) 35%, var(--border, #333));
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
-  animation: drop 180ms cubic-bezier(.2, .9, .25, 1.2);
+  /* Timed from the theme once it arrives, so with animations off in Static
+     the bar is simply there (a 0ms duration ends the drop at once). */
+  animation: drop var(--motion-base, 180ms) cubic-bezier(.2, .9, .25, 1.2);
 }
 @keyframes drop { from { transform: translateY(-10px); opacity: 0; } }
 input {
