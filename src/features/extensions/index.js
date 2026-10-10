@@ -3,6 +3,11 @@ const fs = require('node:fs');
 const { dialog } = require('electron');
 const { JsonStore } = require('../../main/storage');
 
+/** The system file picker, over `parent` when there is a window to put it over. */
+function openDialog(parent, options) {
+  return parent && !parent.isDestroyed?.() ? dialog.showOpenDialog(parent, options) : dialog.showOpenDialog(options);
+}
+
 /**
  * Chrome extension support.
  *
@@ -18,9 +23,14 @@ const { JsonStore } = require('../../main/storage');
  * which is why `setEnabled` reaches into the session rather than a library.
  */
 class Extensions {
-  constructor({ dir, session, window, onChange, createTab, selectTab, removeTab }) {
+  /**
+   * `getWindow()` is the window in front: where an extension's dialogs sit,
+   * and where chrome.tabs.create opens a tab. `createTab` answers with the
+   * new tab's contents and the window it opened in.
+   */
+  constructor({ dir, session, getWindow, onChange, createTab, selectTab, removeTab }) {
     this.session = session;
-    this.window = window;
+    this.getWindow = getWindow || (() => null);
     this.onChange = onChange;
     this.store = new JsonStore(dir, 'extensions', { disabled: [] });
     this.path = path.join(dir, 'Extensions');
@@ -31,9 +41,9 @@ class Extensions {
       // chrome.tabs.create -> a real tab; must resolve with the webContents so
       // the API can report the new tab back to the calling extension.
       createTab: async (details) => {
-        const contents = createTab(details);
-        if (!contents) throw new Error('Unable to create tab');
-        return [contents, window];
+        const made = createTab(details);
+        if (!made?.contents) throw new Error('Unable to create tab');
+        return [made.contents, made.window];
       },
       selectTab: (contents) => selectTab(contents),
       removeTab: (contents) => removeTab(contents),
@@ -160,8 +170,8 @@ class Extensions {
   }
 
   /** "Load unpacked" - the developer-mode button on the extensions page. */
-  async loadUnpacked() {
-    const result = await dialog.showOpenDialog(this.window, {
+  async loadUnpacked(parent = this.getWindow()) {
+    const result = await openDialog(parent, {
       title: 'Select extension folder',
       properties: ['openDirectory'],
     });
@@ -172,8 +182,8 @@ class Extensions {
   }
 
   /** Packed .crx picked from disk, installed through the web store loader. */
-  async loadCrx() {
-    const result = await dialog.showOpenDialog(this.window, {
+  async loadCrx(parent = this.getWindow()) {
+    const result = await openDialog(parent, {
       title: 'Select .crx file',
       properties: ['openFile'],
       filters: [{ name: 'Chrome extension', extensions: ['crx'] }],

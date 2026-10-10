@@ -168,6 +168,14 @@ function tabSearchPanel(item, { close }) {
       where.textContent = tab.workspace;
       sub.append(where);
     }
+    // A tab in another window says which; choosing it brings that window forward.
+    if (tab.elsewhere?.name) {
+      const other = document.createElement('span');
+      other.className = 'ts-window';
+      other.title = 'In another window - choosing it brings that window to the front';
+      other.append(icon('window_restore', { size: 11 }), document.createTextNode(tab.elsewhere.name));
+      sub.append(other);
+    }
     text.append(title, sub);
 
     const tags = document.createElement('span');

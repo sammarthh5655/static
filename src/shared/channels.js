@@ -13,6 +13,7 @@ module.exports = {
     'tabs:new', 'tabs:open-files', 'tabs:close', 'tabs:select', 'tabs:reorder', 'tabs:navigate',
     'tabs:menu', 'tabs:reload', 'tabs:close-others', 'tabs:close-right',
     'tabs:search', 'tabs:search-close', 'tabs:mute', 'tabs:preview',
+    'tabs:to-window', 'tabs:window-menu', 'tabs:drag-out',
     'navigation:back', 'navigation:forward', 'navigation:reload', 'navigation:stop', 'navigation:home',
     'omnibox:suggest', 'search:suggest', 'bookmarks:toggle', 'bookmarks:remove',
     'history:search', 'history:remove',

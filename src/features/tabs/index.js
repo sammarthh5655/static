@@ -36,6 +36,10 @@ function pageFromFile(url) {
  *   order, because drag-to-reorder has to rewrite it independently of creation.
  * - Every webContents is created sandboxed with no node integration. The
  *   `webPreferences` below are the security boundary for ALL untrusted content.
+ * - There is one of these per window. A tab can move to another window
+ *   (release here, adopt there), so everything wired to a tab's page answers
+ *   to `tab.manager` - whichever window holds it now - never to the one it
+ *   was born in.
  */
 class Tabs {
   constructor({ window, session, preload, onChange, onNavigate, onTabCreated, onSelected, extensions, getEngine }) {
@@ -247,6 +251,8 @@ class Tabs {
     const tab = {
       id,
       view,
+      // The window's tabs that hold this one now (see adopt).
+      manager: this,
       historyId: null, // current history entry, so late title updates can patch it
       createdAt: Date.now(), lastActiveAt: Date.now(),
       pinned: !!pinned, groupId: pinned ? null : groupId || null, workspaceId,
@@ -293,9 +299,14 @@ class Tabs {
     return id;
   }
 
-  /** Mirror Chromium navigation state into `tab.state` and notify the chrome. */
+  /**
+   * Mirror Chromium navigation state into `tab.state` and notify the chrome.
+   * `owner()` rather than `this` throughout: the tab may have been moved to
+   * another window since, and that window is the one to tell.
+   */
   #wire(tab) {
     const wc = tab.view.webContents;
+    const owner = () => tab.manager;
 
     const sync = () => {
       if (wc.isDestroyed()) return;
@@ -318,31 +329,31 @@ class Tabs {
       tab.state.canGoBack = wc.navigationHistory.canGoBack();
       tab.state.canGoForward = wc.navigationHistory.canGoForward();
       tab.state.security = securityState(tab.state.displayUrl, tab.state.loadError);
-      this.onChange();
+      owner().onChange();
     };
 
     // In split view, clicking into a pane makes it the active tab, so the
     // address bar and every command follow what you are working in.
     wc.on('focus', () => {
-      if (this.activeId === tab.id) return;
-      const pair = this.pairOf(this.activeId);
+      if (owner().activeId === tab.id) return;
+      const pair = owner().pairOf(owner().activeId);
       if (!pair || (pair.left !== tab.id && pair.right !== tab.id)) return;
-      this.activeId = tab.id;
+      owner().activeId = tab.id;
       tab.lastActiveAt = Date.now();
-      this.onSelected?.(tab.id);
-      this.onChange();
+      owner().onSelected?.(tab.id);
+      owner().onChange();
     });
 
     wc.on('page-title-updated', (_event, title) => {
       tab.state.title = title;
       // Titles often arrive after the visit was recorded; patch that row.
-      if (tab.historyId) this.onNavigate?.({ type: 'title', id: tab.historyId, title });
-      this.onChange();
+      if (tab.historyId) owner().onNavigate?.({ type: 'title', id: tab.historyId, title });
+      owner().onChange();
     });
 
     wc.on('page-favicon-updated', (_event, icons) => {
       tab.state.favicon = Array.isArray(icons) ? icons[0] || null : null;
-      this.onChange();
+      owner().onChange();
     });
 
     // Chromium says when a page starts and stops making sound (it holds
@@ -354,13 +365,13 @@ class Tabs {
       const audible = typeof event?.audible === 'boolean' ? event.audible : wc.isCurrentlyAudible();
       if (audible === tab.state.audible) return;
       tab.state.audible = audible;
-      this.onChange();
+      owner().onChange();
     });
 
     wc.on('did-start-loading', () => {
       tab.state.loading = true;
       tab.state.loadError = null;
-      this.onChange();
+      owner().onChange();
     });
     wc.on('did-stop-loading', () => {
       tab.state.loading = false;
@@ -381,7 +392,7 @@ class Tabs {
     wc.on('did-finish-load', () => {
       if (wc.isDestroyed()) return;
       const url = tab.state.internalUrl || wc.getURL();
-      tab.historyId = this.onNavigate?.({ type: 'visit', url, title: wc.getTitle() }) || null;
+      tab.historyId = owner().onNavigate?.({ type: 'visit', url, title: wc.getTitle() }) || null;
       sync();
     });
 
@@ -392,12 +403,12 @@ class Tabs {
       const url = typeof legacyUrl === 'string' ? legacyUrl : event?.url || '';
       if (!/^file:/i.test(url) || url.startsWith(RENDERER_ROOT)) return;
       event.preventDefault();
-      this.onFileDropped?.(tab, url);
+      owner().onFileDropped?.(tab, url);
     });
 
     // Popups and target=_blank become real tabs instead of extra windows.
     wc.setWindowOpenHandler(({ url, disposition }) => {
-      this.create({ url, background: disposition === 'background-tab' });
+      owner().create({ url, background: disposition === 'background-tab' });
       return { action: 'deny' };
     });
   }
@@ -472,7 +483,8 @@ class Tabs {
     if (partner) this.unsplit(id);
     const url = tab.state.displayUrl;
     if (url && !/^browser:\/\/(newtab|welcome|profiles)/.test(url)) {
-      this.closed.push({ url, index: this.order.indexOf(id), pinned: !!tab.pinned, groupId: tab.groupId || null });
+      // `at`: so a window closed since can be reopened first (see tab:reopen).
+      this.closed.push({ url, index: this.order.indexOf(id), pinned: !!tab.pinned, groupId: tab.groupId || null, at: Date.now() });
       if (this.closed.length > 25) this.closed.shift();
     }
     const position = this.order.indexOf(id);
@@ -494,9 +506,82 @@ class Tabs {
       const next = this.order.slice(position).find(id => this.tabs.get(id).workspaceId === this.activeWorkspace) ||
         this.order.slice(0, position).reverse().find(id => this.tabs.get(id).workspaceId === this.activeWorkspace);
       if (next) this.select(next);
-      else this.create({}); // never leave the window with zero tabs
+      // The window's last tab: with other windows open, the window closes
+      // with it, as in Chrome (`onEmpty` says whether it did). Otherwise the
+      // window is never left with zero tabs.
+      else if (this.order.length || !this.onEmpty?.()) this.create({});
     }
     this.onChange();
+  }
+
+  /**
+   * Let a tab go to another window: out of this strip and off this window,
+   * but alive - its page, its history and its scroll position go with it.
+   * The next tab along takes its place, as when one is closed. A window left
+   * with nothing at all is the caller's to close. Returns the tab record, for
+   * the other window's adopt().
+   */
+  release(id) {
+    const tab = this.tabs.get(id);
+    if (!tab) return null;
+    if (tab.splitWith && this.tabs.has(tab.splitWith)) this.unsplit(id);
+    const position = this.order.indexOf(id);
+    if (position >= 0) this.order.splice(position, 1);
+    this.tabs.delete(id);
+    if (this.window.contentView.children.includes(tab.view)) this.window.contentView.removeChildView(tab.view);
+    try {
+      this.extensions?.removeTab(tab.view.webContents);
+    } catch { /* extension host may already be gone */ }
+    if (this.activeId === id) {
+      this.activeId = null;
+      const next = this.order.slice(Math.max(0, position)).find((other) => this.tabs.get(other).workspaceId === this.activeWorkspace) ||
+        this.order.slice(0, Math.max(0, position)).reverse().find((other) => this.tabs.get(other).workspaceId === this.activeWorkspace);
+      if (next) this.select(next);
+      else if (this.order.length) this.create({});
+    }
+    this.onChange();
+    return tab;
+  }
+
+  /**
+   * Take in a tab another window let go of. It lands in the workspace on
+   * show here, out of any split and any group (those belong to the window it
+   * left), and keeps its pin. `background` leaves the current tab in front.
+   */
+  adopt(tab, { index, background = false } = {}) {
+    if (!tab || this.tabs.has(tab.id) || tab.view.webContents.isDestroyed()) return false;
+    tab.manager = this;
+    Object.assign(tab, { workspaceId: this.activeWorkspace, groupId: null, splitWith: null, splitSide: null });
+    this.tabs.set(tab.id, tab);
+    const at = Number.isInteger(index) ? Math.max(0, Math.min(index, this.order.length)) : this.order.length;
+    this.order.splice(at, 0, tab.id);
+    this.tidy();
+    const previousActiveId = this.activeId;
+    try {
+      this.extensions?.addTab(tab.view.webContents, this.window);
+    } catch (error) {
+      console.error('Extension tab registration failed:', error.message);
+    }
+    // As in create(): registering can claim the selection, so it is put back.
+    if (background && previousActiveId && this.tabs.has(previousActiveId)) this.select(previousActiveId);
+    else this.select(tab.id);
+    this.onChange();
+    return true;
+  }
+
+  /**
+   * The window is closing: every page in it goes too. A window's views are
+   * not destroyed with it (unlike a BrowserWindow's), so a closed window
+   * would otherwise leave its tabs running - and playing - unseen.
+   */
+  dispose() {
+    for (const tab of this.tabs.values()) {
+      try { this.extensions?.removeTab(tab.view.webContents); } catch { /* host already gone */ }
+      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+    }
+    this.tabs.clear();
+    this.order = [];
+    this.activeId = null;
   }
 
   /**
@@ -550,14 +635,6 @@ class Tabs {
     else if (action === 'stop') wc.stop();
   }
 
-  closeAll() {
-    for (const tab of this.tabs.values()) {
-      if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
-    }
-    this.tabs.clear();
-    this.order = [];
-    this.activeId = null;
-  }
 }
 
 module.exports = { Tabs, NEW_TAB };

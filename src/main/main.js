@@ -66,6 +66,9 @@ app.enableSandbox();
  * So macOS gets a minimal menu with the roles the system expects, and nothing
  * that duplicates our own in-window menus.
  */
+/** The browser, once it has started; the Mac's menus reach it through this. */
+let browser;
+
 if (process.platform === 'darwin') {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
@@ -99,6 +102,11 @@ if (process.platform === 'darwin') {
     {
       label: 'Window',
       submenu: [
+        // Cmd+N in a window is caught before the page sees it, which also
+        // stops this from firing as well (see attachShortcuts); with no
+        // window open, the menu is what hears it.
+        { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => browser?.newWindow() },
+        { type: 'separator' },
         { role: 'minimize' },
         { role: 'zoom' },
         { role: 'togglefullscreen' },
@@ -128,7 +136,6 @@ protocol.registerSchemesAsPrivileged([
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  let browser;
   app.whenReady().then(async () => {
     const { BrowserApplication } = require('./application');
     browser = new BrowserApplication();
@@ -145,12 +152,13 @@ else {
     app.whenReady().then(() => {
       app.dock?.setMenu(Menu.buildFromTemplate([
         {
+          // In the window in front, or in a window of its own when none is open.
           label: 'New Tab',
-          click: () => { browser?.focusWindow(); browser?.tabs?.create({}); },
+          click: () => { const w = browser?.focusWindow(); if (w?.tabs?.order.length) w.tabs.create({}); },
         },
         {
           label: 'New Window',
-          click: () => browser?.focusWindow(),
+          click: () => browser?.newWindow(),
         },
       ]));
     });
@@ -158,6 +166,10 @@ else {
 
   app.on('second-instance', () => browser?.focusWindow());
   app.on('activate', () => browser?.focusWindow());
+  // Closing the last window quits, except on a Mac, where the app stays in
+  // the dock until it is quit, as every Mac app does.
   app.on('window-all-closed', () => { if (process.platform !== 'darwin' || testFlag || incognito) app.quit(); });
-  app.on('before-quit', () => browser?.flush());
+  // From here on a window closing is part of quitting: every window is kept
+  // in the session for next time, not just the last one to close.
+  app.on('before-quit', () => { if (browser) { browser.quitting = true; browser.flush(); } });
 }

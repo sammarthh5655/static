@@ -7,19 +7,26 @@ const gemini = require('../ai/gemini');
 /** One integration point for tabs, Focus, Screen Time and Organizer.
  * Request blocking is called by the application's ONE webRequest listener.
  * IPC remains available only through the existing trusted-page guard.
+ *
+ * Tabs live in windows. Blocking and limits apply to every window's tabs;
+ * time is counted for the tab on show in the window in use; and the
+ * organiser's pages act on the tabs of the window they are open in.
  */
 class Productivity {
   constructor(browser) {
     this.browser = browser; this.locked = false; this.timer = null; this.ticks = 0; this.pendingBlocks = new Set();
     this.screenTime = new ScreenTime(browser.dir, { onChange: () => this.changed('screentime:changed') });
-    this.organizer = new Organizer(browser.dir, { getTabs: () => browser.tabs, resources: browser.resources, ai: gemini,
-      onChange: () => this.changed('organizer:changed') });
+    this.organizer = new Organizer(browser.dir, {
+      getTabs: () => browser.tabs, allTabs: () => browser.allTabs?.() || [browser.tabs].filter(Boolean),
+      resources: browser.resources, ai: gemini, onChange: () => this.changed('organizer:changed') });
     this.lock = () => { this.locked = true; this.screenTime.last = null; };
     this.unlock = () => { this.locked = false; this.screenTime.last = null; };
   }
+  /** Every tab, in every window. */
+  #everyTab() { return this.organizer.allTabs().flatMap(tabs => [...tabs.tabs.values()]); }
   changed(channel) {
     this.browser.push();
-    for (const tab of this.browser.tabs?.tabs.values() || []) {
+    for (const tab of this.#everyTab()) {
       if (tab.state.internalUrl && !tab.view.webContents.isDestroyed()) tab.view.webContents.send(channel);
     }
   }
@@ -37,7 +44,7 @@ class Productivity {
     return time.verdict(url);
   }
   block(contentsId, url, verdict) {
-    const tab = [...(this.browser.tabs?.tabs.values() || [])].find(t => t.view.webContents.id === contentsId);
+    const tab = this.#everyTab().find(t => t.view.webContents.id === contentsId);
     if (!tab || this.pendingBlocks.has(tab.id)) return;
     this.pendingBlocks.add(tab.id); this.screenTime.hit();
     if (verdict.reason === 'focus') this.browser.focus.recordHit();
@@ -45,21 +52,23 @@ class Productivity {
     // load the allowlisted local page through Tabs; a webRequest redirect fails.
     setImmediate(async () => {
       try {
-        if (!this.browser.tabs.tabs.has(tab.id)) return;
+        // Whichever window holds it by now: it may have moved meanwhile.
+        if (!tab.manager?.tabs.has(tab.id)) return;
         await this.organizer.wake(tab.id);
-        this.browser.tabs.navigate(tab.id, 'browser://screentime?blocked=' + encodeURIComponent(url) + '&reason=' + verdict.reason);
+        tab.manager.navigate(tab.id, 'browser://screentime?blocked=' + encodeURIComponent(url) + '&reason=' + verdict.reason);
       } catch (error) { console.error('Screen Time block:', error.message); }
       finally { this.pendingBlocks.delete(tab.id); }
     });
   }
   tick() {
-    const browser = this.browser, tab = browser.tabs?.active, win = browser.window;
+    // The window in use is the one in front; time counts only while it has focus.
+    const browser = this.browser, front = browser.front, tab = front?.tabs?.active, win = front?.window;
     const eligible = !!tab && !!win && !win.isDestroyed() && win.isFocused() && !win.isMinimized() &&
       !this.locked && powerMonitor.getSystemIdleTime() < 300 && !this.organizer.sleeping.has(tab.id);
     this.screenTime.observe({ id: tab?.id, url: tab?.state.displayUrl || '', eligible });
     const warning = tab && eligible && this.screenTime.warning(tab.state.displayUrl);
-    if (warning && eligible) browser.notify(warning.domain + ': about ' + warning.seconds + ' seconds left today. You can adjust this in Screen Time.');
-    for (const item of browser.tabs?.tabs.values() || []) {
+    if (warning && eligible) browser.notify(warning.domain + ': about ' + warning.seconds + ' seconds left today. You can adjust this in Screen Time.', front);
+    for (const item of this.#everyTab()) {
       const verdict = this.policy(item.state.displayUrl);
       if (verdict) this.block(item.view.webContents.id, item.state.displayUrl, verdict);
     }
@@ -80,31 +89,33 @@ class Productivity {
   handlers() {
     const org = this.organizer, time = this.screenTime;
     const state = () => ({ ...time.state(), focus: this.browser.focus.state() });
+    // `w` is the window the page asking is in (see BrowserApplication#guard):
+    // the organiser page shows, groups and tidies that window's tabs.
     return {
-      'organizer:state': () => org.state(),
-      'organizer:analyze': (_sender, p) => org.analyze(p?.ai === true),
-      'organizer:apply': (_sender, p) => org.apply(p?.selection),
-      'organizer:group': (_sender, p) => org.group(p),
-      'organizer:move': (_sender, p) => org.move(p),
+      'organizer:state': (_sender, _p, w) => org.state(w?.tabs),
+      'organizer:analyze': (_sender, p, w) => org.analyze(p?.ai === true, w?.tabs),
+      'organizer:apply': (_sender, p, w) => org.apply(p?.selection, w?.tabs),
+      'organizer:group': (_sender, p, w) => org.group(p, w?.tabs),
+      'organizer:move': (_sender, p, w) => org.move(p, w?.tabs),
       // From the tab menus. The menu's name box closes on { ok: true } and
       // shows the message from a rejection, so nothing larger is returned.
-      'organizer:assign': async (_sender, p) => { await org.assign(p); return { ok: true }; },
-      'organizer:ungroup': async (_sender, p) => { await org.ungroup(p?.id); return true; },
-      'organizer:close-group': async (_sender, p) => { await org.closeGroup(p?.id); return true; },
+      'organizer:assign': async (_sender, p, w) => { await org.assign(p, w?.tabs); return { ok: true }; },
+      'organizer:ungroup': async (_sender, p, w) => { await org.ungroup(p?.id, w?.tabs); return true; },
+      'organizer:close-group': async (_sender, p, w) => { await org.closeGroup(p?.id, w?.tabs); return true; },
       'organizer:workspace': (_sender, p) => org.workspace(p?.name),
-      'organizer:select-workspace': (_sender, p) => org.selectWorkspace(p?.id),
-      'organizer:pin': (_sender, p) => org.pin(p?.ids, p?.pinned),
-      'organizer:sleep': (_sender, p) => org.sleep(p?.ids),
+      'organizer:select-workspace': (_sender, p, w) => org.selectWorkspace(p?.id, w?.tabs),
+      'organizer:pin': (_sender, p, w) => org.pin(p?.ids, p?.pinned, w?.tabs),
+      'organizer:sleep': (_sender, p, w) => org.sleep(p?.ids, w?.tabs),
       // One tab (`id`), or every tab picked in the strip (`ids`).
-      'organizer:wake': async (_sender, p) => {
-        for (const id of Array.isArray(p?.ids) ? org.ids(p.ids) : [p?.id]) await org.wake(id);
+      'organizer:wake': async (_sender, p, w) => {
+        for (const id of org.ids(Array.isArray(p?.ids) ? p.ids : [p?.id], w?.tabs)) await org.wake(id);
         this.changed('organizer:changed');
       },
-      'organizer:close-duplicates': () => org.closeDuplicates(),
-      'organizer:save-session': (_sender, p) => org.saveSession(p),
-      'organizer:restore-session': (_sender, p) => org.restoreSession(p?.id),
+      'organizer:close-duplicates': (_sender, _p, w) => org.closeDuplicates(w?.tabs),
+      'organizer:save-session': (_sender, p, w) => org.saveSession(p, w?.tabs),
+      'organizer:restore-session': (_sender, p, w) => org.restoreSession(p?.id, w?.tabs),
       'organizer:delete-session': (_sender, p) => org.deleteSession(p?.id),
-      'organizer:summary': () => org.summary(),
+      'organizer:summary': (_sender, _p, w) => org.summary(w?.tabs),
       'organizer:undo': () => org.undo(),
       'screentime:state': state,
       'screentime:update': (_sender, p) => { time.update(p); return state(); },

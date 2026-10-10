@@ -563,6 +563,9 @@ const ICONS = {
   window_maximize: { outline: 'M5 5h14v14H5z', fill: null },
   window_restore: { outline: 'M8 8V5h11v11h-3M5 8h11v11H5z', fill: null },
   window_close: { outline: 'M6 6l12 12M18 6L6 18', fill: null },
+  // Another window: a window with a plus in it, and a tab heading out of one.
+  window_new: { outline: 'M3 5h18v14H3ZM3 9h18M12 11.5v5M9.5 14h5', fill: null },
+  window_move: { outline: 'M12 19H3V5h18v6.5M3 9h18M14.5 17h6.5M18.5 14l2.5 3-2.5 3', fill: null },
   grid: { outline: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z', fill: null },
   sparkle: {
     outline: 'M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z',

@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, session, ipcMain, BaseWindow, WebContentsView, shell, clipboard, dialog, net, systemPreferences } = require('electron');
+const { app, session, ipcMain, shell, clipboard, dialog, net, screen, systemPreferences } = require('electron');
 const { pathToFileURL, fileURLToPath } = require('node:url');
 const { requests, events } = require('../shared/channels');
 const { ENGINES, internalPage, resolveInput, allowedURL } = require('../shared/urls');
@@ -14,7 +14,7 @@ const { History } = require('../features/history');
 const { SearchSuggestions } = require('../features/suggest');
 const { Downloads } = require('../features/downloads');
 const { Extensions } = require('../features/extensions');
-const { Tabs, NEW_TAB } = require('../features/tabs');
+const { NEW_TAB } = require('../features/tabs');
 const gemini = require('../features/ai/gemini');
 const prices = require('../features/shopping/prices');
 const retailers = require('../features/shopping/retailers');
@@ -22,7 +22,7 @@ const pagecontext = require('../features/ai/pagecontext');
 const { Chats } = require('../features/ai/chats');
 const { Resources } = require('../features/resources');
 const { Productivity } = require('../features/productivity');
-const { groupPicker, tabMenu, chipMenu } = require('../features/organizer/menu');
+const { groupPicker, tabMenu, chipMenu, windowPicker } = require('../features/organizer/menu');
 const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
@@ -46,8 +46,8 @@ const feedback = require('../features/feedback');
 const importer = require('../features/importer');
 const { Autofill, fillValues } = require('../features/autofill');
 const { kindOf, luhn } = require('../shared/autofill-fields');
-const { siteOf } = require('../shared/tabsearch');
 const os = require('node:os');
+const { AppWindow, PANEL_PAGES, chromeHeight, TITLEBAR_HEIGHT, TABSTRIP_HEIGHT, TOOLBAR_HEIGHT, BOOKMARKS_BAR_HEIGHT } = require('./window');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM, READ_PAGE } =
   require('../features/workspaces');
 
@@ -62,64 +62,33 @@ const OWN_PAGES_URL = pathToFileURL(path.join(__dirname, '..', 'renderer', 'page
 const PLAIN_TEXT = ' Write plain text: no markdown, no asterisks, no headings.';
 
 /**
- * Chrome geometry. These MUST match the heights in renderer/chrome.css,
- * because main positions the tab view directly below the chrome and the two
- * have no other way to agree on where that boundary is.
+ * The parts of a window that are its own. Reading `browser.tabs` (or any of
+ * these) means the window in front, as it always meant the one window; code
+ * that knows which window it is acting for says so instead (see AppWindow).
  */
-const TITLEBAR_HEIGHT = 36;   // custom title bar (drag region + window buttons)
-const TABSTRIP_HEIGHT = 40;
-const TOOLBAR_HEIGHT = 48;
-const BOOKMARKS_BAR_HEIGHT = 34;
-
-/** Total chrome height for a given settings snapshot. */
-/** How much room the omnibox dropdown needs when it is open. */
-const SUGGESTIONS_HEIGHT = 340;
-
-function chromeHeight(settings) {
-  // Vertical tabs take the strip out of the top bar entirely.
-  return TITLEBAR_HEIGHT + (settings.tabLayout === 'vertical' ? 0 : TABSTRIP_HEIGHT) + TOOLBAR_HEIGHT +
-    (settings.bookmarksBar ? BOOKMARKS_BAR_HEIGHT : 0);
-}
-
-/** Width of the vertical tab list, open and folded to favicons. */
-const VERTICAL_TABS_WIDTH = 248;
-const VERTICAL_TABS_FOLDED = 56;
+const WINDOW_FIELDS = [
+  'window', 'chrome', 'overlay', 'tabs', 'sidebar', 'sidebarOpen', 'sidebarWidth', 'sidebarProgress', 'sidebarAnim',
+  'sidebarPeeking', 'vtabs', 'findBar', 'findTabId', 'edgeStrip', 'splitDivider', 'splitDrop', 'splitDragId',
+  'suggestionsOpen', 'overlayInteractive', 'overlayPassive', 'overlayReady', 'pendingMenu', 'lastMenu', 'lastPageMenu',
+  'contextTarget', 'notice', 'preview', 'thumbTimer', 'htmlFullscreen', 'wasFullscreen', 'windowFullscreen',
+  'lastWebTabId', 'promptOpen',
+];
 
 /**
- * Tab hover previews. The card's size is fixed (overlay.css draws it at
- * exactly this), so main can make room for it without measuring anything.
- * The picture is the top of the page at 16:9, kept at twice the card's
- * width so it stays sharp on a high-density screen, and is reused for a few
- * seconds rather than taken again on every hover.
- */
-const PREVIEW_CARD = { width: 280, height: 238 };
-const PREVIEW_SHOT_WIDTH = 560;
-const PREVIEW_FRESH_MS = 3000;
-const PREVIEW_KEEP = 40;
-// How long a picture may take before it is given up on (see #snapshot).
-const PREVIEW_CAPTURE_MS = 1500;
-// How long a page sits still on screen before its picture is taken, so a
-// tab already has one by the time it is in the background (see #settleSnapshot).
-const PREVIEW_SETTLE_MS = 900;
-
-/**
- * A tab's favicon, for the overlay to show: the page chose it, so only a web
- * or inline image address gets through - never a file:// path or a script.
- */
-function safeFavicon(url) {
-  return typeof url === 'string' && url.length < 100000 && /^(https?:|data:image\/)/i.test(url) ? url : null;
-}
-
-/**
- * Top-level application object: owns the window, the chrome UI view, all
- * feature modules, and the IPC surface between them.
+ * Top-level application object: owns every window, all feature modules, and
+ * the IPC surface between them.
  *
- * Window composition (read before changing layout):
- *   BaseWindow.contentView
- *     +- chrome view   (our local UI: tab strip, omnibox, bookmarks bar)
- *     +- active tab view (managed by features/tabs, positioned below chrome)
- * The chrome is a WebContentsView like any tab, but it is the ONLY view with
- * a preload that exposes IPC. Tabs get a preload that exposes nothing unless
+ * The services - settings, history, bookmarks, passwords, shields, downloads,
+ * suggestions - are built once and shared by every window, as is the one
+ * profile session they all browse in. Each window (main/window.js) has its
+ * own tabs, chrome, overlay, sidebar and layout. A message from a window's
+ * chrome, overlay or pages acts on THAT window: #guard finds it from the
+ * sender, and every handler is given it. A key press acts on the window it
+ * was pressed in. Only what has no window of its own - the dock, a second
+ * launch, a notice from a background service - goes to the window in front.
+ *
+ * The chrome and the overlay are the only views with a preload that exposes
+ * IPC to the browser's own UI. Tabs get a preload that exposes nothing unless
  * the page is a trusted browser:// internal page.
  */
 class BrowserApplication {
@@ -162,17 +131,18 @@ class BrowserApplication {
     // Set when the browser was relaunched by a profile switch, so the picker
     // does not immediately reappear and trap the user in a loop.
     this.profilePicked = process.argv.includes('--profile-chosen') || this.incognito;
-    this.window = null;
-    this.chrome = null;
-    this.tabs = null;
+    // Every open window, oldest first, and the one in front: the last one
+    // focused or opened. Window ids are never reused within a run.
+    this.windows = [];
+    this.front = null;
+    this.nextWindowId = 1;
+    // Windows closed while others stayed open, newest last, so Reopen closed
+    // tab can bring a whole one back. In memory only, like closed tabs.
+    this.closedWindows = [];
+    // Set as the browser quits: from then on a window closing is part of the
+    // quit, and must not drop its tabs from the session being saved.
+    this.quitting = false;
     this.extensions = null;
-    this.notice = null;
-    // Whether the menu overlay is currently sized to the whole window.
-    this.overlayInteractive = false;
-    // The overlay loads asynchronously; requests that arrive before it is
-    // listening are held here and replayed (see the menu:open handler).
-    this.overlayReady = false;
-    this.pendingMenu = null;
     // Aborts the in-flight Gemini request when a new one starts.
     this.aiController = null;
     // Shopping's two comparisons, one in flight per Shopping page (see
@@ -181,18 +151,348 @@ class BrowserApplication {
     this.priceSearchRestUntil = 0;
     // URLs the user chose to open despite a safety warning, this run only.
     this.sessionAllowed = new Set();
-    // The AI sidebar: a WebContentsView beside the tab, created on first use.
-    this.sidebar = null;
-    this.sidebarOpen = false;
-    this.sidebarWidth = 380;
-    // Whether the omnibox dropdown is showing, which changes the chrome's
-    // height so the list is not clipped.
-    this.suggestionsOpen = false;
-    // The tab hover card on show, if any: { id, lane } (see #tabPreview).
-    this.preview = null;
-    // Pictures of tabs for those cards, newest last: id -> { data, url, at }.
-    // In memory only, and never more than PREVIEW_KEEP of them.
+    // Pictures of tabs for their hover cards, newest last: id -> { data, url,
+    // at }. One store for every window (a tab keeps its picture when it
+    // moves), in memory only, and kept small (see AppWindow#snapshot).
     this.thumbs = new Map();
+    // The contents ids of views in windows that have closed (see #guard).
+    this.retired = new Set();
+  }
+
+  /* ---- windows -------------------------------------------------------------- */
+
+  /**
+   * Open a browser window.
+   *
+   *   startup  the first window of a launch: it opens where the last one was
+   *            and starts with what Settings asks for - the last session,
+   *            the homepage, setup. A Mac app with every window closed opens
+   *            its next one where the last stood too, with a new tab (see
+   *            openStartupTabs).
+   *   from     the window it was opened from, to step down and right of
+   *   bounds   exactly where to put it instead
+   *   url      what its first tab opens ("Open link in new window")
+   *   behind   comes up behind the window in use rather than in front of it
+   *
+   * Any other window starts with one new tab, unless tabs are moved into it
+   * first. In a probe every window is off-screen and unfocusable (AppWindow).
+   */
+  openWindow({ startup = false, from = null, bounds = null, arriving = !startup, url = null, behind = false } = {}) {
+    const place = bounds || (startup ? this.#savedBounds() : AppWindow.cascadeFrom((from || this.front)?.window));
+    const w = new AppWindow(this, { id: this.nextWindowId++, bounds: place, startup, arriving, behind });
+    w.focusedAt = Date.now();
+    this.windows.push(w);
+    this.front = w;
+    // Tabs made now land before the chrome has loaded, so it opens no other.
+    if (url) w.tabs.create({ url });
+    // Every other window's tab menu now offers this one to move tabs to.
+    if (!startup) this.push();
+    return w;
+  }
+
+  /** The dock's New Window, and anything else asking for a window from outside one. */
+  newWindow() {
+    return this.#open().length ? this.openWindow({ from: this.front }) : this.focusWindow();
+  }
+
+  /** Where the last window was when the browser closed, so it reopens there. */
+  #savedBounds() {
+    // A browser that always opens centred at a fixed size ignores how the
+    // window was actually being used.
+    const saved = this.windowStore.data;
+    return saved.width && saved.height
+      ? { width: saved.width, height: saved.height, x: saved.x, y: saved.y }
+      : {};
+  }
+
+  /** The windows still open, oldest first. */
+  #open() {
+    return this.windows.filter((w) => !w.closed && w.window && !w.window.isDestroyed());
+  }
+
+  /** A window came to the front. */
+  windowFocused(w) {
+    if (w.closed) return;
+    w.focusedAt = Date.now();
+    this.front = w;
+  }
+
+  /**
+   * A window is closing. One of several: its tabs leave the session (as in
+   * every browser, a closed window is not reopened at the next launch), but
+   * Reopen closed tab can still bring it back. The last one, or any while the
+   * browser quits: everything is kept for next time.
+   */
+  windowClosing(w) {
+    if (this.quitting || w.closed) return;
+    const others = this.#open().filter((other) => other !== w);
+    if (!others.length) { this.flush(); return; }
+    this.#rememberClosedWindow(w);
+    w.leaving = true;
+    try { this.saveSession(); } catch { /* a failed save must not stop the window closing */ }
+  }
+
+  /** A window has closed: its pages go with it, and another comes to the front. */
+  windowClosed(w) {
+    // Its views and pages may still have a message on the way as they close;
+    // those are let go quietly (see #guard) rather than refused loudly.
+    if (this.retired.size > 2000) this.retired.clear();
+    for (const view of [w.chrome, w.overlay, w.sidebar, w.vtabs, w.findBar, w.edgeStrip, w.splitDivider, w.splitDrop]) {
+      if (view && !view.webContents.isDestroyed()) this.retired.add(view.webContents.id);
+    }
+    for (const tab of w.tabs?.tabs.values() || []) if (!tab.view.webContents.isDestroyed()) this.retired.add(tab.view.webContents.id);
+    w.dispose();
+    this.windows = this.windows.filter((other) => other !== w);
+    if (this.front === w) {
+      this.front = this.windows.reduce((best, other) => (!best || (other.focusedAt || 0) > (best.focusedAt || 0) ? other : best), null);
+    }
+    // A question it was asking goes unanswered, as if dismissed: a page
+    // waiting on it is told no rather than waiting for ever.
+    for (const [id, entry] of this.prompts || []) if (entry.w === w) this.#settlePrompt(id, null);
+    // Its groups went with its tabs (a closed window does not come back
+    // with its groups), so the organiser stops listing them.
+    if (!this.quitting) this.productivity?.organizer.dropEmptyGroups();
+    // Lists in the other windows that named this one (tab search, Move to
+    // another window) are built when opened, so a push is all they need.
+    this.push();
+  }
+
+  /**
+   * The last tab of window `w` was closed. With other windows open the
+   * window goes too, as in Chrome, and Reopen closed tab brings it back with
+   * that tab; the only window stays, with a new tab. Says whether it went.
+   */
+  lastTabClosed(w) {
+    if (this.quitting || !this.#open().some((other) => other !== w)) return false;
+    w.lastClosedTab = w.tabs.closed.at(-1) || null;
+    // Not from inside the tab manager's own close: the window takes its
+    // tabs with it, and that close has not finished yet.
+    setImmediate(() => { if (!w.closed && !w.window.isDestroyed()) w.window.close(); });
+    return true;
+  }
+
+  /** What a closed window held, for Reopen closed tab. */
+  #rememberClosedWindow(w) {
+    const moment = (url) => /^browser:\/\/(newtab|welcome|profiles)/.test(url || '');
+    const open = w.tabs?.list() || [];
+    // Closed by closing its last tab: that tab is what it held.
+    const held = open.length ? open : w.lastClosedTab ? [{ url: w.lastClosedTab.url, pinned: w.lastClosedTab.pinned, groupId: w.lastClosedTab.groupId, active: true }] : [];
+    const tabs = held.filter((tab) => /^https?:|^browser:/.test(tab.url || '') && !moment(tab.url))
+      .map((tab) => ({ url: tab.url, pinned: !!tab.pinned, active: !!tab.active, groupId: tab.groupId || null, workspaceId: tab.workspaceId || 'main' }));
+    if (!tabs.length || this.incognito) return;
+    // Its groups as they are now - they go from the organiser with the
+    // window - so the window comes back with them, names and colours too.
+    const used = new Set(tabs.map((tab) => tab.groupId).filter(Boolean));
+    const groups = (this.productivity?.organizer.groups || []).filter((group) => used.has(group.id))
+      .map(({ id, name, color, category, workspaceId, collapsed }) => ({ id, name, color, category, workspaceId, collapsed: !!collapsed }));
+    let bounds = null;
+    try { bounds = w.window.isMaximized() ? w.window.getNormalBounds() : w.window.getBounds(); } catch { /* gone already */ }
+    this.closedWindows.push({ at: Date.now(), tabs, groups, bounds });
+    if (this.closedWindows.length > 5) this.closedWindows.shift();
+  }
+
+  /** Bring back the window closed most recently, its tabs pinned and grouped as they were. */
+  #reopenWindow() {
+    const entry = this.closedWindows.pop();
+    if (!entry) return null;
+    const w = this.openWindow({ bounds: process.env.STATIC_OFFSCREEN === '1' ? null : entry.bounds });
+    const organizer = this.productivity?.organizer;
+    const groups = organizer ? organizer.restore(entry.groups) : new Map();
+    const workspaces = new Set((organizer?.store.data.workspaces || [{ id: 'main' }]).map((space) => space.id));
+    let front = null;
+    for (const tab of entry.tabs) {
+      const id = w.tabs.create({
+        url: tab.url, background: true, pinned: tab.pinned, groupId: groups.get(tab.groupId) || null,
+        workspaceId: workspaces.has(tab.workspaceId) ? tab.workspaceId : 'main',
+      });
+      if (tab.active) front = id;
+    }
+    w.tabs.select(front || w.tabs.order[0]);
+    organizer?.dropEmptyGroups();
+    return w;
+  }
+
+  /**
+   * Whether `sender` is window `w`'s overlay with the tab search list in it:
+   * the one place that shows other windows' tabs, and so the one place that
+   * may choose or close them.
+   */
+  #searching(sender, w) {
+    return sender === w.overlay?.webContents && !!w.lastMenu?.items?.some((item) => item?.tabsearch);
+  }
+
+  /** Every window's tab manager. */
+  allTabs() {
+    return this.#open().map((w) => w.tabs).filter(Boolean);
+  }
+
+  /** The window `contents` belongs to: one of its own views, or one of its tabs. */
+  windowOf(contents) {
+    if (!contents) return null;
+    return this.#open().find((w) => w.owns(contents)) || null;
+  }
+
+  /** The tab showing `contents`, in whichever window it is. */
+  tabOf(contents) {
+    if (!contents) return null;
+    for (const w of this.#open()) {
+      const tab = w.tabOf(contents);
+      if (tab) return tab;
+    }
+    return null;
+  }
+
+  /** A tab by id, in whichever window it is. */
+  findTab(id) {
+    for (const w of this.#open()) {
+      const tab = w.tabs?.tabs.get(id);
+      if (tab) return tab;
+    }
+    return null;
+  }
+
+  /** The window holding the tab `id`. */
+  windowOfTab(id) {
+    return this.#open().find((w) => w.tabs?.tabs.has(id)) || null;
+  }
+
+  /** Whether a tab is on show in its window - the one, or both halves of a split. */
+  #onShow(id) {
+    return this.#open().some((w) => w.tabs.activeId === id || (w.tabs.active?.splitWith === id));
+  }
+
+  /**
+   * Move tabs out of `from` into another window: `to` is a window id, or
+   * 'new' for a window of their own. Their pages travel live - nothing
+   * reloads - and keep their pins; their group stays behind, with the window
+   * it belongs to. A window emptied by the move closes, as Chrome's does.
+   * Returns the window they are in now, or null when nothing moved.
+   */
+  moveTabs(ids, from, to = 'new', { bounds = null } = {}) {
+    if (!from || from.closed) return null;
+    const chosen = from.tabIds(ids);
+    if (!chosen.length) return null;
+    const target = to === 'new' ? null : this.#open().find((w) => w.id === Number(to) && w !== from);
+    if (to !== 'new' && !target) return null;
+    const remaining = from.tabs.order.filter((id) => !chosen.includes(id));
+    // A new window holding every tab would only be this window again.
+    if (!target && !remaining.length) return null;
+
+    // Whatever is on show in this window and moving: the next tab along
+    // comes forward here first, so nothing is put on screen only to leave.
+    const leaving = new Set(chosen);
+    if (leaving.has(from.tabs.activeId) && remaining.length) {
+      const at = from.tabs.order.indexOf(from.tabs.activeId);
+      const next = from.tabs.order.slice(at).find((id) => !leaving.has(id)) || from.tabs.order.slice(0, at).reverse().find((id) => !leaving.has(id));
+      if (next) from.tabs.select(next);
+    }
+    if (from.findTabId && leaving.has(from.findTabId)) from.closeFind();
+    if (from.htmlFullscreen && leaving.has(from.htmlFullscreen)) from.leaveHtmlFullscreen();
+    from.hidePreview();
+
+    const dest = target || this.openWindow({ from, bounds });
+    // In strip order, so they arrive side by side as they were; the one the
+    // menu was opened on is in front.
+    const ordered = from.tabs.order.filter((id) => leaving.has(id));
+    for (const id of ordered) {
+      const tab = from.tabs.release(id);
+      if (tab) dest.tabs.adopt(tab, { background: true });
+    }
+    dest.tabs.select(chosen[0]);
+    this.productivity?.organizer.dropEmptyGroups();
+    from.layout();
+    dest.layout();
+    this.push();
+    if (!from.tabs.order.length) from.window.close();
+    dest.focus();
+    return dest;
+  }
+
+  /*
+   * The window in front, under the names the one window always had, so code
+   * with no window of its own (and the probes) can go on saying `this.tabs`.
+   */
+  layout() { this.front?.layout(); }
+  applyTabLayout() { this.front?.applyTabLayout(); }
+  applySidebarMode() { return this.front?.applySidebarMode(); }
+  applyEdgeReveal() { this.front?.applyEdgeReveal(); }
+  toggleSidebar(open) { return this.front ? this.front.toggleSidebar(open) : false; }
+  peekSidebar(show) { return this.front ? this.front.peekSidebar(show) : false; }
+  ensureSidebar() { return this.front?.ensureSidebar(); }
+  animateSidebar(toOpen) { this.front?.animateSidebar(toOpen); }
+  openSplit(url, fromTabId) { return this.front ? this.front.openSplit(url, fromTabId) : null; }
+  showSplitDrop(id) { this.front?.showSplitDrop(id); }
+  openFind(text) { this.front?.openFind(text); }
+  closeFind() { this.front?.closeFind(); }
+  enterHtmlFullscreen(contents) { this.windowOf(contents)?.enterHtmlFullscreen(contents); }
+  leaveHtmlFullscreen() { this.front?.leaveHtmlFullscreen(); }
+  setWindowFullScreen(on) { this.front?.setWindowFullScreen(on); }
+  toggleWindowFullscreen() { this.front?.toggleWindowFullscreen(); }
+  zoom(direction) { this.front?.zoom(direction); }
+  openPageMenu(contents, params) { this.windowOf(contents)?.openPageMenu(contents, params); }
+  setOverlayInteractive(interactive, options) { this.front?.setOverlayInteractive(interactive, options); }
+  takePendingMenu() { return this.front ? this.front.takePendingMenu() : null; }
+  openTabSearch(sender, anchor) { return this.front ? this.front.openTabSearch(sender, anchor) : false; }
+  windowControl(action) { return this.front ? this.front.windowControl(action) : false; }
+
+  /**
+   * Wire a tab's page to the browser: shortcuts, ad defences, its right-click
+   * menu, the reading view check, and the rest. Every listener asks which
+   * window the tab is in when it fires, because a tab can move.
+   */
+  wireTab(contents) {
+    // Every tab gets the shortcut interceptor, so Ctrl+T and friends fire
+    // even while focus is inside page content.
+    this.attachShortcuts(contents);
+    this.attachScriptlets(contents);
+    contents.on('context-menu', (_event, params) => this.windowOf(contents)?.openPageMenu(contents, params));
+    // Whether each page reads like an article, for the reading view button.
+    this.pageTools?.watch(contents);
+    // A new page in the tab on screen: its hover card's picture is retaken.
+    contents.on('did-stop-loading', () => {
+      const w = this.windowOf(contents);
+      if (w?.tabs.active?.view.webContents === contents) w.settleSnapshot();
+    });
+    // The last few page warnings and errors, in memory only, so a bug
+    // report can include them if - and only if - the user ticks the box.
+    contents.on('console-message', (event) => {
+      const level = typeof event.level === 'string' ? event.level : ['verbose', 'info', 'warning', 'error'][event.level] || 'info';
+      if (level !== 'warning' && level !== 'error') return;
+      this.consoleLog = [...(this.consoleLog || []).slice(-39), {
+        level, message: String(event.message || '').slice(0, 400),
+        page: (() => { try { return new URL(contents.getURL()).host; } catch { return ''; } })(),
+        at: new Date().toISOString(),
+      }];
+    });
+    contents.on('found-in-page', (_event, result) => {
+      const w = this.windowOf(contents);
+      if (w?.findBar && !w.findBar.webContents.isDestroyed() && w.tabs.active?.view.webContents === contents) {
+        w.findBar.webContents.send('find:result', { active: result.activeMatchOrdinal, matches: result.matches });
+      }
+    });
+    // A page asking for fullscreen (a video, a game) gets the whole
+    // screen: the tab view does not grow by itself inside our window.
+    contents.on('enter-html-full-screen', () => this.windowOf(contents)?.enterHtmlFullscreen(contents));
+    contents.on('leave-html-full-screen', () => this.windowOf(contents)?.leaveHtmlFullscreen());
+  }
+
+  /** A page visited or retitled, for history - never in incognito. */
+  recordVisit(event) {
+    if (this.incognito) return null;
+    if (event.type === 'visit') return this.history.record(event.url, event.title);
+    if (event.type === 'title') this.history.title(event.id, event.title);
+    return null;
+  }
+
+  /** A file dropped onto a page: it opens in a new tab beside it, by token. */
+  openDroppedFile(tab, url) {
+    let file = '';
+    try { file = fileURLToPath(url); } catch { return; }
+    const result = this.localFiles.add(file);
+    if (!result.url) { this.notify(result.error, this.windowOfTab(tab.id)); return; }
+    const manager = tab.manager;
+    const index = manager.order.indexOf(tab.id);
+    manager.create({ url: result.url, index: index >= 0 ? index + 1 : undefined });
   }
 
   async start() {
@@ -251,8 +551,10 @@ class BrowserApplication {
       onChange: () => { this.push(); broadcastToPages(this, 'shields:changed'); broadcastToPages(this, 'passwords:changed'); },
     });
     // Windows Hello / Touch ID. The Windows helper lives beside the profiles,
-    // compiled once per version of its source.
-    this.biometric = new Biometric(path.join(app.getPath('userData'), 'bin'), () => this.window);
+    // compiled once per version of its source. Its prompt sits over the
+    // window whose page asked (see #deviceVerify), else the window in front.
+    this.biometric = new Biometric(path.join(app.getPath('userData'), 'bin'),
+      () => (this.verifyingIn && !this.verifyingIn.closed ? this.verifyingIn : this.front)?.window || null);
     {
       // A locked screen or a sleeping computer locks the vault too.
       const { powerMonitor } = require('electron');
@@ -263,21 +565,26 @@ class BrowserApplication {
     // Static Sense: local intent detection. Reads tab titles and URLs already
     // in memory - nothing is sent anywhere and no page content is read.
     this.sense = new Sense(this.dir, { onChange: () => this.push() });
-    // Resources needs the tab manager, which ensureWindow() creates, so it is
-    // constructed with lazy accessors rather than direct references.
+    // Resources needs the tabs, which the windows hold, so it is constructed
+    // with lazy accessors rather than direct references. Every window's tabs
+    // count; "active" is a tab on show in its own window.
     this.resources = new Resources(this.dir, {
-      getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
-      getActiveId: () => this.tabs?.activeId || null,
+      getTabs: () => this.allTabs().flatMap((tabs) => [...tabs.tabs.values()]),
+      getActiveId: () => this.front?.tabs?.activeId || null,
+      isActive: (id) => this.#onShow(id),
       onChange: () => { this.push(); broadcastToPages(this, 'resources:changed'); },
     });
 
     this.productivity = new Productivity(this);
     // Reading view, screenshots and QR codes. Their cards are drawn in the
-    // overlay like any menu, so they are handed the same way to draw one.
+    // overlay like any menu, in the window of the tab they are about.
     this.pageTools = new PageTools(this, {
-      showMenu: (items, anchor, align) => this.#showMenu(items, anchor, align),
-      anchor: () => this.#promptAnchor(),
-      tabOf: (contents) => (this.tabs ? this.#tabByContents(contents) : null),
+      showMenu: (w, items, anchor, align) => w.showMenu(items, anchor, align),
+      tabOf: (contents) => this.tabOf(contents),
+      locate: (id) => {
+        const w = this.windowOfTab(id);
+        return w ? { tab: w.tabs.tabs.get(id), w } : null;
+      },
     });
     this.#hardenSession();
     this.#installRequestFilter();
@@ -306,33 +613,37 @@ class BrowserApplication {
       return new Response(body.bytes, { headers: { 'content-type': body.mime, 'access-control-allow-origin': '*', 'cache-control': 'max-age=86400' } });
     });
 
-    this.ensureWindow();
+    this.openWindow({ startup: true });
     this.#registerIpc();
     this.#installAutofill();
     this.productivity.start();
     this.attachVideoAdGate();
 
-    // Extensions come last: they need the window to exist so popups and
-    // chrome.tabs.create have somewhere to go.
+    // Extensions come last: they need a window to exist so popups and
+    // chrome.tabs.create have somewhere to go - the window in front, as an
+    // extension has no window of its own.
     this.extensions = new Extensions({
       dir: this.dir,
       session: this.session,
-      window: this.window,
+      getWindow: () => this.front?.window || null,
       onChange: () => this.push(),
       createTab: (details) => {
-        const id = this.tabs.create({ url: details?.url, background: details?.active === false });
-        return this.tabs.tabs.get(id)?.view.webContents || null;
+        const w = this.front;
+        if (!w) return null;
+        const id = w.tabs.create({ url: details?.url, background: details?.active === false });
+        const contents = w.tabs.tabs.get(id)?.view.webContents;
+        return contents ? { contents, window: w.window } : null;
       },
       selectTab: (contents) => {
-        const tab = this.#tabByContents(contents);
-        if (tab) this.tabs.select(tab.id);
+        const tab = this.tabOf(contents);
+        if (tab) tab.manager.select(tab.id);
       },
       removeTab: (contents) => {
-        const tab = this.#tabByContents(contents);
-        if (tab) this.tabs.close(tab.id);
+        const tab = this.tabOf(contents);
+        if (tab) tab.manager.close(tab.id);
       },
     });
-    this.tabs.extensions = this.extensions;
+    for (const w of this.windows) w.tabs.extensions = this.extensions;
 
     // Health reads from the other modules rather than owning state, so it is
     // constructed last - everything it inspects must already exist.
@@ -344,7 +655,7 @@ class BrowserApplication {
       extensions: this.extensions,
       history: this.history,
       downloads: this.downloads,
-      getTabs: () => (this.tabs ? [...this.tabs.tabs.values()] : []),
+      getTabs: () => this.allTabs().flatMap((tabs) => [...tabs.tabs.values()]),
     });
 
     // First launch. Onboarding writes THROUGH settings rather than to any
@@ -435,144 +746,19 @@ class BrowserApplication {
     try { return new URL(pageUrl).hostname; } catch { return ''; }
   }
 
+  /** The tab, in any window, whose page has this webContents id. */
   #tabByWebContentsId(id) {
     if (id === undefined) return null;
-    for (const tab of this.tabs?.tabs.values() || []) {
-      if (tab.view.webContents.id === id) return tab;
+    for (const tabs of this.allTabs()) {
+      for (const tab of tabs.tabs.values()) {
+        if (tab.view.webContents.id === id) return tab;
+      }
     }
     return null;
   }
 
   #tabIdForWebContents(id) {
     return this.#tabByWebContentsId(id)?.id ?? null;
-  }
-
-  /** Open find-in-page over the active tab, or refocus it if open. */
-  openFind(text) {
-    const tab = this.tabs?.active;
-    if (!tab || !this.window) return;
-    this.findTabId = tab.id;
-    if (this.findBar && !this.findBar.webContents.isDestroyed()) {
-      this.findBar.webContents.focus();
-      this.findBar.webContents.send('find:focus', { text });
-      return;
-    }
-    this.findBar = new WebContentsView({
-      webPreferences: {
-        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
-        contextIsolation: true, sandbox: true, nodeIntegration: false,
-      },
-    });
-    this.findBar.setBackgroundColor('#00000000');
-    this.attachShortcuts(this.findBar.webContents);
-    this.findBar.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'pages', 'find.html'));
-    this.findBar.webContents.once('did-finish-load', () => {
-      if (!this.findBar || this.findBar.webContents.isDestroyed()) return;
-      this.findBar.webContents.focus();
-      if (text) this.findBar.webContents.send('find:focus', { text });
-    });
-    this.layout();
-  }
-
-  closeFind() {
-    const wc = this.tabs?.tabs.get(this.findTabId)?.view.webContents;
-    if (wc && !wc.isDestroyed()) wc.stopFindInPage('keepSelection');
-    if (this.findBar) {
-      try { this.window.contentView.removeChildView(this.findBar); } catch { /* already gone */ }
-      if (!this.findBar.webContents.isDestroyed()) this.findBar.webContents.close();
-      this.findBar = null;
-    }
-    this.findTabId = null;
-    if (wc && !wc.isDestroyed()) wc.focus();
-  }
-
-  enterHtmlFullscreen(contents) {
-    const tab = this.#tabByContents(contents);
-    if (!tab || !this.window) return;
-    this.htmlFullscreen = tab.id;
-    this.wasFullscreen = this.window.isFullScreen();
-    if (!this.wasFullscreen) this.setWindowFullScreen(true);
-    this.layout();
-  }
-
-  leaveHtmlFullscreen() {
-    if (!this.htmlFullscreen) return;
-    const tab = this.tabs?.tabs.get(this.htmlFullscreen);
-    this.htmlFullscreen = null;
-    const wc = tab?.view.webContents;
-    // Leaving because the user switched tabs: the page still thinks it is
-    // fullscreen, so tell it.
-    if (wc && !wc.isDestroyed()) {
-      wc.executeJavaScript('document.fullscreenElement && document.exitFullscreen()', true).catch(() => {});
-    }
-    if (!this.wasFullscreen && !this.windowFullscreen && this.window && !this.window.isDestroyed()) {
-      this.setWindowFullScreen(false);
-    }
-    this.layout();
-  }
-
-  /** OS fullscreen, except in test runs, where it would take over the screen. */
-  setWindowFullScreen(on) {
-    if (process.env.STATIC_OFFSCREEN === '1' || !this.window || this.window.isDestroyed()) return;
-    this.window.setFullScreen(on);
-  }
-
-  /** F11: the whole browser fullscreen, toolbar hidden, like every browser. */
-  toggleWindowFullscreen() {
-    if (!this.window) return;
-    if (this.htmlFullscreen) { this.leaveHtmlFullscreen(); return; }
-    this.windowFullscreen = !this.windowFullscreen;
-    this.setWindowFullScreen(this.windowFullscreen);
-    this.layout();
-    if (this.windowFullscreen) {
-      this.notify(process.platform === 'darwin' ? 'Press Ctrl+Cmd+F to exit full screen' : 'Press F11 to exit full screen');
-    }
-  }
-
-  /** Zoom the active page in the steps browsers share: 25% to 500%. */
-  zoom(direction) {
-    const wc = this.tabs?.active?.view.webContents;
-    if (!wc || wc.isDestroyed()) return;
-    const STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
-    const now = wc.getZoomFactor();
-    let next = 1;
-    if (direction > 0) next = STEPS.find((step) => step > now + 0.001) || 5;
-    else if (direction < 0) next = [...STEPS].reverse().find((step) => step < now - 0.001) || 0.25;
-    wc.setZoomFactor(next);
-    this.push();
-    this.notify(next === 1 ? 'Zoom reset to 100%' : 'Zoom ' + Math.round(next * 100) + '%');
-  }
-
-  /** Draw the right-click menu for a page, at the pointer, in the overlay. */
-  openPageMenu(contents, params) {
-    const tab = this.#tabByWebContentsId(contents.id);
-    if (!tab || !this.overlay || this.overlay.webContents.isDestroyed()) return;
-    const extensionItems = this.extensions?.contextMenuItems(contents, params) || [];
-    this.contextTarget = { tabId: tab.id, contents, params, extensionItems };
-    const items = pageMenu.buildItems(params, {
-      canGoBack: contents.navigationHistory.canGoBack(),
-      canGoForward: contents.navigationHistory.canGoForward(),
-      pageUrl: contents.getURL(),
-      // What the address bar shows: reading view is our page, but its QR
-      // code is of the article.
-      shownUrl: tab.state.displayUrl,
-      extensionItems,
-      has: {
-        incognito: typeof this.openIncognito === 'function',
-        split: typeof this.openSplit === 'function',
-        blockElement: typeof this.startElementPicker === 'function',
-        pageTools: !!this.pageTools,
-        reader: !!this.pageTools?.readerState(tab).available,
-      },
-    });
-    // params are in the page's own coordinates; the overlay spans the window.
-    const bounds = tab.view.getBounds();
-    const x = bounds.x + params.x;
-    const y = bounds.y + params.y;
-    this.pendingMenu = { items, anchor: { left: x, right: x, top: y, bottom: y, width: 0, height: 0 }, align: 'left' };
-    // The overlay takes pendingMenu as soon as it polls; this copy stays.
-    this.lastPageMenu = this.pendingMenu;
-    this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
   }
 
   /**
@@ -662,222 +848,10 @@ class BrowserApplication {
     });
   }
 
+  /** The window in front, opening one first if there is none (a Mac app with every window closed). */
   ensureWindow() {
-    if (this.window && !this.window.isDestroyed()) return this.window;
-
-    // Frameless: the title bar, window buttons and every menu are drawn by our
-    // own renderer. `frame: false` removes the OS bar entirely (rather than
-    // titleBarStyle: 'hidden', which keeps native traffic lights on macOS).
-    // Dragging is handled by -webkit-app-region in renderer/chrome.css.
-    // macOS gets `titleBarStyle: 'hiddenInset'` rather than `frame: false`.
-    //
-    // `frame: false` removes the OS bar entirely, and on macOS that takes the
-    // TRAFFIC LIGHTS with it - a Mac user would have no way to close,
-    // minimise or zoom the window, and no amount of drawing our own buttons
-    // is a substitute for the ones every Mac app has in the same place.
-    // 'hiddenInset' keeps the real traffic lights, inset into our own chrome,
-    // which is what every Mac browser does.
-    const mac = process.platform === 'darwin';
-    // Reopen where you left it. A browser that always opens centred at a
-    // fixed size ignores how the window was actually being used.
-    const saved = this.windowStore.data;
-    const bounds = saved.width && saved.height
-      ? { width: saved.width, height: saved.height, x: saved.x, y: saved.y }
-      : {};
-    this.window = new BaseWindow({
-      ...bounds,
-      width: bounds.width || 1280,
-      height: bounds.height || 820,
-      minWidth: 640,
-      minHeight: 420,
-      title: 'static',
-      ...(mac
-        ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 13, y: 13 } }
-        : { frame: false }),
-      backgroundColor: THEMES[this.settings.value.theme]?.tokens.bg || '#161718',
-      // Packaged builds take the icon from the executable; this is for running
-      // from source, which would otherwise show Electron's.
-      icon: path.join(app.getAppPath(), 'build', 'icon.png'),
-      show: false,
-      ...(process.env.STATIC_OFFSCREEN === '1'
-        ? { x: -32000, y: -32000, skipTaskbar: true, focusable: false }
-        : {}),
-    });
-    if (process.env.STATIC_OFFSCREEN === '1') {
-      // Test runs must never appear on screen or take focus from whatever the
-      // user is doing, however a probe asks for the window.
-      this.window.show = () => this.window.showInactive();
-      this.window.focus = () => {};
-      this.window.setPosition(-32000, -32000);
-    }
-
-    // Two-finger swipe back and forward, which is how Mac users navigate.
-    // Electron reports it on the window; everything else ignores it.
-    this.window.on('swipe', (_event, direction) => {
-      const wc = this.tabs?.active?.view?.webContents;
-      if (!wc || wc.isDestroyed()) return;
-      if (direction === 'left' && wc.navigationHistory.canGoBack()) {
-        wc.navigationHistory.goBack();
-      } else if (direction === 'right' && wc.navigationHistory.canGoForward()) {
-        wc.navigationHistory.goForward();
-      }
-    });
-
-    // The renderer draws its own maximise/restore glyph, so it needs to know.
-    const reportWindowState = () => {
-      this.push();
-      this.layout();
-    };
-    this.window.on('maximize', reportWindowState);
-    this.window.on('unmaximize', reportWindowState);
-    this.window.on('enter-full-screen', reportWindowState);
-    this.window.on('leave-full-screen', reportWindowState);
-
-    // The chrome UI. Its preload is the esbuild bundle (scripts/build.cjs)
-    // because it must bundle electron-chrome-extensions' browser-action code.
-    this.chrome = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false,
-        preload: path.join(app.getAppPath(), 'build', 'chrome.preload.cjs'),
-        session: this.session,
-      },
-    });
-    this.window.contentView.addChildView(this.chrome);
-    this.chrome.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    this.attachShortcuts(this.chrome.webContents);
-
-    // Menu overlay.
-    //
-    // Menus are taller than the chrome strip, so drawing them inside the chrome
-    // view clips them. This transparent view covers the WHOLE window and sits
-    // above both the chrome and the active tab, so a menu can be any size and
-    // still paint over page content.
-    //
-    // It ignores mouse events while idle (setIgnoreMouseEvents below), so the
-    // toolbar and the page underneath stay clickable; the renderer turns that
-    // off only while a menu is actually open.
-    this.overlay = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false,
-        preload: path.join(app.getAppPath(), 'build', 'chrome.preload.cjs'),
-        session: this.session,
-        transparent: true,
-      },
-    });
-    this.overlay.setBackgroundColor('#00000000');
-    this.window.contentView.addChildView(this.overlay);
-    this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
-    // Only a real reload invalidates readiness. `did-start-navigation` also
-    // fires for the initial load, and it can arrive AFTER the page's own
-    // menu:ready - which would clear the flag again and strand a queued menu.
-    this.overlay.webContents.on('did-start-navigation', (event) => {
-      if (event.isSameDocument) return;
-      if (this.overlayReady) this.overlayReady = false;
-    });
-    this.overlay.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'overlay.html'));
-    this.attachShortcuts(this.overlay.webContents);
-
-    this.tabs = new Tabs({
-      window: this.window,
-      session: this.session,
-      preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
-      extensions: this.extensions,
-      getEngine: () => this.settings.value.searchEngine,
-      onSelected: (id) => {
-        // The tab coming on screen has its picture taken once it settles, for
-        // its hover card later. (Not the one being left: it is taken off screen
-        // in the same moment, and a capture started then waits for it to come
-        // back - see #settleSnapshot.)
-        this.#hidePreview();
-        this.#settleSnapshot();
-        const chosen = this.tabs?.tabs.get(id);
-        if (chosen && !chosen.state.internalUrl) this.lastWebTabId = id;
-        if (this.findBar && this.findTabId && this.findTabId !== id) this.closeFind();
-        if (this.htmlFullscreen && this.htmlFullscreen !== id) this.leaveHtmlFullscreen();
-        return this.productivity?.organizer.wake(id).catch(() => this.notify('This tab could not wake. Try reloading it.'));
-      },
-      // Every tab gets the shortcut interceptor, so Ctrl+T and friends fire
-      // even while focus is inside page content.
-      onTabCreated: (contents) => {
-        this.attachShortcuts(contents);
-        this.attachScriptlets(contents);
-        contents.on('context-menu', (_event, params) => this.openPageMenu(contents, params));
-        // Whether each page reads like an article, for the reading view button.
-        this.pageTools?.watch(contents);
-        // A new page in the tab on screen: its hover card's picture is retaken.
-        contents.on('did-stop-loading', () => {
-          if (this.tabs?.active?.view.webContents === contents) this.#settleSnapshot();
-        });
-        // The last few page warnings and errors, in memory only, so a bug
-        // report can include them if - and only if - the user ticks the box.
-        contents.on('console-message', (event) => {
-          const level = typeof event.level === 'string' ? event.level : ['verbose', 'info', 'warning', 'error'][event.level] || 'info';
-          if (level !== 'warning' && level !== 'error') return;
-          this.consoleLog = [...(this.consoleLog || []).slice(-39), {
-            level, message: String(event.message || '').slice(0, 400),
-            page: (() => { try { return new URL(contents.getURL()).host; } catch { return ''; } })(),
-            at: new Date().toISOString(),
-          }];
-        });
-        contents.on('found-in-page', (_event, result) => {
-          if (this.findBar && !this.findBar.webContents.isDestroyed() && this.tabs?.active?.view.webContents === contents) {
-            this.findBar.webContents.send('find:result', { active: result.activeMatchOrdinal, matches: result.matches });
-          }
-        });
-        // A page asking for fullscreen (a video, a game) gets the whole
-        // screen: the tab view does not grow by itself inside our window.
-        contents.on('enter-html-full-screen', () => this.enterHtmlFullscreen(contents));
-        contents.on('leave-html-full-screen', () => this.leaveHtmlFullscreen());
-      },
-      onChange: () => this.push(),
-      onNavigate: (event) => {
-        if (this.incognito) return null;
-        if (event.type === 'visit') return this.history.record(event.url, event.title);
-        if (event.type === 'title') this.history.title(event.id, event.title);
-        return null;
-      },
-    });
-
-    // A file dropped onto a page opens in a new tab beside it, by token.
-    this.tabs.onFileDropped = (tab, url) => {
-      let file = '';
-      try { file = fileURLToPath(url); } catch { return; }
-      const result = this.localFiles.add(file);
-      if (!result.url) { this.notify(result.error); return; }
-      const index = this.tabs.order.indexOf(tab.id);
-      this.tabs.create({ url: result.url, index: index >= 0 ? index + 1 : undefined });
-    };
-
-    this.window.on('resize', () => this.layout());
-    // macOS enters fullscreen from its own menu and green button too.
-    this.window.on('enter-full-screen', () => {
-      if (!this.htmlFullscreen && !this.windowFullscreen) { this.windowFullscreen = true; this.layout(); }
-    });
-    this.window.on('leave-full-screen', () => {
-      if (this.htmlFullscreen) this.leaveHtmlFullscreen();
-      if (this.windowFullscreen) { this.windowFullscreen = false; this.layout(); }
-    });
-    this.window.on('close', () => this.flush());
-    this.window.once('ready-to-show', () => this.window.show());
-
-    // Chrome renders first; the tab view is positioned by layout().
-    this.chrome.webContents.once('did-finish-load', () => {
-      this.applyTabLayout();
-      this.layout();
-      if (!this.tabs.order.length) this.#openStartupTabs();
-      // Honour the saved sidebar setting on startup rather than always
-      // beginning closed.
-      this.applySidebarMode();
-      this.window.show();
-      this.push();
-    });
-
-    this.layout();
-    return this.window;
+    if (!this.#open().length) this.openWindow({ startup: true });
+    return this.front.window;
   }
 
   /**
@@ -981,25 +955,27 @@ class BrowserApplication {
       items.push({ separator: true }, { label: kind === 'login' ? 'Manage passwords' : 'Manage autofill', icon: 'gear',
         action: { channel: 'tabs:new', payload: { url: kind === 'login' ? 'browser://passwords' : 'browser://autofill' } } });
       // Passive: the page keeps the keyboard, so typing goes on working and
-      // closes the list; the down arrow moves into it.
-      this.#showMenu(items, anchor, 'left', { passive: true });
+      // closes the list; the down arrow moves into it. In the page's own window.
+      at.w.showMenu(items, anchor, 'left', { passive: true });
     });
 
     // Keys pressed in the field while its suggestions are open.
     ipcMain.on('autofill:menu-key', (event, payload) => {
-      if (!tabFor(event) || !this.overlayInteractive || !this.overlayPassive) return;
-      if (payload?.key === 'Escape') { this.#closeMenu(); return; }
+      const w = tabFor(event)?.w;
+      if (!w || !w.overlayInteractive || !w.overlayPassive) return;
+      if (payload?.key === 'Escape') { w.closeMenu(); return; }
       if (payload?.key === 'ArrowDown') {
-        this.overlayPassive = false;
-        this.overlay.webContents.focus();
-        this.overlay.webContents.send('ui:menu-focus');
+        w.overlayPassive = false;
+        w.overlay.webContents.focus();
+        w.overlay.webContents.send('ui:menu-focus');
       }
     });
 
     ipcMain.on('autofill:typing', (event) => {
-      if (!tabFor(event) || !this.overlayInteractive) return;
-      const items = this.lastMenu?.items || [];
-      if (items.some((i) => i.action?.channel === 'autofill:choose')) this.#closeMenu();
+      const w = tabFor(event)?.w;
+      if (!w || !w.overlayInteractive) return;
+      const items = w.lastMenu?.items || [];
+      if (items.some((i) => i.action?.channel === 'autofill:choose')) w.closeMenu();
     });
     ipcMain.on('autofill:filled', () => {});
 
@@ -1008,7 +984,7 @@ class BrowserApplication {
       const fields = payload?.fields;
       if (!at || !fields || typeof fields !== 'object' || this.incognito) return;
       const prefs = this.autofill.prefs();
-      const anchor = this.#promptAnchor();
+      const anchor = at.w.promptAnchor();
       const decide = (data) => ({ channel: 'autofill:decide', payload: { token: token({ ...data, wc: event.sender.id, origin: at.origin }) } });
 
       const password = fields.password || fields['new-password'];
@@ -1023,7 +999,7 @@ class BrowserApplication {
         const same = saved && (secret?.locked || secret?.password === password);
         if (!same) {
           const data = { save: 'password', username, password };
-          this.#showMenu([
+          at.w.showMenu([
             { heading: saved ? 'Update password for ' + at.host + '?' : 'Save password for ' + at.host + '?' },
             { label: saved ? 'Update' : 'Save', icon: 'key', hint: (username || 'No username') + ' · ••••••••', action: decide(data) },
             { label: 'Never for this site', icon: 'close', action: decide({ save: 'never' }) },
@@ -1039,7 +1015,7 @@ class BrowserApplication {
         const [month, year] = String(combined || '').split(/\s*\/\s*/);
         const card = { 'cc-name': fields['cc-name'], 'cc-number': number,
           'cc-exp-month': fields['cc-exp-month'] || month, 'cc-exp-year': fields['cc-exp-year'] || (year ? (year.length === 2 ? '20' + year : year) : '') };
-        this.#showMenu([
+        at.w.showMenu([
           { heading: 'Save this card?' },
           { label: 'Save card ending ' + number.slice(-4), icon: 'key', hint: 'Encrypted on this device. The security code is never saved.', action: decide({ save: 'card', fields: card }) },
           { label: 'Not now', action: decide({ save: 'dismiss' }) },
@@ -1050,7 +1026,7 @@ class BrowserApplication {
       const filled = addressKeys.filter((k) => fields[k]);
       if (prefs.fillAddresses && fields['address-line1'] && filled.length >= 3 && !this.autofill.has('address', fields)) {
         const address = Object.fromEntries(Object.entries(fields).filter(([k]) => kindOf(k) === 'address'));
-        this.#showMenu([
+        at.w.showMenu([
           { heading: 'Save this address?' },
           { label: [fields.name || fields['given-name'], fields['address-line1'], fields['address-level2']].filter(Boolean).join(', ').slice(0, 60),
             icon: 'user', hint: 'For filling forms next time. Kept on this device.', action: decide({ save: 'address', fields: address }) },
@@ -1059,7 +1035,7 @@ class BrowserApplication {
         return;
       }
       if (fields.upi && prefs.fillAddresses && !this.autofill.has('upi', { upi: fields.upi })) {
-        this.#showMenu([
+        at.w.showMenu([
           { heading: 'Save this UPI ID?' },
           { label: fields.upi, icon: 'key', action: decide({ save: 'upi', fields: { upi: fields.upi } }) },
           { label: 'Not now', action: decide({ save: 'dismiss' }) },
@@ -1092,7 +1068,7 @@ class BrowserApplication {
           const values = { username: secret.username, password: secret.password };
           if (/@/.test(secret.username || '')) values.email = secret.username;
           event.sender.send('autofill:apply', { values, target: 'login', submit: true });
-          this.notify('Signed in to ' + at.host + ' automatically' + (secret.username ? ' as ' + secret.username : ''));
+          at.w.notify('Signed in to ' + at.host + ' automatically' + (secret.username ? ' as ' + secret.username : ''));
           return;
         }
       }
@@ -1148,15 +1124,17 @@ class BrowserApplication {
   /**
    * The tab and site a page message comes from: one of our tabs, its top
    * frame, a web page. Read from the frame main sees, never from the message.
+   * `w` is the window the tab is in, where any menu for it is drawn.
    */
   #autofillTab(event) {
-    const tab = this.#tabByContents(event.sender);
-    if (!tab || tab.state.internalUrl) return null;
+    const tab = this.tabOf(event.sender);
+    const w = tab && this.windowOfTab(tab.id);
+    if (!tab || !w || tab.state.internalUrl) return null;
     if (event.senderFrame && event.senderFrame !== event.sender.mainFrame) return null;
     let origin = '';
     try { origin = new URL(event.senderFrame?.url || event.sender.getURL()).origin; } catch { return null; }
     if (!/^https?:/.test(origin)) return null;
-    return { tab, origin, host: new URL(origin).host };
+    return { tab, w, origin, host: new URL(origin).host };
   }
 
   /** A one-use handle for a menu item, so the page never sees what it does. */
@@ -1175,6 +1153,8 @@ class BrowserApplication {
     if (!data) return false;
     const tab = this.#tabByWebContentsId(data.wc);
     const wc = tab?.view.webContents;
+    // Any question this needs (unlock, verify) is asked in the tab's window.
+    const w = tab ? this.windowOfTab(tab.id) : null;
     const sameSite = () => {
       try { return !!wc && !wc.isDestroyed() && new URL(wc.getURL()).origin === data.origin; } catch { return false; }
     };
@@ -1184,14 +1164,14 @@ class BrowserApplication {
       const waiting = this.conditional.get(data.wc);
       const passkey = waiting && this.passwords.passkeysFor(waiting.request.rpId).find((k) => k.id === data.passkey);
       if (!passkey) return false;
-      waiting.resolve(await this.#signWith(waiting.request, passkey, data.anchor));
+      waiting.resolve(await this.#signWith(waiting.request, passkey, data.anchor, w));
       return true;
     }
     let values = {};
     if (data.login) {
       let secret = this.passwords.reveal(data.login);
       if (secret?.locked) {
-        if (!(await this.#askUnlock({ anchor: data.anchor, align: data.anchor ? 'left' : 'right', reason: 'Unlock to fill your password' }))) return false;
+        if (!(await this.#askUnlock({ w, anchor: data.anchor, align: data.anchor ? 'left' : 'right', reason: 'Unlock to fill your password' }))) return false;
         secret = this.passwords.reveal(data.login);
       }
       if (!secret?.ok || !sameSite()) return false;
@@ -1204,7 +1184,7 @@ class BrowserApplication {
       if (!entry) return false;
       // With a master password, cards wait for the vault to be open too.
       if (entry.kind === 'card' && this.passwords.locked) {
-        if (!(await this.#askUnlock({ anchor: data.anchor, align: 'left', reason: 'Unlock to fill your card' })) || !sameSite()) return false;
+        if (!(await this.#askUnlock({ w, anchor: data.anchor, align: 'left', reason: 'Unlock to fill your card' })) || !sameSite()) return false;
       }
       values = fillValues(entry.kind, entry.fields);
       if (entry.kind === 'custom') { wc.send('autofill:apply', { values, only: 'focused' }); return true; }
@@ -1225,10 +1205,10 @@ class BrowserApplication {
     } catch { return null; }
   }
 
-  /** What is saved for the page in the active tab, for the key in the address bar. */
-  #activeSaved() {
+  /** What is saved for the page in a window's active tab, for the key in its address bar. */
+  #activeSaved(w) {
     if (this.incognito || !this.passwords) return null;
-    const url = this.tabs?.activeState().url || '';
+    const url = w?.tabs?.activeState().url || '';
     if (!/^https?:/i.test(url)) return null;
     const saved = this.passwords.savedFor(url);
     return saved.logins || saved.passkeys ? { ...saved, locked: this.passwords.locked } : null;
@@ -1252,7 +1232,8 @@ class BrowserApplication {
       if (op === 'abort') {
         const waiting = this.conditional.get(event.sender.id);
         if (waiting && waiting.id === payload.id) waiting.resolve({ error: 'AbortError' });
-        if (this.promptOpen && this.prompts.get(this.promptOpen)?.wc === event.sender.id) this.#settlePrompt(this.promptOpen, null);
+        const open = at.w.promptOpen;
+        if (open && this.prompts.get(open)?.wc === event.sender.id) this.#settlePrompt(open, null);
         return { ok: true };
       }
       if (op === 'password-get') return await this.#passwordGet(at, payload);
@@ -1260,12 +1241,12 @@ class BrowserApplication {
         if (payload.password && this.autofill.prefs().offerPasswords && !this.autofill.never(at.origin)) {
           const saved = this.passwords.forUrl(at.origin).find((l) => l.username === String(payload.id || ''));
           const decide = (data) => ({ channel: 'autofill:decide', payload: { token: token({ ...data, wc: event.sender.id, origin: at.origin }) } });
-          this.#showMenu([
+          at.w.showMenu([
             { heading: (saved ? 'Update' : 'Save') + ' password for ' + at.host + '?' },
             { label: saved ? 'Update' : 'Save', icon: 'key', hint: (payload.id || 'No username') + ' · ••••••••',
               action: decide({ save: 'password', username: String(payload.id || ''), password: String(payload.password) }) },
             { label: 'Not now', action: decide({ save: 'dismiss' }) },
-          ], this.#promptAnchor(), 'right');
+          ], at.w.promptAnchor(), 'right');
         }
         return { ok: true };
       }
@@ -1277,64 +1258,25 @@ class BrowserApplication {
     return { fallback: true };
   }
 
-  /** Draw a menu in the overlay. A passive one leaves the keyboard with the page. */
-  #showMenu(items, anchor, align = 'left', { passive = false } = {}) {
-    if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
-    this.pendingMenu = this.lastMenu = { items: items.filter(Boolean), anchor, align, passive };
-    this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
-  }
-
-  /** Close whatever menu is open. The overlay picks this up like any menu. */
-  #closeMenu() {
-    if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
-    this.pendingMenu = { items: [] };
-    this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
-  }
-
-  /**
-   * A menu anchor sent by a view, in window coordinates: the overlay spans
-   * the window, and the vertical tab list (or the chrome) sits somewhere in it.
-   * Anything that is not a set of numbers gives way to the usual place.
-   */
-  #windowAnchor(sender, anchor) {
-    const keys = ['left', 'right', 'top', 'bottom'];
-    if (!anchor || !keys.every((k) => Number.isFinite(Number(anchor[k])))) return this.#promptAnchor();
-    const view = sender === this.vtabs?.webContents ? this.vtabs : sender === this.chrome?.webContents ? this.chrome : null;
-    const at = view ? view.getBounds() : { x: 0, y: 0 };
-    return {
-      left: Number(anchor.left) + at.x, right: Number(anchor.right) + at.x,
-      top: Number(anchor.top) + at.y, bottom: Number(anchor.bottom) + at.y,
-      width: Number(anchor.width) || 0, height: Number(anchor.height) || 0,
-    };
-  }
-
-  /** The ids in a request that are open tabs, at most 500. */
-  #tabIds(value) {
-    return Array.isArray(value) ? [...new Set(value.slice(0, 500).map(String))].filter((id) => this.tabs.tabs.has(id)) : [];
-  }
-
-  /** Where a question about the page goes: under the toolbar, at the right. */
-  #promptAnchor() {
-    const top = chromeHeight(this.settings.value);
-    const width = this.window.getContentBounds().width;
-    return { left: width - 16, right: width - 16, top: top - 6, bottom: top - 6, width: 0, height: 0 };
-  }
-
   /**
    * Ask a question with a menu and wait for the answer. Items carrying a
    * `choice` become answers; closing the menu any other way answers null.
+   * Asked in window `w`: the one the page asking is in, else the page with
+   * contents id `wc`, else the window in front.
    */
-  #prompt(items, { anchor = this.#promptAnchor(), align = 'right', wc = null, timeout = 3 * 60 * 1000 } = {}) {
+  #prompt(items, { w = null, anchor = null, align = 'right', wc = null, timeout = 3 * 60 * 1000 } = {}) {
+    const where = w || (wc != null ? this.windowOfTab(this.#tabByWebContentsId(wc)?.id) : null) || this.front;
+    if (!where) return Promise.resolve(null);
     return new Promise((resolve) => {
       const id = require('node:crypto').randomUUID();
       const timer = setTimeout(() => this.#settlePrompt(id, null), timeout);
-      this.prompts.set(id, { resolve, timer, wc });
-      this.promptOpen = id;
-      this.#showMenu(items.map((item) => {
+      this.prompts.set(id, { resolve, timer, wc, w: where });
+      where.promptOpen = id;
+      where.showMenu(items.map((item) => {
         if (item && item.choice !== undefined) return { ...item, action: { channel: 'passwords:answer', payload: { token: id, choice: item.choice } } };
         if (item && item.field) return { ...item, field: { ...item.field, action: { ...item.field.action, payload: { ...item.field.action.payload, token: id } } } };
         return item;
-      }), anchor, align);
+      }), anchor || where.promptAnchor(), align);
     });
   }
 
@@ -1343,14 +1285,14 @@ class BrowserApplication {
     if (!entry) return;
     this.prompts.delete(id);
     clearTimeout(entry.timer);
-    if (this.promptOpen === id) this.promptOpen = null;
+    if (entry.w?.promptOpen === id) entry.w.promptOpen = null;
     entry.resolve(value);
   }
 
-  /** The overlay closed. A question left open was dismissed, unless its answer is on its way. */
-  #promptClosed() {
-    const id = this.promptOpen;
-    if (!id) return;
+  /** Window `w`'s overlay closed. A question left open there was dismissed, unless its answer is on its way. */
+  promptClosed(w) {
+    const id = w?.promptOpen;
+    if (!id || !this.prompts) return;
     setTimeout(() => {
       const entry = this.prompts.get(id);
       if (entry && !entry.busy) this.#settlePrompt(id, null);
@@ -1361,9 +1303,9 @@ class BrowserApplication {
    * Unlock the vault from a menu: the master password typed into the menu, or
    * Windows Hello / Touch ID. With `verify`, the vault is already open and
    * this only proves the person is here (for a passkey's user verification).
-   * Resolves true once done, false if abandoned.
+   * Resolves true once done, false if abandoned. Asked in window `w`.
    */
-  async #askUnlock({ anchor = this.#promptAnchor(), align = 'right', reason = 'Unlock your passwords', verify = false, error = '' } = {}) {
+  async #askUnlock({ w = null, anchor = null, align = 'right', reason = 'Unlock your passwords', verify = false, error = '' } = {}) {
     if (!verify && !this.passwords.locked) return true;
     const device = this.passwords.deviceUnlock ? await this.biometric.check() : null;
     const answer = await this.#prompt([
@@ -1372,26 +1314,36 @@ class BrowserApplication {
         action: { channel: 'passwords:unlock-menu', payload: { mode: verify ? 'verify' : 'unlock' } } } },
       device?.available ? { label: 'Use ' + device.label, icon: 'key', hint: 'Face, fingerprint or PIN', choice: 'device' } : null,
       { label: 'Cancel', choice: 'cancel' },
-    ], { anchor, align });
+    ], { w, anchor, align });
     if (answer === 'ok') return true;
     if (answer === 'device') {
-      const ok = await this.biometric.verify(reason);
+      const ok = await this.#deviceVerify(reason, w);
       if (ok && (verify || this.passwords.unlockWithDevice().ok)) return true;
-      return this.#askUnlock({ anchor, align, reason, verify, error: device.label + ' did not confirm it was you. Use your master password.' });
+      return this.#askUnlock({ w, anchor, align, reason, verify, error: device.label + ' did not confirm it was you. Use your master password.' });
     }
     return false;
   }
 
   /**
-   * User verification for a passkey: Windows Hello or Touch ID where there is
-   * one, else the master password. true = verified, false = not verified but
-   * the site allows that, null = refused or abandoned.
+   * Windows Hello or Touch ID, its prompt over window `w`: the one whose page
+   * asked, which need not be the one in front. The window is read as the
+   * check starts, so it is only named for that moment.
    */
-  async #verifyUser(requirement, reason) {
+  #deviceVerify(reason, w = null) {
+    this.verifyingIn = w;
+    try { return this.biometric.verify(reason); } finally { this.verifyingIn = null; }
+  }
+
+  /**
+   * User verification for a passkey: Windows Hello or Touch ID where there is
+   * one, else the master password (asked in window `w`). true = verified,
+   * false = not verified but the site allows that, null = refused or abandoned.
+   */
+  async #verifyUser(requirement, reason, w = null) {
     if (requirement === 'discouraged') return false;
     const device = await this.biometric.check();
-    if (device.available) return (await this.biometric.verify(reason)) ? true : null;
-    if (this.passwords.hasMaster) return (await this.#askUnlock({ reason, verify: true })) ? true : null;
+    if (device.available) return (await this.#deviceVerify(reason, w)) ? true : null;
+    if (this.passwords.hasMaster) return (await this.#askUnlock({ w, reason, verify: true })) ? true : null;
     return requirement === 'required' ? null : false;
   }
 
@@ -1401,7 +1353,7 @@ class BrowserApplication {
     if (request.error === 'NotSupportedError') return { fallback: true };
     if (request.error) return { error: request.error };
     if (request.exclude.length && this.passwords.hasCredential(request.rpId, request.exclude)) {
-      this.notify('You already have a passkey for ' + request.rpId + ' in Static');
+      at.w.notify('You already have a passkey for ' + request.rpId + ' in Static');
       return { error: 'InvalidStateError' };
     }
     const account = request.user.name || request.user.displayName || 'this account';
@@ -1410,15 +1362,15 @@ class BrowserApplication {
       { label: account, icon: 'key', hint: 'Saved in Static, used in place of a password', choice: 'static' },
       { label: 'Use another device or security key', icon: 'lock', choice: 'native' },
       { label: 'Cancel', choice: 'cancel' },
-    ], { wc: at.tab.view.webContents.id });
+    ], { wc: at.tab.view.webContents.id, w: at.w });
     if (choice === 'native') return { fallback: true };
     if (choice !== 'static') return { error: 'NotAllowedError' };
-    const uv = await this.#verifyUser(request.userVerification, 'Create a passkey for ' + request.rpId);
+    const uv = await this.#verifyUser(request.userVerification, 'Create a passkey for ' + request.rpId, at.w);
     if (uv === null) return { error: 'NotAllowedError' };
     const made = webauthn.register(request, { uv });
     const saved = this.passwords.addPasskey(made.stored);
-    if (!saved.ok) { this.notify(saved.error); return { error: 'NotAllowedError' }; }
-    this.notify('Passkey saved for ' + request.rpId);
+    if (!saved.ok) { at.w.notify(saved.error); return { error: 'NotAllowedError' }; }
+    at.w.notify('Passkey saved for ' + request.rpId);
     return { credential: made.response };
   }
 
@@ -1437,11 +1389,11 @@ class BrowserApplication {
       })),
       { label: 'Use another device or security key', icon: 'lock', choice: 'native' },
       { label: 'Cancel', choice: 'cancel' },
-    ], { wc: at.tab.view.webContents.id });
+    ], { wc: at.tab.view.webContents.id, w: at.w });
     if (choice === 'native') return { fallback: true };
     const passkey = candidates.find((candidate) => candidate.id === choice);
     if (!passkey) return { error: 'NotAllowedError' };
-    return this.#signWith(request, passkey);
+    return this.#signWith(request, passkey, undefined, at.w);
   }
 
   /** A page waiting for a passkey to be picked from its username box. */
@@ -1467,15 +1419,15 @@ class BrowserApplication {
     });
   }
 
-  /** Sign a passkey request, unlocking or verifying the person first. */
-  async #signWith(request, passkey, anchor) {
+  /** Sign a passkey request, unlocking or verifying the person first, in window `w`. */
+  async #signWith(request, passkey, anchor, w) {
     let uv;
     if (this.passwords.locked) {
       // Unlocking is itself a verification: master password or the device's.
-      if (!(await this.#askUnlock({ anchor, align: anchor ? 'left' : 'right', reason: 'Unlock to sign in to ' + request.rpId }))) return { error: 'NotAllowedError' };
+      if (!(await this.#askUnlock({ w, anchor, align: anchor ? 'left' : 'right', reason: 'Unlock to sign in to ' + request.rpId }))) return { error: 'NotAllowedError' };
       uv = true;
     } else {
-      uv = await this.#verifyUser(request.userVerification, 'Sign in to ' + request.rpId);
+      uv = await this.#verifyUser(request.userVerification, 'Sign in to ' + request.rpId, w);
       if (uv === null) return { error: 'NotAllowedError' };
     }
     const secret = this.passwords.passkeyPrivate(passkey.id);
@@ -1497,14 +1449,14 @@ class BrowserApplication {
         { heading: 'Sign in to ' + at.host },
         ...logins.slice(0, 8).map((l) => ({ label: l.username || '(no username)', icon: 'key', hint: 'Saved password', choice: l.id })),
         { label: 'Cancel', choice: 'cancel' },
-      ], { wc: at.tab.view.webContents.id });
+      ], { wc: at.tab.view.webContents.id, w: at.w });
       login = logins.find((l) => l.id === choice) || null;
     }
     if (!login) return {};
-    if (this.passwords.locked && !(await this.#askUnlock({ reason: 'Unlock to sign in to ' + at.host }))) return {};
+    if (this.passwords.locked && !(await this.#askUnlock({ w: at.w, reason: 'Unlock to sign in to ' + at.host }))) return {};
     const secret = this.passwords.reveal(login.id);
     if (!secret?.ok) return {};
-    if (mediation !== 'required' && logins.length === 1) this.notify('Signed in to ' + at.host + ' automatically');
+    if (mediation !== 'required' && logins.length === 1) at.w.notify('Signed in to ' + at.host + ' automatically');
     return { credential: { id: secret.username, password: secret.password, name: '' } };
   }
 
@@ -1568,9 +1520,14 @@ class BrowserApplication {
       extensions: (this.extensions?.list?.() || []).map((e) => e.name + ' ' + (e.version || '')),
       settings,
       profile: this.profiles?.active?.name || '',
-      openTabs: (this.tabs?.list() || []).map((t) => t.url).filter((u) => /^https?:/.test(u || '')),
+      openTabs: this.allTabs().flatMap((tabs) => tabs.list()).map((t) => t.url).filter((u) => /^https?:/.test(u || '')),
       console: this.consoleLog || [],
-      diagnostics: { shieldsEnabled: this.shields?.config.enabled !== false, tabs: this.tabs?.order.length || 0, uptimeMinutes: Math.round(process.uptime() / 60) },
+      diagnostics: {
+        shieldsEnabled: this.shields?.config.enabled !== false,
+        tabs: this.allTabs().reduce((n, tabs) => n + tabs.order.length, 0),
+        windows: this.#open().length,
+        uptimeMinutes: Math.round(process.uptime() / 60),
+      },
     };
   }
 
@@ -1639,72 +1596,128 @@ class BrowserApplication {
   }
 
   /**
-   * Open whatever the user asked to start with.
+   * Open whatever the user asked to start with, in the first window `w`.
    *
    * Restoring a session opens the tabs in the background and selects the one
    * that was active, so a ten-tab session does not load ten pages at once and
    * take a minute to become usable - the tab you were on loads first and the
    * rest fill in behind it.
    */
-  #openStartupTabs() {
+  openStartupTabs(w) {
+    // Once a launch. A Mac app whose windows were all closed opens its next
+    // one where the last stood, with a new tab - not the tabs just closed.
+    if (this.startedUp) { w.tabs.create({}); return; }
+    this.startedUp = true;
     const mode = this.settings.value.onStartup || 'restore';
 
     // The picker and first-run flow come first whatever else is set: which
     // profile you are in decides what "your tabs" even means.
     const forced = this.#startUrl();
     if (forced !== NEW_TAB && forced !== this.settings.value.homepage) {
-      this.tabs.create({ url: forced });
+      w.tabs.create({ url: forced });
       return;
     }
 
-    if (mode === 'restore' && this.restoreSession()) return;
-    this.tabs.create({ url: forced });
+    if (mode === 'restore' && this.restoreSession(this.sessionStore.data, w)) return;
+    w.tabs.create({ url: forced });
   }
 
   /**
    * Reopen the last session's tabs, pinned where they were pinned and in the
-   * groups they were in, with the groups' names and colours. Returns false
-   * when there was nothing to restore.
+   * groups they were in, with the groups' names and colours - and in the
+   * windows they were in. The window that was in front comes back in `w`
+   * (which opens where that window was), and every other window opens again
+   * where it stood. A session saved before Static had windows is all one.
+   * Returns false when there was nothing to restore.
    */
-  restoreSession(saved = this.sessionStore.data) {
-    const entries = (saved?.tabs || []).filter((tab) => /^https?:|^browser:/.test(tab?.url || '')).slice(0, 60);
-    if (!entries.length) return false;
+  restoreSession(saved = this.sessionStore.data, w = this.front) {
+    if (!w) return false;
+    const byWindow = new Map();
+    for (const tab of (saved?.tabs || []).filter((entry) => /^https?:|^browser:/.test(entry?.url || ''))) {
+      const index = Number.isInteger(tab.window) && tab.window >= 0 && tab.window < 10 ? tab.window : 0;
+      if (!byWindow.has(index)) byWindow.set(index, []);
+      byWindow.get(index).push(tab);
+    }
+    if (!byWindow.size) return false;
+    const layouts = Array.isArray(saved.windows) ? saved.windows : [];
+    const order = [...byWindow.keys()].sort((a, b) => a - b);
+    const marked = layouts.findIndex((entry) => entry?.front === true);
+    const home = byWindow.has(marked) ? marked : order[0];
     const organizer = this.productivity?.organizer;
     const groups = organizer ? organizer.restore(saved.groups) : new Map();
-    const workspaces = new Set((organizer?.store.data.workspaces || [{ id: 'main' }]).map((w) => w.id));
-    let activeId = null;
-    for (const tab of entries) {
-      const id = this.tabs.create({
-        url: tab.url, background: true,
-        workspaceId: workspaces.has(tab.workspaceId) ? tab.workspaceId : 'main',
-        groupId: groups.get(tab.groupId) || null, pinned: tab.pinned === true,
-      });
-      if (tab.active) activeId = id;
+    const workspaces = new Set((organizer?.store.data.workspaces || [{ id: 'main' }]).map((space) => space.id));
+    const fill = (target, entries) => {
+      let activeId = null;
+      for (const tab of entries.slice(0, 60)) {
+        const id = target.tabs.create({
+          url: tab.url, background: true,
+          workspaceId: workspaces.has(tab.workspaceId) ? tab.workspaceId : 'main',
+          groupId: groups.get(tab.groupId) || null, pinned: tab.pinned === true,
+        });
+        if (tab.active) activeId = id;
+      }
+      target.tabs.select(activeId || target.tabs.order[0]);
+    };
+    fill(w, byWindow.get(home));
+    for (const index of order) {
+      if (index === home) continue;
+      // Behind: the window that was in front stays in front as the rest load.
+      const other = this.openWindow({ from: w, bounds: this.#onScreen(layouts[index]?.bounds), arriving: false, behind: true });
+      fill(other, byWindow.get(index));
     }
     organizer?.dropEmptyGroups();
-    this.tabs.select(activeId || this.tabs.order[0]);
+    // The window that was in front is in front again.
+    if (order.length > 1) {
+      this.windowFocused(w);
+      w.focus();
+    }
     return true;
   }
 
   /**
-   * Remember the open tabs, so the next launch can restore them: where each
-   * one is, whether it is pinned, and its group.
+   * Saved window bounds, if they are still on a screen this computer has:
+   * a monitor unplugged since would otherwise reopen a window nowhere.
+   */
+  #onScreen(bounds) {
+    if (process.env.STATIC_OFFSCREEN === '1' || !bounds) return null;
+    const box = ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(Number(bounds[k]))) ? {
+      x: Math.round(bounds.x), y: Math.round(bounds.y), width: Math.round(bounds.width), height: Math.round(bounds.height),
+    } : null;
+    if (!box || box.width < 200 || box.height < 150) return null;
+    try {
+      const area = screen.getDisplayMatching(box).workArea;
+      const overlap = Math.min(box.x + box.width, area.x + area.width) - Math.max(box.x, area.x);
+      const tall = Math.min(box.y + box.height, area.y + area.height) - Math.max(box.y, area.y);
+      return overlap > 120 && tall > 80 ? box : null;
+    } catch { return null; }
+  }
+
+  /**
+   * Remember the open tabs, so the next launch can restore them: which window
+   * each one is in, where in it, whether it is pinned, and its group.
    *
    * It read `tab.state` from the list the chrome gets, which has no `state`,
    * so every session was saved empty and nothing was ever restored.
    */
   saveSession() {
-    if (!this.tabs || this.incognito) return;
+    if (this.incognito) return;
     // A guest profile deliberately remembers nothing.
     if (this.profiles?.active?.guest) { this.sessionStore.save({ tabs: [] }); return; }
     // The profile picker, the welcome flow and the guide that follows it are
-    // moments, not places. A
-    // window showing only them (closed, or left by choosing a profile) keeps
-    // the last session as it was: saving it would throw those tabs away.
+    // moments, not places. A window showing only them (closed, or left by
+    // choosing a profile) is not saved; with nothing else open, the last
+    // session is kept as it was: saving it would throw those tabs away. A
+    // window closing while others stay open is not saved either.
     const moment = (tab) => /^browser:\/\/(welcome|profiles|guide)/.test(tab.url || '');
-    const open = this.tabs.list();
-    if (open.length && open.every(moment)) return;
-    const tabs = open
+    const windows = [];
+    for (const w of this.#open()) {
+      if (w.leaving || !w.tabs) continue;
+      const open = w.tabs.list();
+      if (!open.length || open.every(moment)) continue;
+      windows.push({ w, open });
+    }
+    if (!windows.length) return;
+    const tabs = windows.flatMap(({ open }, index) => open
       .filter((tab) => /^https?:|^browser:/.test(tab.url || '') && !moment(tab))
       .map((tab) => ({
         url: tab.url,
@@ -1713,11 +1726,18 @@ class BrowserApplication {
         pinned: !!tab.pinned,
         groupId: tab.groupId || null,
         workspaceId: tab.workspaceId || 'main',
-      }));
+        window: index,
+      })));
     const used = new Set(tabs.map((tab) => tab.groupId).filter(Boolean));
     const groups = (this.productivity?.organizer.groups || []).filter((group) => used.has(group.id))
       .map(({ id, name, color, category, workspaceId, collapsed }) => ({ id, name, color, category, workspaceId, collapsed: !!collapsed }));
-    this.sessionStore.save({ tabs, groups, savedAt: Date.now() });
+    const front = windows.some(({ w }) => w === this.front) ? this.front : windows[0].w;
+    const layouts = windows.map(({ w }) => {
+      let bounds = null;
+      try { bounds = w.window.isMaximized() || w.window.isFullScreen() ? w.window.getNormalBounds() : w.window.getBounds(); } catch { /* closing */ }
+      return { bounds, front: w === front };
+    });
+    this.sessionStore.save({ tabs, groups, windows: layouts, savedAt: Date.now() });
   }
 
   /**
@@ -1738,11 +1758,14 @@ class BrowserApplication {
     }
   }
 
-  /** Open an incognito window: a separate Static process. */
-  openIncognito(url) {
+  /**
+   * Open an incognito window: a separate Static process. Already in one,
+   * it is a new tab in window `w` - one incognito window is one session.
+   */
+  openIncognito(url, w = this.front) {
     if (this.incognito) {
-      if (url) this.tabs.create({ url });
-      else this.tabs.create({});
+      if (url) w?.tabs.create({ url });
+      else w?.tabs.create({});
       return;
     }
     const { spawn } = require('node:child_process');
@@ -1777,241 +1800,16 @@ class BrowserApplication {
   }
 
   /**
-   * Create the sidebar view on first use.
-   *
-   * Lazy because most sessions never open it, and an idle WebContentsView is
-   * a renderer process doing nothing.
-   */
-  ensureSidebar() {
-    if (this.sidebar && !this.sidebar.webContents.isDestroyed()) return this.sidebar;
-    this.sidebar = new WebContentsView({
-      webPreferences: {
-        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
-        contextIsolation: true,
-        sandbox: true,
-        nodeIntegration: false,
-      },
-    });
-    this.sidebar.setBackgroundColor('#00000000');
-    this.sidebar.webContents.loadFile(
-      path.join(__dirname, '..', 'renderer', 'pages', 'sidebar.html'));
-    this.attachShortcuts(this.sidebar.webContents);
-    this.window.contentView.addChildView(this.sidebar);
-    return this.sidebar;
-  }
-
-  /**
-   * Apply the sidebarMode setting.
-   *
-   * This setting existed in three places in the UI - the menu, Settings and
-   * the store - and was read by NOTHING, which is why switching it to "On"
-   * appeared to do nothing at all. The sidebar only ever followed its own
-   * toggle.
-   *
-   *   on       the sidebar is open and stays open
-   *   autohide it is hidden, and slides back when the pointer reaches the
-   *            right edge of the window
-   *   off      it is closed and the toggle will not open it
-   */
-  applySidebarMode() {
-    const mode = this.settings?.value?.sidebarMode || 'on';
-    if (mode === 'on') {
-      if (!this.sidebarOpen) this.toggleSidebar(true);
-    } else if (this.sidebarOpen && mode !== 'autohide') {
-      this.toggleSidebar(false);
-    } else if (mode === 'autohide' && this.sidebarOpen && !this.sidebarPeeking) {
-      // Entering autohide from "on" hides it; it comes back on the edge.
-      this.toggleSidebar(false);
-    }
-    this.applyEdgeReveal();
-    return mode;
-  }
-
-  /**
-   * The hot zone that brings an autohidden sidebar back.
-   *
-   * "Autohide" used to be a comment and nothing else: it behaved exactly like
-   * "off", so the setting appeared to do nothing. A hidden sidebar needs a way
-   * back that does not require remembering a shortcut, so a narrow strip at
-   * the right edge of the window reveals it on hover, the way a dock does.
-   *
-   * The strip is a real WebContentsView because Electron gives no window-level
-   * pointer events; it is transparent, ignores clicks, and only reports that
-   * the pointer arrived.
-   */
-  applyEdgeReveal() {
-    const wanted = this.settings?.value?.sidebarMode === 'autohide';
-    if (!wanted) {
-      if (this.edgeStrip) {
-        try { this.window.contentView.removeChildView(this.edgeStrip); } catch { /* already gone */ }
-        try { this.edgeStrip.webContents.close(); } catch { /* already gone */ }
-        this.edgeStrip = null;
-      }
-      return;
-    }
-    if (this.edgeStrip && !this.edgeStrip.webContents.isDestroyed()) return;
-
-    this.edgeStrip = new WebContentsView({
-      webPreferences: {
-        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
-        contextIsolation: true, sandbox: true, nodeIntegration: false,
-      },
-    });
-    this.edgeStrip.setBackgroundColor('#00000000');
-    this.edgeStrip.webContents.loadFile(
-      path.join(__dirname, '..', 'renderer', 'pages', 'edge.html'));
-    this.window.contentView.addChildView(this.edgeStrip);
-    this.layout();
-  }
-
-  /** A small trusted view of one of our own pages, for panels and handles. */
-  #panelView(page) {
-    const view = new WebContentsView({
-      webPreferences: {
-        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
-        contextIsolation: true, sandbox: true, nodeIntegration: false,
-      },
-    });
-    view.setBackgroundColor('#00000000');
-    this.attachShortcuts(view.webContents);
-    view.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'pages', page));
-    return view;
-  }
-
-  /** Open `url` beside a tab, in split view. */
-  openSplit(url, fromTabId = this.tabs?.activeId) {
-    if (!this.tabs?.tabs.has(fromTabId)) return null;
-    const index = this.tabs.order.indexOf(fromTabId) + 1;
-    const id = this.tabs.create({ url, background: true, index });
-    this.tabs.split(fromTabId, id);
-    this.tabs.select(fromTabId);
-    this.layout();
-    return id;
-  }
-
-  /** Show or hide the drop zones while a tab is dragged. */
-  showSplitDrop(id) {
-    const valid = id && id !== this.tabs?.activeId && this.tabs?.tabs.has(id);
-    this.splitDragId = valid ? id : null;
-    if (!valid) {
-      if (this.splitDrop) this.splitDrop.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-      return;
-    }
-    if (!this.splitDrop || this.splitDrop.webContents.isDestroyed()) this.splitDrop = this.#panelView('splitdrop.html');
-    this.window.contentView.addChildView(this.splitDrop);
-    this.splitDrop.setBounds(this.tabs.bounds);
-  }
-
-  /** Create or remove the vertical tab list to match the setting. */
-  applyTabLayout() {
-    if (!this.window || this.window.isDestroyed()) return;
-    const want = this.settings.value.tabLayout === 'vertical';
-    if (!want) {
-      if (this.vtabs) {
-        try { this.window.contentView.removeChildView(this.vtabs); } catch { /* already gone */ }
-        if (!this.vtabs.webContents.isDestroyed()) this.vtabs.webContents.close();
-        this.vtabs = null;
-      }
-      this.layout();
-      return;
-    }
-    if (this.vtabs && !this.vtabs.webContents.isDestroyed()) { this.layout(); return; }
-    this.vtabs = new WebContentsView({
-      webPreferences: {
-        preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
-        contextIsolation: true, sandbox: true, nodeIntegration: false,
-      },
-    });
-    this.vtabs.setBackgroundColor(THEMES[this.settings.value.theme]?.tokens.bg || '#161718');
-    this.attachShortcuts(this.vtabs.webContents);
-    this.vtabs.webContents.loadFile(path.join(__dirname, '..', 'renderer', 'pages', 'vtabs.html'));
-    this.layout();
-  }
-
-  /** Reveal or re-hide an autohidden sidebar. */
-  peekSidebar(show) {
-    if (this.settings?.value?.sidebarMode !== 'autohide') return false;
-    const next = !!show;
-    if (next === this.sidebarOpen) return next;
-    this.sidebarPeeking = next;
-    if (next) this.ensureSidebar();
-    this.sidebarOpen = next;
-    this.animateSidebar(next);
-    this.push();
-    return next;
-  }
-
-  /**
-   * Slide the sidebar open or closed.
-   *
-   * A WebContentsView's bounds change instantly - there is no CSS transition
-   * to lean on - so the width is stepped over a few frames and the layout is
-   * recomputed each time. Without this the sidebar appears and disappears with
-   * a jump, and the page under it jumps with it.
-   *
-   * Eased rather than linear, and short: the point is that the eye can follow
-   * where the space came from, not that there is an animation to admire.
-   */
-  animateSidebar(toOpen) {
-    clearInterval(this.sidebarAnim);
-    const target = toOpen ? 1 : 0;
-    // Animations off, in Static or in the system: the panel is simply there,
-    // or simply gone, like everything else.
-    if (!this.#motionOn()) {
-      this.sidebarAnim = null;
-      this.sidebarProgress = target;
-      this.layout();
-      return;
-    }
-    const start = this.sidebarProgress ?? (toOpen ? 0 : 1);
-    const began = Date.now();
-    const DURATION = 190;
-
-    this.sidebarAnim = setInterval(() => {
-      const t = Math.min(1, (Date.now() - began) / DURATION);
-      // ease-out cubic: fast at first, settling at the end.
-      const eased = 1 - Math.pow(1 - t, 3);
-      this.sidebarProgress = start + (target - start) * eased;
-      this.layout();
-      if (t >= 1) {
-        clearInterval(this.sidebarAnim);
-        this.sidebarAnim = null;
-        this.sidebarProgress = target;
-        this.layout();
-      }
-    }, 16);
-  }
-
-  /**
    * Whether things may move: the animations setting is on and the system has
    * not asked for less motion. The renderers read the same two switches
    * (theme.js and prefers-reduced-motion); this is the one for what main
    * animates itself.
    */
-  #motionOn() {
+  motionOn() {
     if (this.settings?.value?.animations === false) return false;
     try {
       return !systemPreferences.getAnimationSettings?.()?.prefersReducedMotion;
     } catch { return true; }
-  }
-
-  /** Open, close or toggle the sidebar. */
-  toggleSidebar(open) {
-    // "Off" means off: a toggle must not be able to reopen it, or the setting
-    // is a suggestion rather than a setting.
-    if (this.settings?.value?.sidebarMode === 'off') {
-      if (this.sidebarOpen) { this.sidebarOpen = false; this.layout(); this.push(); }
-      return false;
-    }
-    const next = typeof open === 'boolean' ? open : !this.sidebarOpen;
-    if (next) this.ensureSidebar();
-    this.sidebarOpen = next;
-    this.animateSidebar(next);
-    this.push();
-    if (next && this.sidebar && !this.sidebar.webContents.isDestroyed()) {
-      this.sidebar.webContents.focus();
-    }
-    return this.sidebarOpen;
   }
 
   /**
@@ -2024,7 +1822,8 @@ class BrowserApplication {
     const snapshot = this.resources.sample();
     let slept = 0;
     for (const tab of snapshot.tabs || []) {
-      if (tab.id === this.tabs.activeId) continue;
+      // On show in any window counts as active.
+      if (this.#onShow(tab.id)) continue;
       if ((tab.memoryMb || 0) < 400) continue;
       try { this.resources.suspend(tab.id, 'health'); slept++; } catch { /* already gone */ }
     }
@@ -2037,145 +1836,43 @@ class BrowserApplication {
    * Computed on demand rather than on a timer: a suggestion is only ever
    * shown in response to the user looking, so there is nothing to poll for.
    */
-  currentSuggestion() {
-    if (!this.sense) return null;
-    const tabs = [...(this.tabs?.tabs.values() || [])].map((tab) => ({
+  currentSuggestion(w = this.front) {
+    if (!this.sense || !w) return null;
+    // The tabs of the window asking: its sidebar speaks for that window.
+    const tabs = [...(w.tabs?.tabs.values() || [])].map((tab) => ({
       id: tab.id,
       url: tab.state?.url || '',
       title: tab.state?.title || '',
-      active: tab.id === this.tabs.activeId,
+      active: tab.id === w.tabs.activeId,
     }));
     return this.sense.suggest(tabs, { focusActive: !!this.focus?.active });
   }
 
-  /** Position the chrome across the top and give tabs the remaining area. */
-  layout() {
-    if (!this.window || this.window.isDestroyed()) return;
-    const { width, height } = this.window.getContentBounds();
-    // Fullscreen (a page's own, or F11) gives the page every pixel.
-    const immersive = !!(this.htmlFullscreen || this.windowFullscreen);
-    if (this.tabs) this.tabs.solo = !!this.htmlFullscreen;
-    const top = immersive ? 0 : chromeHeight(this.settings.value);
-    // The omnibox dropdown is drawn INSIDE the chrome view, so the view has to
-    // be tall enough to show it. At the resting chrome height the list was
-    // clipped to a few pixels and looked like it was not appearing at all.
-    // While it is open the view grows and the tab is pushed down behind it;
-    // the extra strip is mouse-transparent everywhere except the list itself.
-    const chromeH = this.suggestionsOpen && !immersive
-      ? Math.min(height, top + SUGGESTIONS_HEIGHT)
-      : top;
-    this.chrome.setBounds(immersive ? { x: 0, y: 0, width: 0, height: 0 } : { x: 0, y: 0, width, height: chromeH });
-    // Re-added so it stays above the tab view while it is expanded.
-    if (this.suggestionsOpen) this.window.contentView.addChildView(this.chrome);
-
-    // The sidebar takes a strip on the right and the tab gets what is left,
-    // so the page is never covered - the point of a sidebar rather than an
-    // overlay is that you can still see and use what you are reading.
-    // Clamped so a narrow window cannot leave the page with no room.
-    // Scaled by the slide progress, so the page and the sidebar move together.
-    const full = Math.min(this.sidebarWidth, Math.max(0, Math.floor(width * 0.5)));
-    const progress = this.sidebarProgress ?? (this.sidebarOpen ? 1 : 0);
-    const side = immersive ? 0 : Math.round(full * progress);
-    const vertical = !immersive && this.settings.value.tabLayout === 'vertical' && this.vtabs;
-    const left = vertical
-      ? Math.min(this.settings.value.verticalTabsCollapsed ? VERTICAL_TABS_FOLDED : VERTICAL_TABS_WIDTH, Math.floor(width * 0.4))
-      : 0;
-    if (this.vtabs && !this.vtabs.webContents.isDestroyed()) {
-      this.window.contentView.addChildView(this.vtabs);
-      this.vtabs.setBounds(vertical ? { x: 0, y: top, width: left, height: Math.max(0, height - top) } : { x: 0, y: 0, width: 0, height: 0 });
-    }
-
-    this.tabs?.setBounds({
-      x: left,
-      y: top,
-      width: Math.max(0, width - side - left),
-      height: Math.max(0, height - top),
-    });
-
-    // The handle between split panes, when the active tab has a partner.
-    const divider = immersive ? null : this.tabs?.dividerBounds();
-    if (divider) {
-      if (!this.splitDivider || this.splitDivider.webContents.isDestroyed()) this.splitDivider = this.#panelView('split.html');
-      this.window.contentView.addChildView(this.splitDivider);
-      this.splitDivider.setBounds(divider);
-    } else if (this.splitDivider) {
-      this.splitDivider.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-    }
-
-    // The autohide strip hugs the right edge, under the chrome. It sits above
-    // the tab so it can see the pointer, and is narrow enough not to steal
-    // real estate from the page.
-    if (this.edgeStrip && !this.edgeStrip.webContents.isDestroyed()) {
-      const STRIP = immersive ? 0 : 8;
-      this.window.contentView.addChildView(this.edgeStrip);
-      this.edgeStrip.setBounds({
-        x: Math.max(0, width - STRIP - side),
-        y: top,
-        width: STRIP,
-        height: Math.max(0, height - top),
-      });
-    }
-
-    if (this.sidebar) {
-      if (side > 0) {
-        // Re-added so it stays above the tab view: adding a tab appends it
-        // above earlier children, the same ordering trap the menu overlay hit.
-        this.window.contentView.addChildView(this.sidebar);
-        this.sidebar.setBounds({ x: width - side, y: top, width: side, height: Math.max(0, height - top) });
-      } else {
-        this.sidebar.setBounds({ x: 0, y: 0, width: 0, height: 0 });
-      }
-    }
-
-    if (this.findBar && !this.findBar.webContents.isDestroyed()) {
-      const FIND_W = Math.min(400, Math.max(0, width - side - 24));
-      this.window.contentView.addChildView(this.findBar);
-      this.findBar.setBounds({ x: Math.max(0, width - side - FIND_W - 14), y: top + 6, width: FIND_W, height: 54 });
-    }
-
-    // Re-add the overlay so it stays the topmost child: adding a tab view
-    // appends it above earlier children. Its size depends on whether a menu is
-    // currently open (see setOverlayInteractive). A hover card was placed for
-    // the old layout, so it goes; the pointer brings it back.
-    if (this.overlay) {
-      this.#hidePreview();
-      this.window.contentView.addChildView(this.overlay);
-      this.overlay.setBounds(this.overlayInteractive
-        ? { x: 0, y: 0, width, height }
-        : { x: 0, y: 0, width: 1, height: 1 });
-    }
-  }
-
-  #tabByContents(contents) {
-    if (!contents) return null;
-    for (const tab of this.tabs.tabs.values()) {
-      if (tab.view.webContents === contents) return tab;
-    }
-    return null;
-  }
-
   /**
-   * The web page someone means by "this page" while they are on a mode page.
+   * The web page someone means by "this page" while they are on a mode page
+   * in window `w`.
    *
    * In split view it is the page beside them - the one they are looking at.
-   * Otherwise it is the web tab they were on most recently: lastWebTabId when
-   * that tab still shows a web page, else whichever web tab was last in front
-   * (a tab can have been navigated to a browser page since it was recorded).
-   * Tabs in the same workspace win, so another workspace's page never answers.
+   * Otherwise it is the web tab they were on most recently in this window:
+   * its lastWebTabId when that tab still shows a web page, else whichever web
+   * tab was last in front (a tab can have been navigated to a browser page
+   * since it was recorded). Tabs in the same workspace win, so another
+   * workspace's page never answers - and another window's never does either.
    */
-  #recentWebTab(sender) {
-    if (!this.tabs) return null;
+  #recentWebTab(sender, w) {
+    const tabs = w?.tabs;
+    if (!tabs) return null;
     const isWeb = (tab) => !!tab && !tab.state.internalUrl
       && /^https?:/i.test(tab.state.displayUrl || '')
       && !tab.view.webContents.isDestroyed();
-    const own = sender ? this.#tabByContents(sender) : null;
-    const partner = own?.splitWith ? this.tabs.tabs.get(own.splitWith) : null;
+    const own = sender ? w.tabOf(sender) : null;
+    const partner = own?.splitWith ? tabs.tabs.get(own.splitWith) : null;
     if (isWeb(partner)) return partner;
 
-    const web = [...this.tabs.tabs.values()].filter(isWeb);
+    const web = [...tabs.tabs.values()].filter(isWeb);
     const sameSpace = own ? web.filter((tab) => tab.workspaceId === own.workspaceId) : [];
     const pool = sameSpace.length ? sameSpace : web;
-    const recorded = pool.find((tab) => tab.id === this.lastWebTabId);
+    const recorded = pool.find((tab) => tab.id === w.lastWebTabId);
     const latest = pool.reduce((best, tab) => (!best || tab.lastActiveAt > best.lastActiveAt ? tab : best), null);
     return recorded && (!latest || recorded.lastActiveAt >= latest.lastActiveAt) ? recorded : latest;
   }
@@ -2326,26 +2023,55 @@ class BrowserApplication {
     };
   }
 
-  /** Full UI state. One shape, pushed on every change - the chrome is a pure
-   *  render of this object, which keeps state bugs out of the renderer. */
-  state() {
-    const win = this.window && !this.window.isDestroyed() ? this.window : null;
+  /**
+   * Full UI state for window `w`. One shape, pushed on every change - the
+   * chrome is a pure render of this object, which keeps state bugs out of the
+   * renderer. Most of it is the browser's and the same in every window; the
+   * rest (#windowState) is that window's own.
+   */
+  state(w = this.front) {
+    return { ...this.#sharedState(), ...this.#windowState(w) };
+  }
+
+  /** What only window `w` shows: its tabs, its sidebar, its notice, its frame. */
+  #windowState(w) {
+    const win = w?.window && !w.window.isDestroyed() ? w.window : null;
+    const tabs = w?.tabs || null;
+    return {
+      // Drives the custom title bar: which maximise/restore glyph to draw,
+      // and whether to inset for the macOS traffic-light area. `arriving`
+      // plays the chrome's short entrance in a window opened from inside
+      // Static, and only as it first draws.
+      window: {
+        maximized: win ? win.isMaximized() : false,
+        fullScreen: win ? win.isFullScreen() : false,
+        focused: win ? win.isFocused() : true,
+        id: w?.id || 0,
+        count: this.#open().length,
+        arriving: !!w?.arriving && Date.now() - (w.openedAt || 0) < 3000,
+      },
+      sidebar: { open: !!w?.sidebarOpen, width: w?.sidebarWidth || 380 },
+      tabs: tabs ? tabs.list() : [],
+      organizer: this.productivity?.organizer.chromeState(tabs || undefined),
+      active: tabs ? tabs.activeState() : {},
+      bookmarked: this.#activeIsBookmarked(w),
+      saved: this.#activeSaved(w),
+      // The book in the address bar: offered on articles, lit in reading view.
+      reader: this.pageTools?.readerState(tabs?.active) || null,
+      notice: w?.notice || null,
+    };
+  }
+
+  /** The part of the state every window shares. */
+  #sharedState() {
     return {
       platform: process.platform,
       incognito: !!this.incognito,
       // In 'launch' mode the wallpaper is drawn once per start and kept.
       launchWallpaper: this.launchWallpaper || null,
-      // Drives the custom title bar: which maximise/restore glyph to draw,
-      // and whether to inset for the macOS traffic-light area.
-      window: {
-        maximized: win ? win.isMaximized() : false,
-        fullScreen: win ? win.isFullScreen() : false,
-        focused: win ? win.isFocused() : true,
-      },
       // Widget + background catalogues, so the new tab customiser and the
       // settings page never hardcode a list that could drift from the registry.
       ai: { available: gemini.hasKey() },
-      sidebar: { open: this.sidebarOpen, width: this.sidebarWidth },
       sense: this.sense ? this.sense.state() : null,
       appInfo: { version: app.getVersion(), chromium: process.versions.chrome, electron: process.versions.electron },
       modes: this.modeSummary(),
@@ -2400,21 +2126,13 @@ class BrowserApplication {
           : null,
         count: this.profiles ? this.profiles.list.length : 0,
       },
-      tabs: this.tabs ? this.tabs.list() : [],
-      organizer: this.productivity?.organizer.chromeState(),
-      active: this.tabs ? this.tabs.activeState() : {},
       bookmarks: this.bookmarks.list(),
-      bookmarked: this.#activeIsBookmarked(),
-      saved: this.#activeSaved(),
-      // The book in the address bar: offered on articles, lit in reading view.
-      reader: this.pageTools?.readerState(this.tabs?.active) || null,
       downloads: this.downloads.list().slice(0, 100),
       // The new tab page builds its most-visited grid from this slice.
       history: this.history.store.data.slice(0, 300),
       settings: this.settings.value,
       engines: Object.keys(ENGINES),
       extensions: this.extensions ? this.extensions.list() : [],
-      notice: this.notice,
     };
   }
 
@@ -2452,57 +2170,41 @@ class BrowserApplication {
     return { url: shown, verdict };
   }
 
-  #activeIsBookmarked() {
-    const url = this.tabs?.activeState().url;
+  #activeIsBookmarked(w) {
+    const url = w?.tabs?.activeState().url;
     return !!url && this.bookmarks.list().some(b => b.url === url);
   }
 
-  /** Push state to the chrome renderer and any open internal pages. */
+  /**
+   * Push state to every window: its chrome, overlay, panels and open internal
+   * pages. A change in one window's tabs pushes to that window alone
+   * (AppWindow#push); this is for what every window shows.
+   */
   push() {
     // Modules construct in order and some of them report a change as they are
     // built - Profiles creates the first profile on a fresh install, which
     // fired onChange before Settings or Shields existed and crashed
     // state(). There is nothing to push to before start() runs anyway.
     if (!this.settings) return;
-
-    const payload = this.state();
-    if (this.chrome && !this.chrome.webContents.isDestroyed()) {
-      this.chrome.webContents.send('app:state', payload);
-    }
-    // The overlay needs state too: it renders menus whose contents (checkmarks,
-    // shortcut labels) depend on settings.
-    if (this.overlay && !this.overlay.webContents.isDestroyed()) {
-      this.overlay.webContents.send('app:state', payload);
-    }
-    // The sidebar follows the active page - its permission line has to change
-    // the moment you navigate, or it would describe the previous page.
-    if (this.sidebar && !this.sidebar.webContents.isDestroyed()) {
-      this.sidebar.webContents.send('app:state', payload);
-    }
-    if (this.vtabs && !this.vtabs.webContents.isDestroyed()) {
-      this.vtabs.webContents.send('app:state', payload);
-    }
-    for (const tab of this.tabs?.tabs.values() || []) {
-      const wc = tab.view.webContents;
-      if (!wc.isDestroyed() && tab.state.internalUrl) wc.send('app:state', payload);
-    }
+    const shared = this.#sharedState();
+    for (const w of this.#open()) w.push({ ...shared, ...this.#windowState(w) });
   }
 
-  notify(message) {
-    this.notice = { message, at: Date.now() };
-    this.push();
-    setTimeout(() => {
-      if (this.notice && Date.now() - this.notice.at >= 5000) { this.notice = null; this.push(); }
-    }, 5200);
+  /**
+   * A short message along the bottom of a window: `w`, the one the thing it
+   * is about happened in, or else the window in front.
+   */
+  notify(message, w = this.front) {
+    w?.notify(message);
   }
 
   // Keep window activation separate from `this.focus`, the Focus Mode service.
-  // A second launch must restore the existing window, not call that service.
+  // A second launch must restore the window in front, not call that service;
+  // a Mac app with every window closed opens one.
   focusWindow() {
-    this.ensureWindow();
-    if (this.window.isMinimized()) this.window.restore();
-    this.window.show();
-    this.window.focus();
+    if (!this.#open().length) return this.openWindow({ startup: true });
+    this.front?.focus();
+    return this.front;
   }
 
   /**
@@ -2515,54 +2217,102 @@ class BrowserApplication {
     const handlers = {
       ...this.productivity.handlers(),
       ...this.pageTools.handlers(),
-      'app:state': () => this.state(),
+      'app:state': (_sender, _payload, w) => this.state(w),
 
-      'ui:layout': () => { this.layout(); return true; },
+      'ui:layout': (_sender, _payload, w) => { w.layout(); return true; },
       // The renderer builds its menus from this, so the shortcut shown beside
       // a menu item always matches the binding that actually fires.
       'ui:shortcuts': () => ACCELERATORS.map(({ id, label, display }) => ({ id, label, display })),
-      'ui:action': (_sender, payload) => { this.dispatch(payload?.action); return true; },
-      'window:control': (_sender, payload) => this.windowControl(payload?.action),
+      'ui:action': (_sender, payload, w) => { this.dispatch(payload?.action, w); return true; },
+      // `quit` is the menu's Exit: every window, as in every browser.
+      'window:control': (_sender, payload, w) => {
+        if (payload?.action === 'quit') { app.quit(); return true; }
+        return w.windowControl(payload?.action);
+      },
+      /**
+       * Move tabs to another window: the tab menu's "Move tab to new
+       * window", or a window chosen from its "Move tab to another window".
+       * Only tabs of the window asking, and only to a window that is open.
+       */
+      'tabs:to-window': (_sender, payload, w) => {
+        const to = payload?.window === 'new' ? 'new' : Number(payload?.window);
+        if (to !== 'new' && !Number.isInteger(to)) return false;
+        const ids = Array.isArray(payload?.ids) ? payload.ids : [payload?.id];
+        return !!this.moveTabs(ids, w, to);
+      },
+      /** "Move tab to another window": the windows to choose from, where the tab menu was. */
+      'tabs:window-menu': (_sender, payload, w) => {
+        const ids = w.tabIds(Array.isArray(payload?.ids) ? payload.ids : [payload?.id]);
+        const others = this.#open().filter((other) => other !== w);
+        if (!ids.length || !others.length) return false;
+        const from = w.lastMenu || {};
+        w.showMenu(windowPicker(ids, {
+          windows: others.map((other) => ({ id: other.id, title: other.title(), count: other.tabs.order.length })),
+          all: ids.length >= w.tabs.order.length,
+        }), from.anchor || w.promptAnchor(), from.align || 'left');
+        return true;
+      },
+      /**
+       * A tab dragged out of the strip and let go: outside every window of
+       * Static it becomes a window of its own, there; over another window it
+       * joins that one. Where it was let go is read from the system here,
+       * never taken from the page that asks. Anywhere inside its own window
+       * nothing happens - that was a drop somewhere that takes no tabs.
+       */
+      'tabs:drag-out': (_sender, payload, w) => {
+        const ids = w.tabIds(Array.isArray(payload?.ids) ? payload.ids : [payload?.id]);
+        if (!ids.length) return false;
+        const point = screen.getCursorScreenPoint();
+        const inside = (win) => {
+          const box = win.window.getBounds();
+          return point.x >= box.x && point.x < box.x + box.width && point.y >= box.y && point.y < box.y + box.height;
+        };
+        if (inside(w)) return false;
+        const onto = this.#open().filter((other) => other !== w && inside(other)).sort((a, b) => (b.focusedAt || 0) - (a.focusedAt || 0))[0];
+        if (onto) return !!this.moveTabs(ids, w, onto.id);
+        const size = w.window.getBounds();
+        return !!this.moveTabs(ids, w, 'new', { bounds: { x: point.x - 90, y: point.y - 18, width: size.width, height: size.height } });
+      },
 
       // The chrome asks the overlay to draw a menu; the overlay reports back
       // whether one is open so we can toggle its mouse transparency.
-      'menu:open': (sender, payload) => {
-        if (!this.overlay || this.overlay.webContents.isDestroyed()) return false;
+      'menu:open': (sender, payload, w) => {
+        if (!w.overlay || w.overlay.webContents.isDestroyed()) return false;
         // Menus opened from a side panel arrive in that panel's coordinates;
         // the overlay spans the window.
-        if (sender === this.vtabs?.webContents && payload?.anchor) payload = { ...payload, anchor: this.#windowAnchor(sender, payload.anchor) };
+        if (sender === w.vtabs?.webContents && payload?.anchor) payload = { ...payload, anchor: w.windowAnchor(sender, payload.anchor) };
         // The overlay may not have registered its IPC listener yet (it loads
         // asynchronously, and the user can hit F10 immediately). Hold the most
         // recent request and replay it once the overlay reports ready, so an
         // early menu press is never silently dropped.
         // Always queue, then nudge. The overlay drains the queue on the nudge
         // or on its next poll, so a send dropped during a commit still lands.
-        this.pendingMenu = payload;
-        this.lastMenu = payload;
-        this.overlay.webContents.send('ui:render-menu', payload);
+        w.pendingMenu = payload;
+        w.lastMenu = payload;
+        w.overlay.webContents.send('ui:render-menu', payload);
         return true;
       },
 
       // Sent by the overlay once its listeners are live.
-      'menu:ready': () => {
-        this.overlayReady = true;
-        return this.pendingMenu ? this.takePendingMenu() : null;
+      'menu:ready': (_sender, _payload, w) => {
+        w.overlayReady = true;
+        return w.pendingMenu ? w.takePendingMenu() : null;
       },
 
       // The overlay polls for a queued menu as well as receiving pushes. A
       // `webContents.send` issued while the view is mid-commit is silently
       // dropped, and a dropped menu is indistinguishable from a broken one, so
       // the request is also readable on demand.
-      'menu:pending': () => this.takePendingMenu(),
-      'find:query': (_sender, payload) => {
-        const wc = this.tabs?.tabs.get(this.findTabId)?.view.webContents;
+      'menu:pending': (_sender, _payload, w) => w.takePendingMenu(),
+      'find:query': (_sender, payload, w) => {
+        const wc = w.tabs?.tabs.get(w.findTabId)?.view.webContents;
         if (!wc || wc.isDestroyed()) return false;
         const text = String(payload?.text || '').slice(0, 500);
         if (!text) { wc.stopFindInPage('clearSelection'); return true; }
         wc.findInPage(text, { forward: payload?.forward !== false, findNext: !!payload?.findNext });
         return true;
       },
-      'find:close': () => { this.closeFind(); return true; },
+      'find:close': (_sender, _payload, w) => { w.closeFind(); return true; },
       'wallpapers:catalog': () => wallpapers.catalog(),
       'help:system': async () => (this.lastSystemInfo = await this.#systemInfo()),
       'help:reveal': (_sender, payload) => {
@@ -2572,24 +2322,24 @@ class BrowserApplication {
       },
       'feedback:categories': () => feedback.CATEGORIES,
       'autofill:choose': (_sender, payload) => this.#fillChoice(this.autofillTokens?.get(String(payload?.token || ''))),
-      'autofill:decide': (_sender, payload) => {
+      'autofill:decide': (_sender, payload, w) => {
         const data = this.autofillTokens?.get(String(payload?.token || ''));
         if (!data) return false;
         this.autofillTokens.delete(String(payload.token));
         if (data.save === 'password') {
           const result = this.passwords.save_credential({ url: data.origin, username: data.username, password: data.password });
-          this.notify(result.ok ? 'Password saved for ' + new URL(data.origin).host : result.error);
+          w.notify(result.ok ? 'Password saved for ' + new URL(data.origin).host : result.error);
         } else if (data.save === 'never') {
           this.autofill.addNever(data.origin);
-          this.notify('Static will not offer to save passwords on ' + new URL(data.origin).host);
+          w.notify('Static will not offer to save passwords on ' + new URL(data.origin).host);
         } else if (data.save === 'no-auto') {
           this.autofill.addNoAuto(data.origin);
-          this.notify('Static will not sign in automatically on ' + new URL(data.origin).host);
+          w.notify('Static will not sign in automatically on ' + new URL(data.origin).host);
         } else if (['card', 'address', 'upi'].includes(data.save)) {
           try {
             this.autofill.put(data.save, data.fields);
-            this.notify(data.save === 'card' ? 'Card saved' : data.save === 'upi' ? 'UPI ID saved' : 'Address saved');
-          } catch (error) { this.notify(error.message); }
+            w.notify(data.save === 'card' ? 'Card saved' : data.save === 'upi' ? 'UPI ID saved' : 'Address saved');
+          } catch (error) { w.notify(error.message); }
         }
         return true;
       },
@@ -2607,8 +2357,8 @@ class BrowserApplication {
       },
       'passwords:health': () => this.passwords.health(),
       'passwords:breach-check': () => this.passwords.breachCheck((url, options) => require('electron').net.fetch(url, options)),
-      'passwords:export': async () => {
-        const result = await dialog.showSaveDialog(this.window, {
+      'passwords:export': async (_sender, _payload, w) => {
+        const result = await dialog.showSaveDialog(w.window, {
           title: 'Export passwords', defaultPath: path.join(app.getPath('documents'), 'Static passwords.csv'),
           filters: [{ name: 'CSV', extensions: ['csv'] }],
         });
@@ -2616,8 +2366,8 @@ class BrowserApplication {
         fs.writeFileSync(result.filePath, this.passwords.exportCsv(), { mode: 0o600 });
         return { saved: result.filePath };
       },
-      'passwords:import': async () => {
-        const result = await dialog.showOpenDialog(this.window, {
+      'passwords:import': async (_sender, _payload, w) => {
+        const result = await dialog.showOpenDialog(w.window, {
           title: 'Import passwords from a CSV file', properties: ['openFile'], filters: [{ name: 'CSV', extensions: ['csv'] }],
         });
         if (result.canceled || !result.filePaths[0]) return { canceled: true };
@@ -2632,20 +2382,20 @@ class BrowserApplication {
       'autofill:prefs': (_sender, payload) => this.autofill.setPrefs(payload || {}),
       'autofill:never-remove': (_sender, payload) => { this.autofill.removeNever(String(payload?.origin || '')); return true; },
       'feedback:available': () => this.#feedbackAvailable(),
-      'feedback:attach': async () => {
-        const result = await dialog.showOpenDialog(this.window, { properties: ['openFile', 'multiSelections'], title: 'Attach files' });
+      'feedback:attach': async (_sender, _payload, w) => {
+        const result = await dialog.showOpenDialog(w.window, { properties: ['openFile', 'multiSelections'], title: 'Attach files' });
         if (result.canceled) return this.#feedbackFiles();
         this.feedbackFiles = feedback.checkAttachments([...(this.feedbackFiles || []), ...result.filePaths]);
         return this.#feedbackFiles();
       },
-      'feedback:screenshot': async (sender) => {
-        const back = this.#tabByContents(sender)?.id;
-        const target = this.tabs.tabs.get(this.lastWebTabId);
+      'feedback:screenshot': async (sender, _payload, w) => {
+        const back = this.tabOf(sender)?.id;
+        const target = w.tabs.tabs.get(w.lastWebTabId);
         if (!target) throw new Error('Open the page you want to show, then come back and capture it.');
-        this.tabs.select(target.id);
+        w.tabs.select(target.id);
         await new Promise((resolve) => setTimeout(resolve, 450));
         const image = await this.#capture(target.view.webContents);
-        if (back) this.tabs.select(back);
+        if (back) w.tabs.select(back);
         if (!image) throw new Error('That page could not be captured.');
         this.feedbackShots = [...(this.feedbackShots || []), image].slice(-4);
         return this.#feedbackThumbs();
@@ -2690,44 +2440,44 @@ class BrowserApplication {
         if (entry) this.recentRandomWallpapers = [...recent, entry.id].slice(-4);
         return entry;
       },
-      'split:resize': (_sender, payload) => {
-        const bounds = this.tabs.bounds;
-        const content = this.window.getContentBounds();
+      'split:resize': (_sender, payload, w) => {
+        const bounds = w.tabs.bounds;
+        const content = w.window.getContentBounds();
         const x = Number(payload?.screenX) - content.x - bounds.x;
-        this.tabs.setSplitRatio(this.tabs.activeId, x / Math.max(1, bounds.width));
-        this.layout();
+        w.tabs.setSplitRatio(w.tabs.activeId, x / Math.max(1, bounds.width));
+        w.layout();
         return true;
       },
-      'split:reset': () => { this.tabs.setSplitRatio(this.tabs.activeId, 0.5); this.layout(); return true; },
-      'split:swap': (_sender, payload) => { this.tabs.swapSplit(payload?.id || this.tabs.activeId); this.layout(); return true; },
-      'split:exit': (_sender, payload) => { this.tabs.unsplit(payload?.id || this.tabs.activeId); this.layout(); return true; },
-      'split:with': (_sender, payload) => {
+      'split:reset': (_sender, _payload, w) => { w.tabs.setSplitRatio(w.tabs.activeId, 0.5); w.layout(); return true; },
+      'split:swap': (_sender, payload, w) => { w.tabs.swapSplit(payload?.id || w.tabs.activeId); w.layout(); return true; },
+      'split:exit': (_sender, payload, w) => { w.tabs.unsplit(payload?.id || w.tabs.activeId); w.layout(); return true; },
+      'split:with': (_sender, payload, w) => {
         const id = String(payload?.id || '');
-        const active = this.tabs.activeId;
-        if (!this.tabs.tabs.has(id) || id === active) return false;
-        this.tabs.split(active, id);
-        this.layout();
+        const active = w.tabs.activeId;
+        if (!w.tabs.tabs.has(id) || id === active) return false;
+        w.tabs.split(active, id);
+        w.layout();
         return true;
       },
-      'split:drag': (_sender, payload) => { this.showSplitDrop(payload?.id ? String(payload.id) : null); return true; },
-      'split:drop': (_sender, payload) => {
-        const id = this.splitDragId;
-        const active = this.tabs.activeId;
-        this.showSplitDrop(null);
+      'split:drag': (_sender, payload, w) => { w.showSplitDrop(payload?.id ? String(payload.id) : null); return true; },
+      'split:drop': (_sender, payload, w) => {
+        const id = w.splitDragId;
+        const active = w.tabs.activeId;
+        w.showSplitDrop(null);
         if (!id || id === active) return false;
-        if (payload?.side === 'left') this.tabs.split(id, active);
-        else this.tabs.split(active, id);
-        this.tabs.select(active);
-        this.layout();
+        if (payload?.side === 'left') w.tabs.split(id, active);
+        else w.tabs.split(active, id);
+        w.tabs.select(active);
+        w.layout();
         return true;
       },
-      'split:menu': (_sender, payload) => {
-        const d = this.splitDivider?.getBounds();
+      'split:menu': (_sender, payload, w) => {
+        const d = w.splitDivider?.getBounds();
         if (!d) return false;
         const x = d.x + (Number(payload?.x) || 0);
         const y = d.y + (Number(payload?.y) || 0);
         const run = (channel, body = {}) => ({ channel, payload: body });
-        this.pendingMenu = this.lastMenu = {
+        w.pendingMenu = w.lastMenu = {
           items: [
             { label: 'Split evenly', icon: 'split', action: run('split:reset') },
             { label: 'Swap sides', icon: 'reload', action: run('split:swap') },
@@ -2737,7 +2487,7 @@ class BrowserApplication {
           anchor: { left: x, right: x, top: y, bottom: y, width: 0, height: 0 },
           align: 'left',
         };
-        this.overlay.webContents.send('ui:render-menu', this.pendingMenu);
+        w.overlay.webContents.send('ui:render-menu', w.pendingMenu);
         return true;
       },
       /**
@@ -2746,12 +2496,12 @@ class BrowserApplication {
        * same anchor, same side. That anchor is already in window coordinates,
        * whichever tab list the menu came from.
        */
-      'organizer:group-menu': (_sender, payload) => {
+      'organizer:group-menu': (_sender, payload, w) => {
         const organizer = this.productivity?.organizer;
-        const ids = organizer ? organizer.ids(payload?.ids) : [];
+        const ids = organizer ? organizer.ids(payload?.ids, w.tabs) : [];
         if (!ids.length) return false;
-        const from = this.lastMenu || {};
-        this.#showMenu(groupPicker(organizer, ids), from.anchor || this.#promptAnchor(), from.align || 'left');
+        const from = w.lastMenu || {};
+        w.showMenu(groupPicker(organizer, ids, w.tabs), from.anchor || w.promptAnchor(), from.align || 'left');
         return true;
       },
       /**
@@ -2759,65 +2509,73 @@ class BrowserApplication {
        * (see organizer/menu.js). `ids` is the selection the tab was
        * right-clicked in; a tab outside it acts alone.
        */
-      'tabs:menu': (sender, payload) => {
+      'tabs:menu': (sender, payload, w) => {
         const organizer = this.productivity?.organizer;
         const id = String(payload?.id || '');
-        if (!organizer || !this.tabs.tabs.has(id)) return false;
-        const chosen = organizer.ids(Array.isArray(payload?.ids) ? payload.ids : []);
+        if (!organizer || !w.tabs.tabs.has(id)) return false;
+        const chosen = organizer.ids(Array.isArray(payload?.ids) ? payload.ids : [], w.tabs);
         const ids = chosen.includes(id) ? [id, ...chosen.filter((other) => other !== id)] : [id];
         const items = tabMenu({
-          id, ids, organizer, layout: this.settings.value.tabLayout,
+          id, ids, organizer, manager: w.tabs, layout: this.settings.value.tabLayout,
           bookmarked: (url) => !!url && this.bookmarks.list().some((b) => b.url === url),
-          canReopen: this.tabs.closed.length > 0,
+          canReopen: w.tabs.closed.length > 0 || this.closedWindows.length > 0,
+          otherWindows: this.#open().length - 1,
           accel: (action) => ACCEL.get(action)?.display || '',
         });
-        this.#showMenu(items, this.#windowAnchor(sender, payload?.anchor), 'left');
+        w.showMenu(items, w.windowAnchor(sender, payload?.anchor), 'left');
         return true;
       },
-      'organizer:chip-menu': (sender, payload) => {
-        const items = this.productivity ? chipMenu(this.productivity.organizer, String(payload?.id || '')) : null;
+      'organizer:chip-menu': (sender, payload, w) => {
+        const organizer = this.productivity?.organizer;
+        const id = String(payload?.id || '');
+        // A chip is drawn in its own window's strip; a group in another window is not this one's.
+        if (!organizer || organizer.managerOfGroup(id) !== w.tabs) return false;
+        const items = chipMenu(organizer, id);
         if (!items) return false;
-        this.#showMenu(items, this.#windowAnchor(sender, payload?.anchor), 'left');
+        w.showMenu(items, w.windowAnchor(sender, payload?.anchor), 'left');
         return true;
       },
       // The tab search list, from the button at the end of either tab list.
-      'tabs:search': (sender, payload) => this.openTabSearch(sender, payload?.anchor),
+      'tabs:search': (sender, payload, w) => w.openTabSearch(sender, payload?.anchor),
       /**
        * A tab closed from inside the tab search list. The list stays open,
        * so it is handed back fresh - closing the active tab picks another,
        * and closing the last one opens a new one.
        */
-      'tabs:search-close': (_sender, payload) => {
+      'tabs:search-close': (sender, payload, w) => {
         const id = String(payload?.id || '');
-        if (!this.tabs.tabs.has(id)) return this.#tabSearchEntries();
-        this.tabs.close(id);
+        // The list shows every window's tabs, so this one may be in another -
+        // but only that list may close another window's tab.
+        const home = w.tabs.tabs.has(id) ? w : this.#searching(sender, w) ? this.windowOfTab(id) : null;
+        if (!home) return w.tabSearchEntries();
+        home.tabs.close(id);
         // Whatever tab was put on screen in its place went on top of the
         // overlay; the open list goes back above it, keyboard and all.
-        if (this.overlayInteractive && this.overlay && !this.overlay.webContents.isDestroyed()) {
-          this.window.contentView.addChildView(this.overlay);
-          if (!this.overlayPassive) this.overlay.webContents.focus();
+        if (w.overlayInteractive && w.overlay && !w.overlay.webContents.isDestroyed()) {
+          w.window.contentView.addChildView(w.overlay);
+          if (!w.overlayPassive) w.overlay.webContents.focus();
         }
-        return this.#tabSearchEntries();
+        return w.tabSearchEntries();
       },
       /**
        * Mute or unmute: the speaker on a tab, or the tab menu for a whole
        * selection. Without `muted` it flips - all muted becomes all heard.
        */
-      'tabs:mute': (_sender, payload) => {
-        const ids = this.#tabIds(Array.isArray(payload?.ids) ? payload.ids : [payload?.id]);
+      'tabs:mute': (_sender, payload, w) => {
+        const ids = w.tabIds(Array.isArray(payload?.ids) ? payload.ids : [payload?.id]);
         if (!ids.length) return false;
         const muted = typeof payload?.muted === 'boolean'
           ? payload.muted
-          : !ids.every((id) => this.tabs.tabs.get(id).state.muted);
-        for (const id of ids) this.tabs.setMuted(id, muted);
+          : !ids.every((id) => w.tabs.tabs.get(id).state.muted);
+        for (const id of ids) w.tabs.setMuted(id, muted);
         return muted;
       },
       // The pointer has rested on a tab (or left the tab list: no id).
-      'tabs:preview': (sender, payload) => this.#tabPreview(sender, payload),
+      'tabs:preview': (sender, payload, w) => w.tabPreview(sender, payload),
       // Several tabs at once, from a selection. Only ids that are open count.
-      'tabs:reload': (_sender, payload) => {
-        for (const id of this.#tabIds(payload?.ids)) {
-          const wc = this.tabs.tabs.get(id)?.view.webContents;
+      'tabs:reload': (_sender, payload, w) => {
+        for (const id of w.tabIds(payload?.ids)) {
+          const wc = w.tabs.tabs.get(id)?.view.webContents;
           if (wc && !wc.isDestroyed()) wc.reload();
         }
         return true;
@@ -2827,36 +2585,36 @@ class BrowserApplication {
        * Chrome does - pinning a tab is asking for it to stay - and only ever
        * reach tabs in the same workspace, the ones that can be seen.
        */
-      'tabs:close-others': (_sender, payload) => {
-        const keep = new Set(this.#tabIds(payload?.ids));
+      'tabs:close-others': (_sender, payload, w) => {
+        const keep = new Set(w.tabIds(payload?.ids));
         if (!keep.size) return false;
-        const workspace = this.tabs.tabs.get([...keep][0]).workspaceId;
-        if (!keep.has(this.tabs.activeId)) this.tabs.select([...keep][0]);
-        for (const tab of this.tabs.list()) {
-          if (!keep.has(tab.id) && !tab.pinned && tab.workspaceId === workspace) this.tabs.close(tab.id);
+        const workspace = w.tabs.tabs.get([...keep][0]).workspaceId;
+        if (!keep.has(w.tabs.activeId)) w.tabs.select([...keep][0]);
+        for (const tab of w.tabs.list()) {
+          if (!keep.has(tab.id) && !tab.pinned && tab.workspaceId === workspace) w.tabs.close(tab.id);
         }
         return true;
       },
-      'tabs:close-right': (_sender, payload) => {
+      'tabs:close-right': (_sender, payload, w) => {
         const id = String(payload?.id || '');
-        const tab = this.tabs.tabs.get(id);
+        const tab = w.tabs.tabs.get(id);
         if (!tab) return false;
-        const visible = this.tabs.list().filter((t) => t.workspaceId === tab.workspaceId);
+        const visible = w.tabs.list().filter((t) => t.workspaceId === tab.workspaceId);
         const doomed = visible.slice(visible.findIndex((t) => t.id === id) + 1).filter((t) => !t.pinned).map((t) => t.id);
-        if (doomed.includes(this.tabs.activeId)) this.tabs.select(id);
-        for (const other of doomed) this.tabs.close(other);
+        if (doomed.includes(w.tabs.activeId)) w.tabs.select(id);
+        for (const other of doomed) w.tabs.close(other);
         return true;
       },
-      'context:run': (_sender, payload) => {
-        const target = this.contextTarget;
+      'context:run': (_sender, payload, w) => {
+        const target = w.contextTarget;
         if (!target) return false;
         return pageMenu.runCommand(this, target, String(payload?.command || ''), payload?.arg);
       },
-      'menu:state': (_sender, payload) => {
-        this.setOverlayInteractive(!!payload?.open, { passive: !!payload?.passive });
+      'menu:state': (_sender, payload, w) => {
+        w.setOverlayInteractive(!!payload?.open, { passive: !!payload?.passive });
         // The size the overlay is now, so it can wait for its own viewport to
         // catch up before placing a menu (see overlay.js#renderMenu).
-        const { width, height } = this.overlay.getBounds();
+        const { width, height } = w.overlay.getBounds();
         return { width, height };
       },
       /**
@@ -2864,11 +2622,11 @@ class BrowserApplication {
        * under the pointer, as with any browser's autofill list - rather than
        * the first click on the page only dismissing the menu.
        */
-      'menu:passthrough': (_sender, payload) => {
+      'menu:passthrough': (_sender, payload, w) => {
         const x = Number(payload?.x);
         const y = Number(payload?.y);
-        if (!Number.isFinite(x) || !Number.isFinite(y) || !this.window) return false;
-        const views = (this.window.contentView.children || []).filter((view) => view !== this.overlay && view.webContents && !view.webContents.isDestroyed());
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !w.window) return false;
+        const views = (w.window.contentView.children || []).filter((view) => view !== w.overlay && view.webContents && !view.webContents.isDestroyed());
         for (const view of views.reverse()) {
           if (view.getVisible?.() === false) continue;
           const b = view.getBounds();
@@ -2883,8 +2641,8 @@ class BrowserApplication {
         return false;
       },
       // The key in the address bar: what is saved for this site, one click to fill.
-      'passwords:key-menu': (sender, payload) => {
-        const tab = this.tabs?.active;
+      'passwords:key-menu': (sender, payload, w) => {
+        const tab = w.tabs?.active;
         const wc = tab?.view.webContents;
         let origin = '';
         try { origin = new URL(wc?.getURL() || '').origin; } catch { return false; }
@@ -2906,11 +2664,11 @@ class BrowserApplication {
           { label: 'Add a password for ' + host, icon: 'plus', action: { channel: 'tabs:new', payload: { url: 'browser://passwords#add=' + encodeURIComponent(origin) } } },
           { label: 'Manage passwords', icon: 'gear', action: { channel: 'tabs:new', payload: { url: 'browser://passwords' } } });
         let anchor = payload?.anchor;
-        if (anchor && sender === this.chrome?.webContents) {
-          const b = this.chrome.getBounds();
+        if (anchor && sender === w.chrome?.webContents) {
+          const b = w.chrome.getBounds();
           anchor = { ...anchor, left: anchor.left + b.x, right: anchor.right + b.x, top: anchor.top + b.y, bottom: anchor.bottom + b.y };
         }
-        this.#showMenu(items, anchor || this.#promptAnchor(), 'right');
+        w.showMenu(items, anchor || w.promptAnchor(), 'right');
         return true;
       },
 
@@ -2919,7 +2677,7 @@ class BrowserApplication {
        * that exist only in memory (by bytes): each opens in a new tab, or the
        * first replaces the tab it was dropped onto.
        */
-      'tabs:open-files': (_sender, payload) => {
+      'tabs:open-files': (_sender, payload, w) => {
         const opened = [];
         const errors = [];
         const items = Array.isArray(payload?.files) ? payload.files.slice(0, 20) : [];
@@ -2930,17 +2688,17 @@ class BrowserApplication {
           if (result.url) opened.push(result.url); else errors.push(result.error);
         }
         opened.forEach((url, index) => {
-          if (index === 0 && payload?.intoTab && this.tabs.tabs.has(payload.intoTab)) this.tabs.navigate(payload.intoTab, url);
-          else this.tabs.create({ url, background: index > 0 });
+          if (index === 0 && payload?.intoTab && w.tabs.tabs.has(payload.intoTab)) w.tabs.navigate(payload.intoTab, url);
+          else w.tabs.create({ url, background: index > 0 });
         });
-        if (errors.length && !opened.length) this.notify(errors[0]);
+        if (errors.length && !opened.length) w.notify(errors[0]);
         return { opened: opened.length, errors };
       },
-      'tabs:new': (_sender, payload) => {
+      'tabs:new': (_sender, payload, w) => {
         // "New tab in group" and "New tab to the right" of a grouped tab:
         // only a group that exists, and the tab opens in that group's workspace.
         const group = payload?.groupId ? this.productivity?.organizer.groups.find((g) => g.id === payload.groupId) : null;
-        return this.tabs.create({
+        return w.tabs.create({
           url: payload?.url,
           background: !!payload?.background,
           index: payload?.index,
@@ -2950,22 +2708,31 @@ class BrowserApplication {
         });
       },
       // No id means "the active tab" (Ctrl+W from anywhere); `ids`, several.
-      'tabs:close': (_sender, payload) => {
-        if (Array.isArray(payload?.ids)) { for (const id of this.#tabIds(payload.ids)) this.tabs.close(id); return true; }
-        return this.tabs.close(payload?.id || this.tabs.activeId);
+      'tabs:close': (_sender, payload, w) => {
+        if (Array.isArray(payload?.ids)) { for (const id of w.tabIds(payload.ids)) w.tabs.close(id); return true; }
+        return w.tabs.close(payload?.id || w.tabs.activeId);
       },
-      'tabs:select': (_sender, payload) => this.tabs.select(payload?.id),
-      'tabs:reorder': (_sender, payload) => this.tabs.reorder(payload?.id, payload?.to),
-      'tabs:navigate': (_sender, payload) => {
-        const id = payload?.id || this.tabs.activeId;
-        this.tabs.navigate(id, payload?.input);
+      // A tab in this window - or, chosen in the tab search list, in another,
+      // which then comes to the front with it.
+      'tabs:select': (sender, payload, w) => {
+        const id = String(payload?.id || '');
+        const home = w.tabs.tabs.has(id) ? w : this.#searching(sender, w) ? this.windowOfTab(id) : null;
+        if (!home) return false;
+        home.tabs.select(id);
+        if (home !== w) { this.windowFocused(home); home.focus(); }
+        return true;
+      },
+      'tabs:reorder': (_sender, payload, w) => w.tabs.reorder(payload?.id, payload?.to),
+      'tabs:navigate': (_sender, payload, w) => {
+        const id = payload?.id || w.tabs.activeId;
+        w.tabs.navigate(id, payload?.input);
       },
 
-      'navigation:back': () => this.tabs.navigateActive('back'),
-      'navigation:forward': () => this.tabs.navigateActive('forward'),
-      'navigation:reload': () => this.tabs.navigateActive('reload'),
-      'navigation:stop': () => this.tabs.navigateActive('stop'),
-      'navigation:home': () => this.tabs.navigate(this.tabs.activeId, this.settings.value.homepage),
+      'navigation:back': (_sender, _payload, w) => w.tabs.navigateActive('back'),
+      'navigation:forward': (_sender, _payload, w) => w.tabs.navigateActive('forward'),
+      'navigation:reload': (_sender, _payload, w) => w.tabs.navigateActive('reload'),
+      'navigation:stop': (_sender, _payload, w) => w.tabs.navigateActive('stop'),
+      'navigation:home': (_sender, _payload, w) => w.tabs.navigate(w.tabs.activeId, this.settings.value.homepage),
 
       'omnibox:suggest': (_sender, payload) =>
         this.history.suggest(payload?.query || '', this.bookmarks.list()),
@@ -2979,8 +2746,8 @@ class BrowserApplication {
         return this.searchSuggest.lookup(query, sender.id);
       },
 
-      'bookmarks:toggle': (_sender, payload) => {
-        const active = this.tabs.activeState();
+      'bookmarks:toggle': (_sender, payload, w) => {
+        const active = w.tabs.activeState();
         this.bookmarks.toggle(payload?.url || active.url, payload?.title || active.title);
         this.push();
       },
@@ -2989,14 +2756,14 @@ class BrowserApplication {
       'history:search': (_sender, payload) => this.history.search(payload?.query || '', payload?.limit),
       'history:remove': (_sender, payload) => { this.history.remove(payload?.id); this.push(); },
 
-      'extensions:load-unpacked': () => this.extensions.loadUnpacked(),
-      'extensions:load-crx': () => this.extensions.loadCrx(),
+      'extensions:load-unpacked': (_sender, _payload, w) => this.extensions.loadUnpacked(w.window),
+      'extensions:load-crx': (_sender, _payload, w) => this.extensions.loadCrx(w.window),
       'extensions:set-enabled': (_sender, payload) =>
         this.extensions.setEnabled(payload?.id, !!payload?.enabled),
       'extensions:remove': (_sender, payload) => this.extensions.remove(payload?.id),
-      'extensions:options': (_sender, payload) => {
+      'extensions:options': (_sender, payload, w) => {
         const url = this.extensions.optionsUrl(payload?.id);
-        if (url) this.tabs.create({ url });
+        if (url) w.tabs.create({ url });
         return !!url;
       },
 
@@ -3004,31 +2771,32 @@ class BrowserApplication {
       'downloads:cancel': (_sender, payload) => { this.downloads.cancel(payload?.id); this.push(); },
       'downloads:clear': () => { this.downloads.clear(); this.push(); },
 
-      'settings:update': (_sender, payload) => {
+      'settings:update': (_sender, payload, w) => {
         const next = this.settings.update(payload);
-        // The sidebar setting has to actually reach the sidebar.
-        if (payload && 'sidebarMode' in payload) this.applySidebarMode();
-        if (payload && 'tabLayout' in payload) {
-          this.applyTabLayout();
-          if (payload.tabLayout === 'vertical') {
-            this.notify('Tabs are down the side now: whole titles, tidy groups, more room for the page. Right-click the tab list to move them back.');
+        // A setting is the browser's, so it reaches every window: the sidebar
+        // setting has to actually reach each sidebar, and the tab layout each
+        // strip. The notice is for the window it was changed in.
+        for (const win of this.#open()) {
+          if (payload && 'sidebarMode' in payload) win.applySidebarMode();
+          if (payload && 'tabLayout' in payload) win.applyTabLayout();
+          // Previews off: no card, and no pictures of pages kept for one.
+          if (next.tabPreviews === false) {
+            clearTimeout(win.thumbTimer);
+            win.hidePreview();
           }
+          win.layout(); // bookmarks bar toggle changes the chrome height
         }
-        // Previews off: no card, and no pictures of pages kept for one.
-        if (next.tabPreviews === false) {
-          clearTimeout(this.thumbTimer);
-          this.thumbs.clear();
-          this.#hidePreview();
+        if (next.tabPreviews === false) this.thumbs.clear();
+        if (payload?.tabLayout === 'vertical') {
+          w.notify('Tabs are down the side now: whole titles, tidy groups, more room for the page. Right-click the tab list to move them back.');
         }
-        this.layout(); // bookmarks bar toggle changes the chrome height
         this.push();
         return next;
       },
       'settings:clear-data': (_sender, payload) => this.#clearData(payload),
       'settings:reset': (_sender, payload) => {
         const next = this.settings.reset(payload?.scope);
-        this.applyTabLayout();
-        this.layout();
+        for (const win of this.#open()) { win.applyTabLayout(); win.layout(); }
         this.push();
         return next;
       },
@@ -3045,8 +2813,8 @@ class BrowserApplication {
       // share is never extracted, let alone sent anywhere.
 
       /** Sensitivity of the active page, for the sidebar's permission line. */
-      'ai:page-permission': () => {
-        const tab = this.tabs?.active;
+      'ai:page-permission': (_sender, _payload, w) => {
+        const tab = w.tabs?.active;
         const { url, verdict } = this.#aiVerdict(tab);
         return { url, title: tab?.state?.title || '', ...verdict };
       },
@@ -3059,8 +2827,8 @@ class BrowserApplication {
        * every bank page once is not something a checkbox should be able to
        * grant.
        */
-      'ai:summarise-page': async (_sender, payload) => {
-        const tab = this.tabs?.active;
+      'ai:summarise-page': async (_sender, payload, w) => {
+        const tab = w.tabs?.active;
         if (!tab) throw new Error('No page open.');
 
         const { url, verdict } = this.#aiVerdict(tab);
@@ -3128,11 +2896,11 @@ class BrowserApplication {
        * Same permission model as summarising: a sensitive page asks first,
        * and agreeing once is not agreement for the next page.
        */
-      'ai:ask-page': async (_sender, payload) => {
+      'ai:ask-page': async (_sender, payload, w) => {
         const question = String(payload?.prompt || '').trim();
         if (!question) throw new Error('Ask a question first.');
 
-        const tab = this.tabs?.active;
+        const tab = w.tabs?.active;
         const { url, verdict } = this.#aiVerdict(tab);
 
         // No page, or a page that may not be read: answer the question on its
@@ -3225,15 +2993,15 @@ class BrowserApplication {
       /** The formats the summary UI offers. Served so it cannot drift. */
       // ---- health ----------------------------------------------------------
       // ---- Static Sense ----------------------------------------------------
-      'sense:current': () => this.currentSuggestion(),
-      'sense:accept': (_sender, payload) => {
+      'sense:current': (_sender, _payload, w) => this.currentSuggestion(w),
+      'sense:accept': (_sender, payload, w) => {
         const id = String(payload?.id || '');
         this.sense.accept(id);
         const action = String(payload?.action || '');
         if (action.startsWith('open:')) {
-          this.tabs.navigate(this.tabs.activeId, action.slice(5));
+          w.tabs.navigate(w.tabs.activeId, action.slice(5));
         } else if (action === 'organizer:close-duplicates') {
-          this.productivity?.organizer?.closeDuplicates?.();
+          this.productivity?.organizer?.closeDuplicates?.(w.tabs);
         }
         this.push();
         return true;
@@ -3250,7 +3018,7 @@ class BrowserApplication {
         // truthfully report - the others are not running. Anything unknown is
         // omitted rather than shown as zero.
         const activeId = this.profiles.active.id;
-        const openTabs = this.tabs ? this.tabs.list().length : 0;
+        const openTabs = this.allTabs().reduce((n, tabs) => n + tabs.order.length, 0);
         state.profiles = state.profiles.map((profile) => (
           profile.id === activeId ? { ...profile, tabs: openTabs } : profile));
         return state;
@@ -3282,8 +3050,8 @@ class BrowserApplication {
       'profiles:set-pin': (_sender, payload) =>
         this.profiles.setPin(String(payload?.id || ''), payload?.pin ?? null),
       'profiles:startup': (_sender, payload) => this.profiles.setStartup(String(payload?.mode || '')),
-      'profiles:manage': () => {
-        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://settings#profiles');
+      'profiles:manage': (_sender, _payload, w) => {
+        if (w.tabs?.activeId) w.tabs.navigate(w.tabs.activeId, 'browser://settings#profiles');
         return true;
       },
       'profiles:switch': async (_sender, payload) => {
@@ -3312,15 +3080,15 @@ class BrowserApplication {
        * no longer asks about are shown instead. `tour: false` is the "skip
        * the tour" on the last step, and goes straight to a new tab.
        */
-      'onboarding:complete': (_sender, payload) => {
+      'onboarding:complete': (_sender, payload, w) => {
         const state = this.onboarding.complete();
         const next = payload?.tour === false ? 'browser://newtab' : 'browser://guide?from=setup';
-        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, next);
+        if (w.tabs?.activeId) w.tabs.navigate(w.tabs.activeId, next);
         return state;
       },
-      'onboarding:restart': () => {
+      'onboarding:restart': (_sender, _payload, w) => {
         const state = this.onboarding.restart();
-        if (this.tabs?.activeId) this.tabs.navigate(this.tabs.activeId, 'browser://welcome');
+        if (w.tabs?.activeId) w.tabs.navigate(w.tabs.activeId, 'browser://welcome');
         return state;
       },
 
@@ -3329,7 +3097,7 @@ class BrowserApplication {
        * One-click fixes. Each returns what it actually did, so the UI can say
        * "slept 3 tabs" rather than claiming success it cannot verify.
        */
-      'health:fix': async (_sender, payload) => {
+      'health:fix': async (_sender, payload, w) => {
         const action = String(payload?.action || '');
         switch (action) {
           case 'sleep-heavy': {
@@ -3351,22 +3119,22 @@ class BrowserApplication {
             await this.session.clearCache();
             return { action, cleared: true };
           case 'open-shields':
-            this.tabs.navigate(this.tabs.activeId, 'browser://shields');
+            w.tabs.navigate(w.tabs.activeId, 'browser://shields');
             return { action };
           case 'open-passwords':
-            this.tabs.navigate(this.tabs.activeId, 'browser://passwords');
+            w.tabs.navigate(w.tabs.activeId, 'browser://passwords');
             return { action };
           case 'open-extensions':
-            this.tabs.navigate(this.tabs.activeId, 'browser://extensions');
+            w.tabs.navigate(w.tabs.activeId, 'browser://extensions');
             return { action };
           default:
             throw new Error('Unknown fix.');
         }
       },
 
-      'sidebar:toggle': (_sender, payload) => this.toggleSidebar(payload?.open),
-      'sidebar:state': () => ({ open: this.sidebarOpen, width: this.sidebarWidth }),
-      'sidebar:peek': (_sender, payload) => this.peekSidebar(payload?.show !== false),
+      'sidebar:toggle': (_sender, payload, w) => w.toggleSidebar(payload?.open),
+      'sidebar:state': (_sender, _payload, w) => ({ open: w.sidebarOpen, width: w.sidebarWidth }),
+      'sidebar:peek': (_sender, payload, w) => w.peekSidebar(payload?.show !== false),
 
       /**
        * A compact summary of one mode, for the sidebar panel.
@@ -3379,7 +3147,7 @@ class BrowserApplication {
        * Every figure here is counted, never estimated - the same rule the
        * rest of the browser follows.
        */
-      'sidebar:panel': (_sender, payload) => {
+      'sidebar:panel': (_sender, payload, w) => {
         const id = String(payload?.id || '');
         const rows = [];
         const add = (label, value) => rows.push({ label, value: String(value) });
@@ -3399,7 +3167,7 @@ class BrowserApplication {
           add('Filter rules', this.shields.engine.count.toLocaleString());
           add('Shields', this.shields.config.enabled === false ? 'Off' : 'On');
           const host = (() => {
-            try { return new URL(this.tabs?.active?.state?.displayUrl || '').hostname; }
+            try { return new URL(w.tabs?.active?.state?.displayUrl || '').hostname; }
             catch { return ''; }
           })();
           if (host) add('On this site', this.shields.activeFor(host) ? 'Protected' : 'Paused');
@@ -3457,7 +3225,7 @@ class BrowserApplication {
             });
           }
         } else if (id === 'organizer') {
-          const tabs = this.tabs ? this.tabs.list() : [];
+          const tabs = w.tabs ? w.tabs.list() : [];
           add('Open tabs', tabs.length);
           add('Groups', this.productivity?.organizer?.groups?.length || 0);
           act('Organise tabs now', 'organizer:apply', {});
@@ -3475,7 +3243,7 @@ class BrowserApplication {
         } else if (id === 'resources') {
           const totals = this.resourceTotals();
           if (totals?.totalMemoryMb) add('Memory in use', totals.totalMemoryMb + ' MB');
-          add('Tabs', totals?.tabCount ?? (this.tabs ? this.tabs.list().length : 0));
+          add('Tabs', totals?.tabCount ?? (w.tabs ? w.tabs.list().length : 0));
           add('Game Mode', this.resources.config.gameMode ? 'On' : 'Off');
         } else if (id === 'passwords') {
           const state = this.passwords?.state?.() || {};
@@ -3492,7 +3260,7 @@ class BrowserApplication {
           add('IDs & documents', counts.document || 0);
           add('Custom fields', counts.custom || 0);
         } else if (id === 'dashboard') {
-          add('Open tabs', this.tabs ? this.tabs.list().length : 0);
+          add('Open tabs', w.tabs ? w.tabs.list().length : 0);
           add('Blocked all time', this.shields.stats.lifetime().blocked.toLocaleString());
         }
 
@@ -3512,11 +3280,11 @@ class BrowserApplication {
        * The omnibox dropdown is inside the chrome view, which is only as tall
        * as the toolbar - so the list needs the view to grow while it is open.
        */
-      'ui:suggestions': (_sender, payload) => {
+      'ui:suggestions': (_sender, payload, w) => {
         const open = !!payload?.open;
-        if (open === this.suggestionsOpen) return open;
-        this.suggestionsOpen = open;
-        this.layout();
+        if (open === w.suggestionsOpen) return open;
+        w.suggestionsOpen = open;
+        w.layout();
         return open;
       },
 
@@ -3674,8 +3442,8 @@ class BrowserApplication {
         this.notes.export(payload?.format || 'markdown', payload?.workspace || null),
 
       /** Capture the active tab: its selection if any, otherwise the link. */
-      'notes:capture': async (_sender, payload) => {
-        const tab = this.tabs?.active;
+      'notes:capture': async (_sender, payload, w) => {
+        const tab = w.tabs?.active;
         if (!tab) return { ok: false, error: 'No page is open.' };
         const wc = tab.view.webContents;
         let selection = '';
@@ -3691,13 +3459,13 @@ class BrowserApplication {
           tags: payload?.tags,
           comment: payload?.comment,
         });
-        this.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
+        w.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
         return { ok: true, note };
       },
 
       /** Screenshot the active tab into a note. */
-      'notes:screenshot': async () => {
-        const tab = this.tabs?.active;
+      'notes:screenshot': async (_sender, _payload, w) => {
+        const tab = w.tabs?.active;
         if (!tab) return { ok: false, error: 'No page is open.' };
         try {
           const image = await tab.view.webContents.capturePage();
@@ -3710,7 +3478,7 @@ class BrowserApplication {
             title: tab.state.title,
             url: tab.state.displayUrl,
           });
-          this.notify('Screenshot saved to Notes');
+          w.notify('Screenshot saved to Notes');
           return { ok: true, note };
         } catch (error) {
           return { ok: false, error: error.message };
@@ -3739,21 +3507,21 @@ class BrowserApplication {
       // ---- safety ----------------------------------------------------------
       'safety:state': () => this.safety.state(),
       'safety:assess': (_sender, payload) => this.safety.assess(payload?.url || ''),
-      'safety:trust': (_sender, payload) => {
+      'safety:trust': (_sender, payload, w) => {
         this.safety.trust(payload?.host);
         // Re-open what was blocked, now that it is trusted.
-        if (payload?.url) this.tabs.navigate(this.tabs.activeId, payload.url);
+        if (payload?.url) w.tabs.navigate(w.tabs.activeId, payload.url);
         return { ok: true };
       },
       'safety:untrust': (_sender, payload) => this.safety.untrust(payload?.host),
       'safety:enabled': (_sender, payload) => this.safety.setEnabled(!!payload?.enabled),
-      'safety:proceed': (_sender, payload) => {
+      'safety:proceed': (_sender, payload, w) => {
         // "Continue anyway" for this session only: the assessment is recorded,
         // but the site is not permanently trusted.
         this.safety.recordWarning({ host: payload?.host, url: payload?.url, score: 0,
           risk: 'proceeded', reasons: [] }, 'proceeded');
         this.sessionAllowed.add(payload?.url || '');
-        if (payload?.url) this.tabs.navigate(this.tabs.activeId, payload.url);
+        if (payload?.url) w.tabs.navigate(w.tabs.activeId, payload.url);
         return { ok: true };
       },
 
@@ -3770,9 +3538,9 @@ class BrowserApplication {
        * worth reading: the web page they came from is read instead (see
        * #recentWebTab), and the answer says which one it was.
        */
-      'workspace:page-text': async (sender) => {
-        const active = this.tabs?.active;
-        const tab = active && !active.state.internalUrl ? active : this.#recentWebTab(sender);
+      'workspace:page-text': async (sender, _payload, w) => {
+        const active = w.tabs?.active;
+        const tab = active && !active.state.internalUrl ? active : this.#recentWebTab(sender, w);
         if (!tab) return { ok: false, error: 'Open a web page in a tab first, then come back here.' };
         try {
           return { ok: true, ...await this.#readableText(tab) };
@@ -3782,8 +3550,8 @@ class BrowserApplication {
       },
 
       /** Which page "Read this page" would read, for the page to name it up front. */
-      'workspace:recent-page': (sender) => {
-        const tab = this.#recentWebTab(sender);
+      'workspace:recent-page': (sender, _payload, w) => {
+        const tab = this.#recentWebTab(sender, w);
         return tab ? { ok: true, ...this.#pageIdentity(tab) } : { ok: false };
       },
 
@@ -3794,10 +3562,10 @@ class BrowserApplication {
        * instructions (see READ_PAGE). Only a known mode is accepted - the
        * prompt is chosen here in main, never supplied by the page.
        */
-      'workspace:read-page': async (sender, payload) => {
+      'workspace:read-page': async (sender, payload, w) => {
         const spec = READ_PAGE[String(payload?.mode || '')];
         if (!spec) return { ok: false, error: 'Unknown mode.' };
-        const tab = this.#recentWebTab(sender);
+        const tab = this.#recentWebTab(sender, w);
         if (!tab) {
           return {
             ok: false,
@@ -3889,8 +3657,8 @@ class BrowserApplication {
        * "Read this page", so a page can neither stall the others nor rewrite
        * what is read from it.
        */
-      'shopping:compare': async (sender) => {
-        const tabs = [...(this.tabs?.tabs.values() || [])]
+      'shopping:compare': async (sender, _payload, w) => {
+        const tabs = [...(w.tabs?.tabs.values() || [])]
           .filter((tab) => !tab.state.internalUrl && /^https?:/.test(tab.state.displayUrl || '')
             && !tab.view.webContents.isDestroyed())
           .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0));
@@ -3966,12 +3734,12 @@ class BrowserApplication {
        * every link is a search we built on the shop's own site (see
        * features/shopping).
        */
-      'shopping:prices': async (sender, payload) => {
+      'shopping:prices': async (sender, payload, w) => {
         const where = retailers.region(String(payload?.region || ''));
         const query = String(payload?.query || '').replace(/\s+/g, ' ').trim().slice(0, 160);
         let page = null;
         if (!query) {
-          const tab = this.#recentWebTab(sender);
+          const tab = this.#recentWebTab(sender, w);
           if (!tab) return { ok: false, error: 'Type the product you want, or open its page in a tab first.' };
           try {
             const read = await this.#readableText(tab, { shopping: true });
@@ -4044,16 +3812,17 @@ class BrowserApplication {
         this.shields.setSiteEnabled(payload?.host, !!payload?.enabled);
         // Reload the pages on that site so the change takes effect on what is
         // already open. From the Shields page itself that is not the active
-        // tab, so every tab on the site is reloaded rather than the active one.
+        // tab, so every tab on the site is reloaded rather than the active one,
+        // in every window.
         const target = String(payload?.host || '').toLowerCase().replace(/^www\./, '');
-        for (const tab of this.tabs?.tabs.values() || []) {
+        for (const tab of this.allTabs().flatMap((tabs) => [...tabs.tabs.values()])) {
           let host = '';
           try { host = new URL(tab.state.url || '').hostname.toLowerCase().replace(/^www\./, ''); } catch { continue; }
           if (host && (host === target || host.endsWith('.' + target)) && !tab.view.webContents.isDestroyed()) tab.view.webContents.reload();
         }
         return { ok: true };
       },
-      'shields:report': () => this.shields.tabReport(this.tabs?.activeId),
+      'shields:report': (_sender, _payload, w) => this.shields.tabReport(w.tabs?.activeId),
       'shields:refresh': () => this.shields.refresh({ force: true }),
       // Real per-day, per-category counters for the privacy widget. Returns
       // `isEmpty` so the widget can show an empty state rather than zeros
@@ -4064,8 +3833,8 @@ class BrowserApplication {
       // Every open web page, most recently used first. The Shields page is
       // itself the active tab while it is open, so "this page" means the last
       // web page you were on rather than browser://shields.
-      'shields:activity': (_sender, payload) => {
-        const tabs = (this.tabs ? this.tabs.list() : [])
+      'shields:activity': (_sender, payload, w) => {
+        const tabs = (w.tabs ? w.tabs.list() : [])
           .filter((tab) => /^https?:/i.test(tab.url || ''))
           .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
           .map((tab) => ({ id: tab.id, title: tab.title, url: tab.url, favicon: tab.favicon, ...this.shields.tabReport(tab.id) }));
@@ -4112,18 +3881,18 @@ class BrowserApplication {
       'passwords:change-master': (_sender, payload) => this.passwords.changeMaster(String(payload?.current || ''), String(payload?.next || '')),
       'passwords:remove-master': (_sender, payload) => this.passwords.removeMaster(String(payload?.current || '')),
       'passwords:unlock': (_sender, payload) => this.passwords.unlock(String(payload?.password || '')),
-      'passwords:unlock-device': async () => {
+      'passwords:unlock-device': async (_sender, _payload, w) => {
         if (!this.passwords.deviceUnlock) return { ok: false, error: 'Unlocking with ' + this.biometric.label + ' is not turned on.' };
-        if (!(await this.biometric.verify('Unlock your saved passwords'))) return { ok: false, error: this.biometric.label + ' did not confirm it was you.' };
+        if (!(await this.#deviceVerify('Unlock your saved passwords', w))) return { ok: false, error: this.biometric.label + ' did not confirm it was you.' };
         return this.passwords.unlockWithDevice();
       },
       'passwords:lock': () => { this.passwords.lock(); return { ok: true }; },
-      'passwords:device': async (_sender, payload) => {
+      'passwords:device': async (_sender, payload, w) => {
         if (!payload?.enabled) return this.passwords.setDeviceUnlock(false);
         const device = await this.biometric.check();
         if (!device.available) return { ok: false, error: device.reason };
         // Prove the sensor works for this person before relying on it.
-        if (!(await this.biometric.verify('Turn on unlocking with ' + device.label))) return { ok: false, error: device.label + ' did not confirm it was you.' };
+        if (!(await this.#deviceVerify('Turn on unlocking with ' + device.label, w))) return { ok: false, error: device.label + ' did not confirm it was you.' };
         return this.passwords.setDeviceUnlock(true);
       },
       'passwords:lock-after': (_sender, payload) => this.passwords.setLockAfter(Number(payload?.minutes)),
@@ -4164,8 +3933,8 @@ class BrowserApplication {
        * homepage does not break when the original is moved, renamed or
        * deleted - and so a wallpaper travels with the profile.
        */
-      'newtab:wallpaper': async () => {
-        const result = await dialog.showOpenDialog(this.window, {
+      'newtab:wallpaper': async (_sender, _payload, w) => {
+        const result = await dialog.showOpenDialog(w.window, {
           title: 'Choose a background',
           properties: ['openFile'],
           filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'] }],
@@ -4206,8 +3975,12 @@ class BrowserApplication {
       const handler = handlers[channel];
       if (!handler) throw new Error('Missing IPC handler for declared channel: ' + channel);
       ipcMain.handle(channel, (event, payload) => {
-        this.#guard(event);
-        return handler(event.sender, payload);
+        // The window the message came from: every handler acts on that one.
+        const w = this.#guard(event);
+        // A view of a window that has just closed, still talking as it goes:
+        // nothing to act on, and nothing to report.
+        if (!w) return null;
+        return handler(event.sender, payload, w);
       });
     }
   }
@@ -4216,56 +3989,32 @@ class BrowserApplication {
    * Sender validation. Two things must hold: the sender is one of our own
    * WebContents, AND its top frame is a URL we trust. Checking only the first
    * would let a compromised tab that navigated to a web page keep its access.
+   *
+   * Returns the window the sender belongs to, which is the window the request
+   * acts on: the chrome, the overlay and every panel of a window (each must
+   * still be showing its own page - a sidebar somehow navigated to a web page
+   * loses its access rather than keeping it), or a trusted internal page in
+   * one of its tabs, top frame only.
    */
   #guard(event) {
     const sender = event.sender;
-    if (sender === this.overlay?.webContents) {
+    for (const w of this.#open()) {
+      const kind = w.viewKind(sender);
+      if (!kind) continue;
       const url = sender.getURL();
-      if (url.startsWith('file://') && url.includes('/renderer/overlay.html')) return;
+      if (url.startsWith('file://') && url.includes(PANEL_PAGES[kind])) return w;
       throw new Error('Unauthorized sender');
     }
-    if (sender === this.chrome?.webContents) {
-      const url = sender.getURL();
-      if (url.startsWith('file://') && url.includes('/renderer/index.html')) return;
-      throw new Error('Unauthorized sender');
-    }
-    // The AI sidebar is trusted like the chrome, and checked the same way: it
-    // must still BE the sidebar page, so a sidebar somehow navigated to a web
-    // page loses its access rather than keeping it.
-    if (sender === this.sidebar?.webContents) {
-      const url = sender.getURL();
-      if (url.startsWith('file://') && url.includes('/renderer/pages/sidebar.html')) return;
-      throw new Error('Unauthorized sender');
-    }
-    // The autohide strip, checked the same way: it must still BE the strip,
-    // so one somehow navigated elsewhere loses its access.
-    if (sender === this.edgeStrip?.webContents) {
-      const url = sender.getURL();
-      if (url.startsWith('file://') && url.includes('/renderer/pages/edge.html')) return;
-      throw new Error('Unauthorized sender');
-    }
-    for (const [view, page] of [[this.splitDivider, 'split.html'], [this.splitDrop, 'splitdrop.html']]) {
-      if (view && sender === view.webContents) {
-        const url = sender.getURL();
-        if (url.startsWith('file://') && url.includes('/renderer/pages/' + page)) return;
-        throw new Error('Unauthorized sender');
+    for (const w of this.#open()) {
+      const tab = w.tabOf(sender);
+      if (!tab) continue;
+      // Internal pages are file:// loads that we tagged with a browser:// identity.
+      if (tab.state.internalUrl && internalPage(tab.state.internalUrl)) {
+        if (!event.senderFrame || event.senderFrame.parent === null) return w;
       }
+      break;
     }
-    if (sender === this.vtabs?.webContents) {
-      const url = sender.getURL();
-      if (url.startsWith('file://') && url.includes('/renderer/pages/vtabs.html')) return;
-      throw new Error('Unauthorized sender');
-    }
-    if (sender === this.findBar?.webContents) {
-      const url = sender.getURL();
-      if (url.startsWith('file://') && url.includes('/renderer/pages/find.html')) return;
-      throw new Error('Unauthorized sender');
-    }
-    const tab = this.#tabByContents(sender);
-    // Internal pages are file:// loads that we tagged with a browser:// identity.
-    if (tab && tab.state.internalUrl && internalPage(tab.state.internalUrl)) {
-      if (!event.senderFrame || event.senderFrame.parent === null) return;
-    }
+    if (this.retired.has(sender.id)) return null;
     throw new Error('Unauthorized sender');
   }
 
@@ -4305,16 +4054,23 @@ class BrowserApplication {
   attachShortcuts(contents) {
     if (!contents || contents.isDestroyed()) return;
     contents.on('before-input-event', (event, input) => {
+      // A key acts on the window it was pressed in - asked now, not when this
+      // was attached, because a tab can move to another window.
+      const w = this.windowOf(contents);
+      if (!w) return;
       // Escape must dismiss the menu even if the underlying site is loading.
-      if (contents === this.overlay?.webContents && this.overlayInteractive && input.key === 'Escape') return;
+      if (contents === w.overlay?.webContents && w.overlayInteractive && input.key === 'Escape') return;
       const action = matchAccelerator(input);
       if (!action) return;
       // Escape is only ours while a page is actually loading; otherwise it
       // belongs to the page (closing its own dialogs, clearing selection).
       if (action === 'page:stop' &&
-        (!this.tabs?.active?.state.loading || this.htmlFullscreen || contents === this.findBar?.webContents)) return;
+        (!w.tabs?.active?.state.loading || w.htmlFullscreen || contents === w.findBar?.webContents)) return;
       event.preventDefault();
-      this.dispatch(action);
+      // The window in use is the one in front, whatever the system says about
+      // focus (a window that cannot take focus still takes keys from a probe).
+      this.windowFocused(w);
+      this.dispatch(action, w);
     });
   }
 
@@ -4396,7 +4152,7 @@ class BrowserApplication {
     ipcMain.on('shields:page-rules', (event, host) => {
       const empty = { scriptlets: '', procedural: [] };
       try {
-        const tab = this.#tabByContents(event.sender);
+        const tab = this.tabOf(event.sender);
         const name = String(host || '').toLowerCase();
         if (!tab || tab.state.internalUrl || !name || !this.shields?.config.enabled || !this.shields.activeFor(name)) {
           event.returnValue = empty;
@@ -4597,29 +4353,35 @@ class BrowserApplication {
     });
   }
 
-  /** Run a named action. The custom menus and the shortcut table share this. */
-  dispatch(action) {
-    const open = (url) => this.tabs.create({ url });
+  /**
+   * Run a named action in window `w`: the one the key was pressed in, or the
+   * one whose menu it was chosen from. With no window named (the dock, a
+   * notice), the window in front. The custom menus and the shortcut table
+   * share this.
+   */
+  dispatch(action, w = this.front) {
+    if (!w || w.closed || !w.tabs) return;
+    const tabs = w.tabs;
+    const open = (url) => tabs.create({ url });
     switch (action) {
-      case 'sidebar:toggle': this.toggleSidebar(); break;
-      case 'tab:new': this.tabs.create({}); break;
-      case 'tab:close': this.tabs.close(this.tabs.activeId); break;
-      case 'tab:next': this.tabs.cycle(1); break;
-      case 'tab:previous': this.tabs.cycle(-1); break;
-      case 'tab:reopen':
-        this.tabs.reopenClosed?.((id) => this.productivity?.organizer.groups.find((g) => g.id === id) || null);
-        break;
-      case 'tab:search': this.openTabSearch(); break;
+      case 'sidebar:toggle': w.toggleSidebar(); break;
+      case 'tab:new': tabs.create({}); break;
+      case 'tab:close': tabs.close(tabs.activeId); break;
+      case 'tab:next': tabs.cycle(1); break;
+      case 'tab:previous': tabs.cycle(-1); break;
+      case 'tab:reopen': this.#reopenClosed(w); break;
+      case 'tab:search': w.openTabSearch(); break;
+      case 'window:new': this.openWindow({ from: w }); break;
 
-      case 'omnibox:focus': this.chrome?.webContents.send('ui:focus-address'); break;
-      case 'page:reload': this.tabs.navigateActive('reload'); break;
-      case 'page:stop': this.tabs.navigateActive('stop'); break;
-      case 'page:back': this.tabs.navigateActive('back'); break;
-      case 'page:forward': this.tabs.navigateActive('forward'); break;
-      case 'page:home': this.tabs.navigate(this.tabs.activeId, this.settings.value.homepage); break;
+      case 'omnibox:focus': w.chrome?.webContents.send('ui:focus-address'); break;
+      case 'page:reload': tabs.navigateActive('reload'); break;
+      case 'page:stop': tabs.navigateActive('stop'); break;
+      case 'page:back': tabs.navigateActive('back'); break;
+      case 'page:forward': tabs.navigateActive('forward'); break;
+      case 'page:home': tabs.navigate(tabs.activeId, this.settings.value.homepage); break;
 
       case 'bookmarks:toggle': {
-        const active = this.tabs.activeState();
+        const active = tabs.activeState();
         if (active.url) { this.bookmarks.toggle(active.url, active.title); this.push(); }
         break;
       }
@@ -4637,42 +4399,42 @@ class BrowserApplication {
       case 'open:student': open('browser://student'); break;
       case 'open:legal': open('browser://legal'); break;
       case 'open:shopping': open('browser://shopping'); break;
-      case 'notes:capture': this.captureNote(); break;
-      case 'page:reader': if (this.tabs.activeId) this.pageTools?.toggleReader(this.tabs.activeId); break;
+      case 'notes:capture': this.captureNote(w); break;
+      case 'page:reader': if (tabs.activeId) this.pageTools?.toggleReader(tabs.activeId); break;
       case 'open:extensions': open('browser://extensions'); break;
 
       case 'window:devtools': {
-        const wc = this.tabs.active?.view.webContents;
+        const wc = tabs.active?.view.webContents;
         if (wc) wc.toggleDevTools();
         break;
       }
       // Asks the renderer to open its own menu; main never draws one.
-      case 'menu:main': this.chrome?.webContents.send('ui:open-menu', { menu: 'main' }); break;
+      case 'menu:main': w.chrome?.webContents.send('ui:open-menu', { menu: 'main' }); break;
       case 'window:console': {
-        const wc = this.tabs.active?.view.webContents;
+        const wc = tabs.active?.view.webContents;
         if (wc) wc.openDevTools({ mode: 'right', activate: true });
         break;
       }
-      case 'window:fullscreen': this.toggleWindowFullscreen(); break;
-      case 'window:incognito': this.openIncognito?.(); break;
-      case 'find:open': this.openFind(''); break;
-      case 'find:next': if (this.findBar) this.findBar.webContents.send('find:focus', {}); break;
-      case 'page:zoom-in': this.zoom(1); break;
-      case 'page:zoom-out': this.zoom(-1); break;
-      case 'page:zoom-reset': this.zoom(0); break;
-      case 'page:reload-hard': this.tabs.active?.view.webContents.reloadIgnoringCache(); break;
+      case 'window:fullscreen': w.toggleWindowFullscreen(); break;
+      case 'window:incognito': this.openIncognito?.(undefined, w); break;
+      case 'find:open': w.openFind(''); break;
+      case 'find:next': if (w.findBar) w.findBar.webContents.send('find:focus', {}); break;
+      case 'page:zoom-in': w.zoom(1); break;
+      case 'page:zoom-out': w.zoom(-1); break;
+      case 'page:zoom-reset': w.zoom(0); break;
+      case 'page:reload-hard': tabs.active?.view.webContents.reloadIgnoringCache(); break;
       case 'page:save':
       case 'page:print':
       case 'page:source': {
-        const tab = this.tabs.active;
+        const tab = tabs.active;
         if (!tab) break;
         const command = { 'page:save': 'save-page', 'page:print': 'print', 'page:source': 'view-source' }[action];
-        pageMenu.runCommand(this, { tabId: tab.id, contents: tab.view.webContents, params: {} }, command);
+        pageMenu.runCommand(this, { tabId: tab.id, contents: tab.view.webContents, params: {}, win: w }, command);
         break;
       }
       case 'data:clear': open('browser://settings#privacy'); break;
       case 'feedback:open': {
-        const tab = this.tabs.active;
+        const tab = tabs.active;
         const done = () => open('browser://help#feedback');
         if (tab && !tab.state.internalUrl) {
           this.#capture(tab.view.webContents).then((image) => {
@@ -4684,328 +4446,34 @@ class BrowserApplication {
       default:
         // Ctrl+1..8 pick that tab; Ctrl+9 is always the last one.
         if (/^tab:[1-9]$/.test(action)) {
-          const list = this.tabs.order;
+          const list = tabs.order;
           const n = Number(action.slice(4));
           const id = n === 9 ? list[list.length - 1] : list[n - 1];
-          if (id) this.tabs.select(id);
+          if (id) tabs.select(id);
         }
         break;
     }
   }
 
   /**
-   * While no menu is open the overlay must not swallow clicks meant for the
-   * toolbar or the page underneath.
-   *
-   * Two approaches do NOT work here:
-   *  - `setIgnoreMouseEvents` is window-level in Electron, so it would make the
-   *    entire window click-through.
-   *  - Detaching the view while idle stops it being composited, and a view that
-   *    is not composited does not run CSS transitions or animations - the menu
-   *    then stays frozen on its first frame, invisible, about two thirds of the
-   *    time.
-   *
-   * So the overlay stays attached permanently (always composited, animations
-   * always run) and is instead shrunk to a 1x1 corner when idle, which leaves
-   * the whole window clickable underneath it.
+   * Ctrl+Shift+T, or Reopen closed tab: whichever went last comes back - a
+   * tab of this window, or a whole window closed since, as in Chrome.
    */
-  setOverlayInteractive(interactive, { passive = false } = {}) {
-    if (!this.overlay || !this.window || this.window.isDestroyed()) return;
-    const wasInteractive = this.overlayInteractive;
-    const wasPassive = this.overlayPassive;
-    this.overlayInteractive = interactive;
-    this.overlayPassive = interactive && passive;
-    const { width, height } = this.window.getContentBounds();
-    // Full-window while a menu is open; a 1x1 corner otherwise, so clicks pass
-    // straight through to the chrome and the page. The view stays attached
-    // either way - see the note above this method.
-    if (interactive) {
-      // A menu takes the overlay from a hover card; the card just goes.
-      if (this.preview) {
-        this.preview = null;
-        this.overlay.webContents.send('ui:tab-preview', null);
-      }
-      // RE-ADD before resizing, not just resize. addChildView moves an
-      // existing child to the END of the child list, which is what puts it on
-      // top. Without this the menu opened BEHIND the page: selecting or
-      // creating a tab appends that tab above the overlay, and resizing alone
-      // does not change the order. On a blank tab nothing was behind it so the
-      // bug stayed hidden; on a real site the page covered the menu entirely.
-      this.window.contentView.addChildView(this.overlay);
-      this.overlay.setBounds({ x: 0, y: 0, width, height });
-      // A passive menu (autofill suggestions) leaves the keyboard where it is.
-      if (!passive) this.overlay.webContents.focus();
-    } else {
-      // A 1x1 corner when idle, so clicks pass straight through to the chrome
-      // and the page below. The view stays attached either way. (A hover
-      // card on show keeps its lane: this may be a menu that never opened.)
-      this.overlay.setBounds(this.preview ? this.preview.lane : { x: 0, y: 0, width: 1, height: 1 });
-      this.#promptClosed?.();
-      // A menu can open from F10 while a web tab owns focus, so chrome never
-      // gets a blur event. Explicitly reset its trigger on every dismissal.
-      this.chrome.webContents.send('ui:menu-closed');
-      // After a passive menu the keyboard never left the page; do not take it.
-      if (wasInteractive && !wasPassive) this.chrome.webContents.focus();
-    }
-  }
-
-  /** Hand the queued menu request to the overlay, clearing it. */
-  takePendingMenu() {
-    const payload = this.pendingMenu;
-    this.pendingMenu = null;
-    return payload || null;
-  }
-
-  /* ---- tab search ---------------------------------------------------------
-   * Every open tab in one list, drawn in the overlay like any menu: a box to
-   * type in, and the tabs that match. The list is sent whole and filtered in
-   * the overlay as each letter is typed (shared/tabsearch.js), so typing
-   * never waits on a round trip. Choosing a row sends the same tabs:select
-   * any tab click sends; its close button closes the tab and the list
-   * carries on with what is left.
-   */
-
-  /** Open the list under the button that asked, or under its button when a key did. Pressed again, it closes. */
-  openTabSearch(sender = null, anchor = null) {
-    if (!this.overlay || this.overlay.webContents.isDestroyed() || !this.tabs) return false;
-    if (this.overlayInteractive && this.lastMenu?.items?.some((item) => item?.tabsearch)) {
-      this.#closeMenu();
-      return false;
-    }
-    const where = anchor
-      ? { anchor: this.#windowAnchor(sender, anchor), align: sender === this.vtabs?.webContents ? 'left' : 'right' }
-      : this.#tabSearchAnchor();
-    this.#hidePreview();
-    this.#showMenu([{
-      tabsearch: {
-        tabs: this.#tabSearchEntries(),
-        placeholder: 'Search your tabs',
-        shortcut: ACCEL.get('tab:search')?.display || '',
-      },
-    }], where.anchor, where.align);
-    return true;
+  #reopenClosed(w) {
+    const tab = w.tabs.closed.at(-1);
+    const gone = this.closedWindows.at(-1);
+    if (gone && (!tab || gone.at > (tab.at || 0))) return this.#reopenWindow();
+    return w.tabs.reopenClosed((id) => this.productivity?.organizer.groups.find((g) => g.id === id) || null);
   }
 
   /**
-   * Where the list opens from the keyboard: under the search button at the
-   * right-hand end of the strip, or at the top of the tab list down the side.
-   * Both sit at fixed places, so there is nothing to measure.
-   */
-  #tabSearchAnchor() {
-    const { width } = this.window.getContentBounds();
-    const immersive = !!(this.htmlFullscreen || this.windowFullscreen);
-    const at = (x, y) => ({ left: x, right: x, top: y, bottom: y, width: 0, height: 0 });
-    if (immersive) return { anchor: at(width - 12, 8), align: 'right' };
-    if (this.settings.value.tabLayout === 'vertical' && this.vtabs && !this.vtabs.webContents.isDestroyed()) {
-      const side = this.vtabs.getBounds();
-      return { anchor: at(side.x + 8, side.y + 46), align: 'left' };
-    }
-    return { anchor: at(width - 8, TITLEBAR_HEIGHT + TABSTRIP_HEIGHT - 2), align: 'right' };
-  }
-
-  /**
-   * The rows of the tab search list: most recently used first, the tab you
-   * are on at the top, as Chrome orders it. Data only - it crosses IPC - and
-   * every action names a channel main checks again when it arrives.
-   */
-  #tabSearchEntries() {
-    const organizer = this.productivity?.organizer;
-    const workspaces = organizer?.store.data.workspaces || [];
-    const sleeping = organizer?.sleeping || new Set();
-    return this.tabs.list()
-      .map((tab) => ({ tab, record: this.tabs.tabs.get(tab.id) }))
-      .sort((a, b) => Number(b.tab.active) - Number(a.tab.active) || (b.record.lastActiveAt || 0) - (a.record.lastActiveAt || 0))
-      .map(({ tab }) => {
-        const group = tab.groupId ? organizer?.groups.find((g) => g.id === tab.groupId) : null;
-        const url = tab.url || '';
-        return {
-          id: tab.id,
-          title: String(tab.title || (url ? url : 'New tab')).slice(0, 300),
-          url: url.slice(0, 2048),
-          site: siteOf(url),
-          favicon: safeFavicon(tab.favicon),
-          active: !!tab.active, pinned: !!tab.pinned,
-          audible: !!tab.audible, muted: !!tab.muted,
-          sleeping: sleeping.has(tab.id),
-          // Only worth saying once there is more than one workspace to be in.
-          workspace: workspaces.length > 1 ? workspaces.find((w) => w.id === tab.workspaceId)?.name || '' : '',
-          group: group ? { name: group.name, color: group.color } : null,
-          select: { channel: 'tabs:select', payload: { id: tab.id } },
-          close: { channel: 'tabs:search-close', payload: { id: tab.id } },
-        };
-      });
-  }
-
-  /* ---- tab hover previews -------------------------------------------------
-   * Rest the pointer on a tab and a card comes up under it (beside it, down
-   * the side): the title, the site, and a picture of the page.
-   *
-   * The card is drawn by the overlay, but NOT as a menu: a menu makes the
-   * overlay cover the whole window, which would put it under the pointer,
-   * take the tab's hover away and close the card again - a flicker loop. The
-   * overlay is instead sized to a "lane" beside the tab list that the card
-   * slides along, and it never takes the keyboard. Moving into the lane means
-   * leaving the tabs, so the card goes; a click there is passed through.
-   */
-  #tabPreview(sender, payload) {
-    const id = typeof payload?.id === 'string' ? payload.id : '';
-    const tab = id ? this.tabs?.tabs.get(id) : null;
-    if (!tab || this.settings.value.tabPreviews === false || !this.overlay || this.overlay.webContents.isDestroyed()) {
-      this.#hidePreview();
-      return false;
-    }
-    // A menu owns the overlay while it is open; a card never covers one.
-    if (this.overlayInteractive) return false;
-    const anchor = this.#windowAnchor(sender, payload?.anchor);
-    const side = sender === this.vtabs?.webContents;
-    const { width, height } = this.window.getContentBounds();
-    const card = PREVIEW_CARD;
-    const clamp = (value, low, high) => Math.round(Math.max(low, Math.min(value, high)));
-    let lane;
-    let x;
-    let y;
-    if (side) {
-      const list = this.vtabs.getBounds();
-      lane = { x: list.x + list.width, y: list.y, width: Math.min(card.width + 32, Math.max(0, width - list.x - list.width)), height: list.height };
-      x = 10;
-      y = clamp(anchor.top - lane.y - 6, 8, lane.height - card.height - 8);
-    } else {
-      const top = Math.round(anchor.bottom);
-      lane = { x: 0, y: top, width, height: Math.min(card.height + 32, Math.max(0, height - top)) };
-      x = clamp(anchor.left, 8, width - card.width - 8);
-      y = 6;
-    }
-    if (lane.width < card.width || lane.height < 60) return false;
-    this.preview = { id, lane };
-    // Re-added so it is above the page, sized to the lane, and NOT focused.
-    this.window.contentView.addChildView(this.overlay);
-    this.overlay.setBounds(lane);
-    const data = this.#previewCard(tab);
-    this.overlay.webContents.send('ui:tab-preview', { ...data, x, y, side: side ? 'right' : 'below', lane: { x: lane.x, y: lane.y } });
-    // The picture follows as soon as it is taken; the card waits with a
-    // shimmer meanwhile rather than holding the whole card back.
-    if (data.pending) {
-      this.#snapshot(tab).catch(() => null).then((thumb) => {
-        if (this.preview?.id !== id || this.overlay.webContents.isDestroyed()) return;
-        this.overlay.webContents.send('ui:tab-preview', { id, update: true, thumb: thumb || null, pending: false });
-      });
-    }
-    return true;
-  }
-
-  /** What a hover card says about a tab, and the picture already to hand. */
-  #previewCard(tab) {
-    const organizer = this.productivity?.organizer;
-    const sleeping = !!organizer?.sleeping.has(tab.id);
-    const url = tab.state.displayUrl || '';
-    const kept = this.thumbs.get(tab.id);
-    const usable = kept && kept.url === url ? kept : null;
-    // Only a tab on screen can be photographed now; any other shows the
-    // picture taken when it was last on screen, if its page has not changed.
-    const live = !sleeping && this.window.contentView.children.includes(tab.view) && !tab.view.webContents.isDestroyed();
-    const fresh = usable && Date.now() - usable.at < PREVIEW_FRESH_MS;
-    const group = tab.groupId ? organizer?.groups.find((g) => g.id === tab.groupId) : null;
-    return {
-      id: tab.id,
-      title: String(tab.state.title || url || 'New tab').slice(0, 300),
-      site: siteOf(url) || 'New tab',
-      favicon: safeFavicon(tab.state.favicon),
-      audible: !!tab.state.audible, muted: !!tab.state.muted,
-      loading: !!tab.state.loading, sleeping,
-      group: group ? { name: group.name, color: group.color } : null,
-      thumb: sleeping ? null : usable?.data || null,
-      pending: live && !fresh,
-    };
-  }
-
-  /**
-   * Photograph a tab that is on screen, for its hover card: the top of the
-   * page at the card's shape, shrunk and kept as a small JPEG. Anything off
-   * screen answers with the last picture of the same page, if there is one.
-   */
-  async #snapshot(tab) {
-    if (!tab || this.settings?.value.tabPreviews === false) return null;
-    const wc = tab.view.webContents;
-    const url = tab.state.displayUrl || '';
-    const kept = this.thumbs.get(tab.id);
-    const fallback = kept && kept.url === url ? kept.data : null;
-    if (wc.isDestroyed() || wc.isCrashed() || !this.window?.contentView.children.includes(tab.view)) return fallback;
-    if (kept && kept.url === url && Date.now() - kept.at < PREVIEW_FRESH_MS) return kept.data;
-    const bounds = tab.view.getBounds();
-    if (bounds.width < 40 || bounds.height < 40) return fallback;
-    const rect = { x: 0, y: 0, width: bounds.width, height: Math.min(bounds.height, Math.round(bounds.width * 9 / 16)) };
-    // A tab taken off screen while its picture is being taken leaves the
-    // capture waiting until it is next shown - possibly much later, on a
-    // different page, or after previews were switched off. So it gets a
-    // moment, and whatever it brings back is checked again before it is kept.
-    let timer = 0;
-    const image = await Promise.race([
-      wc.capturePage(rect).catch(() => null),
-      new Promise((resolve) => { timer = setTimeout(() => resolve(null), PREVIEW_CAPTURE_MS); }),
-    ]).finally(() => clearTimeout(timer));
-    if (!image || image.isEmpty() || !this.tabs?.tabs.has(tab.id)) return fallback;
-    if (this.settings.value.tabPreviews === false || (tab.state.displayUrl || '') !== url) return null;
-    const small = image.getSize().width > PREVIEW_SHOT_WIDTH ? image.resize({ width: PREVIEW_SHOT_WIDTH, quality: 'good' }) : image;
-    const data = 'data:image/jpeg;base64,' + small.toJPEG(82).toString('base64');
-    // Newest last, so the oldest is the first to go; closed tabs go first of all.
-    this.thumbs.delete(tab.id);
-    this.thumbs.set(tab.id, { data, url, at: Date.now() });
-    for (const id of this.thumbs.keys()) if (!this.tabs.tabs.has(id)) this.thumbs.delete(id);
-    while (this.thumbs.size > PREVIEW_KEEP) this.thumbs.delete(this.thumbs.keys().next().value);
-    return data;
-  }
-
-  /**
-   * Take the picture of the tab on screen once it has settled: loaded, and
-   * looked at for a moment. Only a tab on screen can be photographed, and the
-   * moment it is left is already too late, so this is what gives a tab in the
-   * background a picture on its card. One timer for the window: only the tab
-   * on show ever needs it, and switching again starts it over.
-   */
-  #settleSnapshot() {
-    clearTimeout(this.thumbTimer);
-    if (this.settings?.value.tabPreviews === false) return;
-    this.thumbTimer = setTimeout(() => {
-      const tab = this.tabs?.active;
-      const win = this.window;
-      if (!tab || !win || win.isDestroyed() || win.isMinimized() || !win.isVisible()) return;
-      // Still loading: the end of the load starts this again.
-      if (tab.state.loading || this.productivity?.organizer.sleeping.has(tab.id)) return;
-      this.#snapshot(tab).catch(() => {});
-    }, PREVIEW_SETTLE_MS);
-  }
-
-  /** Put the hover card away and give the overlay back its idle corner. */
-  #hidePreview() {
-    if (!this.preview) return;
-    this.preview = null;
-    if (!this.overlay || this.overlay.webContents.isDestroyed()) return;
-    if (!this.overlayInteractive) this.overlay.setBounds({ x: 0, y: 0, width: 1, height: 1 });
-    this.overlay.webContents.send('ui:tab-preview', null);
-  }
-
-  /** Window controls for the custom title bar. */
-  windowControl(action) {
-    const win = this.window;
-    if (!win || win.isDestroyed()) return false;
-    if (action === 'minimize') win.minimize();
-    else if (action === 'maximize') {
-      if (win.isMaximized()) win.unmaximize();
-      else win.maximize();
-    }
-    else if (action === 'close') win.close();
-    else return false;
-    return true;
-  }
-
-  /**
-   * Save the active page (or its selection) to Notes.
+   * Save the active page of window `w` (or its selection) to Notes.
    *
    * Shared by the Ctrl+Shift+S shortcut and the menu, so both take exactly the
    * same path as the notes:capture IPC handler.
    */
-  async captureNote() {
-    const tab = this.tabs?.active;
+  async captureNote(w = this.front) {
+    const tab = w?.tabs?.active;
     if (!tab) return;
     let selection = '';
     try {
@@ -5018,7 +4486,7 @@ class BrowserApplication {
       title: tab.state.title,
       url: tab.state.displayUrl,
     });
-    this.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
+    w.notify(selection.trim() ? 'Selection saved to Notes' : 'Page saved to Notes');
   }
 
   /**
@@ -5124,12 +4592,12 @@ class BrowserApplication {
     try { this.saveSession(); } catch { /* a failed save must not block quitting */ }
     try {
       // A maximised window has huge bounds; remember the restored size so it
-      // does not reopen filling a different monitor.
-      if (this.window && !this.window.isDestroyed()) {
-        const box = this.window.isMaximized()
-          ? this.window.getNormalBounds()
-          : this.window.getBounds();
-        this.windowStore.save({ ...box, maximized: this.window.isMaximized() });
+      // does not reopen filling a different monitor. The window in front is
+      // the one the next launch opens first (see restoreSession).
+      const win = this.front?.window;
+      if (win && !win.isDestroyed()) {
+        const box = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+        this.windowStore.save({ ...box, maximized: win.isMaximized() });
       }
     } catch { /* geometry is a convenience, never a reason to fail */ }
     this.productivity?.flush();
@@ -5144,8 +4612,22 @@ class BrowserApplication {
     this.resources.flush();
     this.onboarding?.flush();
     this.sense?.flush();
-    clearInterval(this.sidebarAnim);
+    for (const w of this.windows) clearInterval(w.sidebarAnim);
   }
+}
+
+/*
+ * The window in front, under the names the one window always had (see
+ * WINDOW_FIELDS): code with no window of its own - and the probes - read and
+ * set `browser.tabs`, `browser.lastMenu` and the rest as they always did.
+ * Nothing that knows its window goes through these.
+ */
+for (const field of WINDOW_FIELDS) {
+  Object.defineProperty(BrowserApplication.prototype, field, {
+    configurable: true,
+    get() { return this.front ? this.front[field] : null; },
+    set(value) { if (this.front) this.front[field] = value; },
+  });
 }
 
 /** 12000 -> "12k", so a badge stays narrow. */
@@ -5166,9 +4648,13 @@ function compactCount(value) {
  * nothing.
  */
 function broadcastToPages(app, channel) {
-  for (const tab of app.tabs?.tabs.values() || []) {
-    const wc = tab.view.webContents;
-    if (!wc.isDestroyed() && tab.state.internalUrl) wc.send(channel);
+  // Every window's pages: Settings open in one window follows a change made
+  // in another.
+  for (const tabs of app.windows ? app.allTabs() : []) {
+    for (const tab of tabs.tabs.values()) {
+      const wc = tab.view.webContents;
+      if (!wc.isDestroyed() && tab.state.internalUrl) wc.send(channel);
+    }
   }
 }
 

@@ -16,7 +16,8 @@ const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 test('macOS keeps its real traffic lights', () => {
-  const source = read('src/main/application.js');
+  // Every window is made in one place (AppWindow), so every window keeps them.
+  const source = read('src/main/window.js');
   // frame:false removes the traffic lights on macOS, leaving no way to close
   // the window.
   assert.match(source, /titleBarStyle:\s*'hiddenInset'/,

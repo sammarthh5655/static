@@ -25,6 +25,7 @@ test('the keys every browser shares do what people expect', () => {
   assert.equal(press('-'), 'page:zoom-out');
   assert.equal(press('1'), 'tab:1');
   assert.equal(press('9'), 'tab:9');
+  assert.equal(press('n'), 'window:new');
   assert.equal(press('n', { shift: true }), 'window:incognito');
   assert.equal(press('t', { shift: true }), 'tab:reopen');
 });

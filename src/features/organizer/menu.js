@@ -16,9 +16,9 @@ const { GROUP_COLORS } = require('./classify');
 const act = (channel, payload = {}) => ({ channel, payload });
 const plural = (n, one, many) => (n === 1 ? one : many.replace('#', n));
 
-/** Groups in this workspace that still hold a tab, with how many. */
-function liveGroups(organizer, workspaceId) {
-  const tabs = organizer.tabs().list();
+/** Groups in this workspace that still hold a tab in `manager`'s window, with how many. */
+function liveGroups(organizer, workspaceId, manager) {
+  const tabs = manager.list();
   return organizer.groups
     .filter((group) => group.workspaceId === workspaceId)
     .map((group) => ({ group, count: tabs.filter((tab) => tab.groupId === group.id).length }))
@@ -32,8 +32,7 @@ function liveGroups(organizer, workspaceId) {
  * Compact on purpose, in the spirit of Chrome's: single-line rows in short
  * sections, an icon only where it helps the eye find its place.
  */
-function tabMenu({ id, ids, organizer, layout, bookmarked, canReopen, accel }) {
-  const manager = organizer.tabs();
+function tabMenu({ id, ids, organizer, manager = organizer.tabs(), layout, bookmarked, canReopen, accel, otherWindows = 0 }) {
   const tab = manager.tabs.get(id);
   const n = ids.length;
   const many = n > 1;
@@ -41,7 +40,7 @@ function tabMenu({ id, ids, organizer, layout, bookmarked, canReopen, accel }) {
   const visible = tabs.filter((t) => t.workspaceId === tab.workspaceId);
   const position = visible.findIndex((t) => t.id === id);
   const grouped = ids.some((one) => manager.tabs.get(one)?.groupId);
-  const groups = liveGroups(organizer, tab.workspaceId);
+  const groups = liveGroups(organizer, tab.workspaceId, manager);
   const sleeping = ids.every((one) => organizer.sleeping.has(one));
   const pinned = ids.every((one) => manager.tabs.get(one)?.pinned);
   const muted = ids.every((one) => manager.tabs.get(one)?.state?.muted);
@@ -64,6 +63,15 @@ function tabMenu({ id, ids, organizer, layout, bookmarked, canReopen, accel }) {
         { label: 'Exit split view', action: act('split:exit', { id }) },
       ]
       : !tab.active && !many ? [{ label: 'Add tab to new split view', icon: 'split', action: act('split:with', { id }) }] : []),
+    // Out into a window of its own - or, once there are others, into one of
+    // those, chosen from a list where this menu was. A window is never left
+    // empty by a move to a new one: with every tab chosen, there is nothing
+    // to move away from.
+    otherWindows
+      ? { label: many ? 'Move ' + n + ' tabs to another window' : 'Move tab to another window', icon: 'window_move', more: true,
+        action: act('tabs:window-menu', { ids }) }
+      : { label: many ? 'Move ' + n + ' tabs to new window' : 'Move tab to new window', icon: 'window_move', disabled: n >= tabs.length,
+        action: act('tabs:to-window', { ids, window: 'new' }) },
     { separator: true },
     { label: plural(n, 'Reload', 'Reload # tabs'), icon: 'reload', shortcut: tab.active && !many ? accel('page:reload') : '', action: act('tabs:reload', { ids }) },
     // The copy sits beside the original: pinned if it is, in its group if it has one.
@@ -109,11 +117,10 @@ function layoutChoice(layout) {
  * The overlay draws one menu at a time and has no submenus, so choosing "Add
  * tab to group" in a tab's menu opens this one in the same place.
  */
-function groupPicker(organizer, ids) {
-  const manager = organizer.tabs();
+function groupPicker(organizer, ids, manager = organizer.managerOf(ids[0])) {
   const workspaceId = manager.tabs.get(ids[0])?.workspaceId || manager.activeWorkspace;
   const many = ids.length > 1;
-  const groups = liveGroups(organizer, workspaceId);
+  const groups = liveGroups(organizer, workspaceId, manager);
   const items = [];
 
   if (groups.length) items.push({ heading: many ? 'Add ' + ids.length + ' tabs to' : 'Add tab to' });
@@ -142,13 +149,39 @@ function groupPicker(organizer, ids) {
 }
 
 /**
+ * "Move tab to another window", step two: where to. A new window, then each
+ * other window, named as its title bar is - by the tab on show there. Opens
+ * where the tab menu was, as the group picker does.
+ *
+ * `windows` is [{ id, title, count }] for every OTHER window; `all` says the
+ * tabs being moved are every tab in theirs, so a new window would only swap
+ * one window for another.
+ */
+function windowPicker(ids, { windows, all = false }) {
+  const many = ids.length > 1;
+  const short = (text) => {
+    const clean = String(text || 'New tab').replace(/\s+/g, ' ').trim();
+    return clean.length > 40 ? clean.slice(0, 39) + '…' : clean;
+  };
+  return [
+    { heading: many ? 'Move ' + ids.length + ' tabs to' : 'Move tab to' },
+    { label: 'New window', icon: 'window_new', disabled: all, action: act('tabs:to-window', { ids, window: 'new' }) },
+    { separator: true },
+    ...windows.map((w) => ({
+      label: short(w.title), icon: 'window_restore', shortcut: plural(w.count, '1 tab', '# tabs'),
+      action: act('tabs:to-window', { ids, window: w.id }),
+    })),
+  ];
+}
+
+/**
  * A group chip's menu, like Chrome's group editor: the name, ready to type
  * over, the colours, then what can be done to the whole group.
  */
 function chipMenu(organizer, groupId) {
   const group = organizer.groups.find((g) => g.id === groupId);
   if (!group) return null;
-  const manager = organizer.tabs();
+  const manager = organizer.managerOfGroup(group.id);
   const members = manager.order.filter((id) => manager.tabs.get(id)?.groupId === group.id);
   if (!members.length) return null;
   return [
@@ -174,4 +207,4 @@ function chipMenu(organizer, groupId) {
   ];
 }
 
-module.exports = { tabMenu, groupPicker, chipMenu, layoutChoice };
+module.exports = { tabMenu, groupPicker, chipMenu, layoutChoice, windowPicker };

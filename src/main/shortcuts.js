@@ -40,6 +40,7 @@ const ACCELERATORS = [
 
   // Ctrl+J is Downloads in every browser, so the sidebar has its own key.
   accel('sidebar:toggle', 'AI sidebar', '.', { mod: true }),
+  accel('window:new', 'New window', 'n', { mod: true }),
   accel('window:incognito', 'New incognito window', 'n', { mod: true, shift: true }),
   ...Array.from({ length: 9 }, (_, i) => accel('tab:' + (i + 1), i === 8 ? 'Last tab' : 'Tab ' + (i + 1), String(i + 1), { mod: true })),
   accel('tab:next', 'Next tab', 'PageDown', { mod: true }),

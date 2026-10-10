@@ -162,6 +162,7 @@ function mainMenuItems() {
       full: { label: 'Full screen', action: doAction('window:fullscreen') },
     } },
     { separator: true },
+    { label: 'New window', icon: 'window_new', shortcut: accel('window:new'), action: doAction('window:new') },
     { label: 'Find in page', icon: 'search', shortcut: accel('find:open'), action: doAction('find:open') },
     { label: 'Print…', icon: 'doc', shortcut: accel('page:print'), action: doAction('page:print') },
     // Its three kinds open in this menu's place (see main's shot:menu).
@@ -184,7 +185,9 @@ function mainMenuItems() {
       { label: 'Guide', action: action('tabs:new', { url: 'browser://guide' }) },
       { label: 'Send feedback', action: doAction('feedback:open') },
       { label: 'About Static', action: action('tabs:new', { url: 'browser://help#about' }) },
-      { label: 'Exit', danger: true, action: action('window:control', { action: 'close' }) },
+      // Every window, as Exit is in every browser; the window's own close
+      // button closes just the one.
+      { label: 'Exit', danger: true, action: action('window:control', { action: 'quit' }) },
     ] },
   ];
 }
@@ -359,7 +362,31 @@ function render() {
   renderToolbar();
   renderBookmarks();
   renderNotice();
+  if (!drawnOnce && state.window?.arriving) arrive();
   drawnOnce = true;
+}
+
+/**
+ * A window opened from inside Static - Ctrl+N, a tab moved out of another -
+ * arrives rather than appearing: the tab strip and the toolbar settle into
+ * place, one just behind the other. The first draw only, and not at all
+ * with animations off or reduced motion asked for: the window is there
+ * either way, this is only how it lands.
+ */
+function arrive() {
+  const ms = motion.duration();
+  if (!ms) return;
+  const parts = [document.querySelector('.strip'), document.querySelector('.toolbar'), el.bookmarks.hidden ? null : el.bookmarks]
+    .filter((node) => node && node.offsetHeight);
+  parts.forEach((node, i) => node.animate([
+    { opacity: 0, transform: 'translateY(-6px)' },
+    { opacity: 1, transform: 'none' },
+  ], {
+    duration: Math.round(ms * 1.3), delay: i * 45, easing: motion.ease(),
+    // Held at the start through its delay, so nothing shows before it moves;
+    // the id lets motion.settle() finish it if animations are turned off.
+    fill: 'backwards', id: 'motion-enter',
+  }));
 }
 
 /** The first letter of a tab's title, for a pinned tab with no favicon. */
@@ -1556,14 +1583,27 @@ el.tabs.addEventListener('drop', (event) => {
   dropTabs(dropTarget(event));
 });
 
-el.tabs.addEventListener('dragend', () => {
+el.tabs.addEventListener('dragend', (event) => {
+  const ids = local.dragId ? dragIds() : [];
   local.dragId = null;
   document.body.classList.remove('tab-dragging');
   clearDropMarks();
   invoke('split:drag', { id: null });
   el.tabs.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
   renderTabs();
+  // Let go where nothing took it, outside this window: the tabs go into a
+  // window of their own there, or into the Static window they were let go
+  // over. Main decides from where the pointer really is (tabs:drag-out).
+  if (ids.length && event.dataTransfer?.dropEffect === 'none' && outsideWindow(event)) invoke('tabs:drag-out', { ids });
 });
+
+/** Whether a pointer event happened beyond this window's edges, in screen pixels. */
+function outsideWindow(event) {
+  const x = event.screenX;
+  const y = event.screenY;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return false;
+  return x < window.screenX || y < window.screenY || x >= window.screenX + window.outerWidth || y >= window.screenY + window.outerHeight;
+}
 
 /**
  * Windows never delivers a drop to a window-dragging area (the empty strip

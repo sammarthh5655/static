@@ -54,6 +54,7 @@ function buildItems(params, ctx) {
     section([
       { label: 'Open link in new tab', icon: 'plus', action: run('link-tab') },
       ctx.has.split ? { label: 'Open link in split view', icon: 'split', action: run('link-split') } : null,
+      ctx.has.window ? { label: 'Open link in new window', icon: 'window_new', action: run('link-window') } : null,
       ctx.has.incognito ? { label: 'Open link in incognito window', icon: 'incognito', action: run('link-incognito') } : null,
     ]);
     section([
@@ -173,15 +174,24 @@ function safeFileName(name, fallback) {
 /**
  * Carry out a command against the right-click it came from.
  *
+ * Everything happens in the window the page is in (the one holding the tab
+ * now, or else `win`, the window the menu was opened in): a new tab opens
+ * beside the page, a dialog sits over it, a card opens where the menu was.
+ *
  * @param {object} browser the BrowserApplication
- * @param {{ tabId: string, contents: Electron.WebContents, params: object, extensionItems: object[] }} target
+ * @param {{ tabId: string, contents: Electron.WebContents, params: object, extensionItems: object[], win?: object }} target
  */
 async function runCommand(browser, target, command, arg) {
   const { contents, params, tabId } = target;
   if (!contents || contents.isDestroyed()) return false;
+  // The tab may have moved to another window since its menu opened: it is
+  // that window the command acts in.
+  const win = browser.windowOfTab?.(tabId) || (target.win && !target.win.closed ? target.win : null) || browser.front;
+  if (!win?.tabs) return false;
+  const tabs = win.tabs;
   const history = contents.navigationHistory;
-  const nextIndex = Math.max(0, browser.tabs.order.indexOf(tabId) + 1);
-  const openTab = (url, background = true) => browser.tabs.create({ url, background, index: nextIndex });
+  const nextIndex = Math.max(0, tabs.order.indexOf(tabId) + 1);
+  const openTab = (url, background = true) => tabs.create({ url, background, index: nextIndex });
   const pageUrl = contents.getURL();
   const selection = String(params.selectionText || '').trim();
   const media = (script) => contents.executeJavaScript(
@@ -202,7 +212,7 @@ async function runCommand(browser, target, command, arg) {
       }
       break;
     case 'save-page': {
-      const result = await dialog.showSaveDialog(browser.window, {
+      const result = await dialog.showSaveDialog(win.window, {
         defaultPath: path.join(app.getPath('downloads'), safeFileName(contents.getTitle(), 'page') + '.html'),
         filters: [
           { name: 'Web page, complete', extensions: ['html', 'htm'] },
@@ -214,8 +224,9 @@ async function runCommand(browser, target, command, arg) {
     }
 
     case 'link-tab': if (isWeb(params.linkURL)) openTab(params.linkURL); break;
-    case 'link-split': if (isWeb(params.linkURL)) browser.openSplit?.(params.linkURL, tabId); break;
-    case 'link-incognito': if (isWeb(params.linkURL)) browser.openIncognito?.(params.linkURL); break;
+    case 'link-split': if (isWeb(params.linkURL)) win.openSplit(params.linkURL, tabId); break;
+    case 'link-window': if (isWeb(params.linkURL)) browser.openWindow?.({ from: win, url: params.linkURL }); break;
+    case 'link-incognito': if (isWeb(params.linkURL)) browser.openIncognito?.(params.linkURL, win); break;
     case 'save-link': if (isWeb(params.linkURL)) contents.downloadURL(params.linkURL); break;
     case 'copy-link': clipboard.writeText(params.linkURL || ''); break;
     case 'copy-link-text': clipboard.writeText(params.linkText || ''); break;
@@ -256,12 +267,12 @@ async function runCommand(browser, target, command, arg) {
           encodeURIComponent(selection.slice(0, 5000)), false);
       }
       break;
-    case 'save-note': await browser.captureNote?.(); break;
+    case 'save-note': await browser.captureNote?.(win); break;
 
     case 'block-element': browser.startElementPicker?.(tabId, params.x, params.y); break;
     // `more`: the overlay stays up for the next menu only if this says one is coming.
-    case 'screenshot': return !!browser.pageTools?.screenshotMenu(tabId, browser.lastPageMenu?.anchor, 'left');
-    case 'qr': browser.pageTools?.showQr(tabId, browser.lastPageMenu?.anchor, 'left'); break;
+    case 'screenshot': return !!browser.pageTools?.screenshotMenu(tabId, win.lastPageMenu?.anchor, 'left');
+    case 'qr': browser.pageTools?.showQr(tabId, win.lastPageMenu?.anchor, 'left'); break;
     case 'reader': await browser.pageTools?.toggleReader(tabId); break;
     case 'extension': {
       const item = target.extensionItems?.[Number(arg)];

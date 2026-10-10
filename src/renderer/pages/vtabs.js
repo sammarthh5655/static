@@ -597,14 +597,26 @@ for (const area of [list, pinRow]) {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-static-tab', dragId);
   });
-  area.addEventListener('dragend', () => {
+  area.addEventListener('dragend', (event) => {
+    const ids = dragId ? dragIds() : [];
     dragId = null;
     clearMarks();
     // Rows are kept now, not redrawn, so the dimming has to be taken off.
     document.querySelectorAll('.dragging').forEach((node) => node.classList.remove('dragging'));
     invoke('split:drag', { id: null });
     render();
+    // Let go where nothing took it, outside the window: as from the strip,
+    // a window of its own there, or the Static window it was let go over.
+    if (ids.length && event.dataTransfer?.dropEffect === 'none' && outsideWindow(event)) invoke('tabs:drag-out', { ids });
   });
+}
+
+/** Whether a pointer event happened beyond the window's edges, in screen pixels. */
+function outsideWindow(event) {
+  const x = event.screenX;
+  const y = event.screenY;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) return false;
+  return x < window.screenX || y < window.screenY || x >= window.screenX + window.outerWidth || y >= window.screenY + window.outerHeight;
 }
 
 pinRow.addEventListener('dragover', (event) => {
