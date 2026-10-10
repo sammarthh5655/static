@@ -30,8 +30,14 @@ async function run(browser) {
 
     // Blocks.
     check('blocks doubleclick', inspect('https://ad.doubleclick.net/x.js', 'news.com')?.block === true);
-    check('blocks google-analytics', inspect('https://www.google-analytics.com/analytics.js', 'news.com')?.block === true);
-    check('blocks facebook pixel cross-site', inspect('https://www.facebook.com/tr?id=1', 'news.com')?.block === true);
+    // A tracker is stopped either way: blocked outright, or - where uBlock's
+    // lists say a page breaks without the script - answered by a harmless
+    // local stand-in (static-stub:), so the request never leaves the computer.
+    const stopped = (r) => r?.block === true || /^static-stub:/.test(r?.redirect || '');
+    check('stops google-analytics', stopped(inspect('https://www.google-analytics.com/analytics.js', 'news.com')),
+      JSON.stringify(inspect('https://www.google-analytics.com/analytics.js', 'news.com')));
+    check('stops facebook pixel cross-site', stopped(inspect('https://www.facebook.com/tr?id=1', 'news.com')),
+      JSON.stringify(inspect('https://www.facebook.com/tr?id=1', 'news.com')));
 
     // Does not over-block.
     // NOT the Facebook pixel: EasyPrivacy blocks ||facebook.com/tr? with no
@@ -153,8 +159,11 @@ async function run(browser) {
     const guard = await yt.view.webContents.executeJavaScript(`({
       injected: !!window.__staticYt,
       removed: typeof window.__staticAdsRemoved === 'function' ? window.__staticAdsRemoved() : -1,
-      adKeysGone: window.ytInitialPlayerResponse
-        ? !('adPlacements' in window.ytInitialPlayerResponse) : 'no-obj',
+      // Empty, not absent: the stripper leaves each ad key holding nothing
+      // rather than deleting it, so code reading it finds no ads either way.
+      adKeysGone: (function(o){ if (!o) return 'no-obj';
+        var bad = ['adPlacements', 'playerAds', 'adSlots'].filter(function(k){ var v = o[k]; return v != null && !(Array.isArray(v) && v.length === 0); });
+        return bad.length ? bad.join(',') : true; })(window.ytInitialPlayerResponse),
     })`).catch((error) => ({ error: error.message }));
     check('ad stripper injected at document-start', guard.injected === true, guard.error || '');
     // The fetch wrapper must still be OURS. Two separate injections used to
@@ -173,7 +182,7 @@ async function run(browser) {
       owner.error || 'window.fetch is not ours: ours=' + owner.ours);
 
     check('ad payloads actually stripped', guard.removed > 0, 'removed=' + guard.removed);
-    check('ad keys gone from the object the player reads',
+    check('the ads in the object the player reads are empty',
       guard.adKeysGone === true, String(guard.adKeysGone));
 
     // Navigating to a second video WITHIN the session fetches a fresh player
@@ -240,7 +249,8 @@ async function run(browser) {
       const t = await yt.view.webContents.executeJavaScript(
         '(function(){ var v = document.querySelector("video"); return v ? v.currentTime : 0; })()'
       ).catch(() => 0);
-      if (t > 0) break;
+      // A full second played: just past 0 it read as 0 once rounded below.
+      if (t >= 1) break;
       await wait(500);
     }
     const healed = await yt.view.webContents.executeJavaScript(`({
@@ -249,7 +259,7 @@ async function run(browser) {
       playingAd: (function(){ try { var p = document.getElementById('movie_player');
         return !!(p && p.getVideoData && p.getVideoData().isAd); } catch (e) { return 'err'; } })(),
       videoTime: (function(){ var v = document.querySelector('video');
-        return v ? Math.round(v.currentTime) : -1; })(),
+        return v ? Math.round(v.currentTime * 10) / 10 : -1; })(),
       paused: (function(){ var v = document.querySelector('video');
         return v ? v.paused : 'no-video'; })(),
       readyState: (function(){ var v = document.querySelector('video');
