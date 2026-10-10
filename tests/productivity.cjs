@@ -145,7 +145,10 @@ async function run(browser) {
     assert.equal(time.config.rules.find(r => r.domain === 'news.test').dailyMinutes, 20);
   });
   await check('foreground accounting and idle exclusion use the real active tab', async () => {
-    const tab = browser.tabs.tabs.get(ids[4]); browser.tabs.select(tab.id); browser.window.focus();
+    // Time counts only while the window has focus, and a probe's window can
+    // never take it (it must not steal the keyboard from whoever is at the
+    // computer), so the window answers as a focused one would.
+    const tab = browser.tabs.tabs.get(ids[4]); browser.tabs.select(tab.id); browser.window.isFocused = () => true;
     const now = Date.now(); time.last = { id: tab.id, host: '127.0.0.1', eligible: true, time: now - 1000 };
     browser.productivity.tick(); assert.ok(time.used('127.0.0.1') >= 900);
     const total = time.used('127.0.0.1'); browser.productivity.lock();

@@ -118,6 +118,9 @@ async function run(browser) {
 
     // The privacy card must reflect the REAL counters. Seed a known value and
     // assert the card shows that number - not a placeholder, and not zeros.
+    // Start the counters from nothing first: the probe profile persists, and
+    // lifetime figures left by an earlier run made a correct card read 14.
+    browser.shields.stats.reset();
     browser.shields.stats.record('ads', 7);
     browser.shields.stats.record('trackers', 5);
     await wait(5600);   // the widget re-reads on a 5s timer
@@ -223,89 +226,122 @@ async function run(browser) {
       bodies.includes('typed into the widget'), bodies.slice(0, 4).join(' | '));
 
     // ---- customise mode ---------------------------------------------------
-    // Order and visibility are what this edits. Free resizing is deliberately
-    // not offered: it would mean storing pixel geometry per widget, which
-    // breaks as soon as the window changes size or the page opens on another
-    // display - the layout would need repairing rather than just rendering.
-    browser.settings.update({ newTab: { widgets: ['clock', 'privacy', 'reading'] } });
+    // The Customise studio edits which widgets are on and where they sit.
+    // Where is stored as fractions of the free space (see widgets/float.js),
+    // never pixels, so a layout survives a resize or another display. Free
+    // resizing is deliberately not offered for the same reason. The studio's
+    // wallpaper half and dragging by the grip are covered by tests/studio.cjs;
+    // this covers the layout half.
+    browser.settings.update({ newTab: { widgets: ['clock', 'privacy', 'reading'], positions: {} } });
     wc.reload();
     for (let i = 0; i < 40 && wc.isLoading(); i++) await wait(200);
     await wait(1600);
 
+    // Drag a card by its body - not its grip, and nothing clickable on it -
+    // a little way towards the middle of the page. Synthetic pointer events,
+    // so nothing depends on the probe window having focus.
+    const dragBody = (id) => wc.executeJavaScript(`(async () => {
+      const card = document.querySelector('[data-widget="${id}"]');
+      if (!card) return null;
+      const r = card.getBoundingClientRect();
+      let at = null;
+      for (let y = r.top + 6; y < r.bottom - 4 && !at; y += 6) {
+        for (let x = r.left + 6; x < r.right - 4 && !at; x += 6) {
+          const hit = document.elementFromPoint(x, y);
+          if (hit && hit.closest('[data-widget]') === card &&
+              !hit.closest('input, textarea, select, a, button, [contenteditable="true"], .widget-grip')) at = { x, y, hit };
+        }
+      }
+      if (!at) return null;
+      const before = { left: card.offsetLeft, top: card.offsetTop };
+      const opts = (x, y) => ({ bubbles: true, cancelable: true, pointerId: 9, button: 0, buttons: 1, clientX: x, clientY: y, isPrimary: true });
+      const dx = Math.sign(innerWidth / 2 - (r.left + r.width / 2)) * 120, dy = 60;
+      at.hit.dispatchEvent(new PointerEvent('pointerdown', opts(at.x, at.y)));
+      for (let i = 1; i <= 8; i++) {
+        card.dispatchEvent(new PointerEvent('pointermove', opts(at.x + dx * i / 8, at.y + dy * i / 8)));
+        await new Promise((r) => setTimeout(r, 16));
+      }
+      card.dispatchEvent(new PointerEvent('pointerup', opts(at.x + dx, at.y + dy)));
+      return { before, after: { left: card.offsetLeft, top: card.offsetTop } };
+    })()`);
+
     const off = await wc.executeJavaScript(`({
       hidden: document.getElementById('customise-bar').hidden,
-      draggable: document.querySelectorAll('.widget.is-draggable').length,
+      mode: document.body.classList.contains('customising'),
     })`);
     check('customise controls are hidden until asked for',
-      off.hidden === true && off.draggable === 0, JSON.stringify(off));
+      off.hidden === true && off.mode === false, JSON.stringify(off));
+    // Outside customise mode only the grip moves a card, so selecting text or
+    // typing in a widget can never drag it about by accident.
+    const still = await dragBody('privacy');
+    await wait(600);
+    check('outside customise mode a card does not move by its body',
+      !!still && still.after.left === still.before.left && still.after.top === still.before.top &&
+      !browser.settings.value.newTab.positions?.privacy,
+      JSON.stringify({ still, saved: browser.settings.value.newTab.positions }));
 
     await wc.executeJavaScript("document.getElementById('customise-open').click()");
     await wait(800);
+    await wc.executeJavaScript("document.querySelector('.studio-tab[data-pane=\"widgets\"]')?.click()");
+    await wait(300);
     const on = await wc.executeJavaScript(`({
       hidden: document.getElementById('customise-bar').hidden,
       mode: document.body.classList.contains('customising'),
-      chips: document.querySelectorAll('.customise-chip').length,
-      chipsOn: [...document.querySelectorAll('.customise-chip.is-on')].map(c => c.textContent),
-      presets: document.querySelectorAll('.customise-preset').length,
-      draggable: document.querySelectorAll('.widget.is-draggable').length,
+      switches: document.querySelectorAll('.studio-widget[role=switch]').length,
+      switchesOn: [...document.querySelectorAll('.studio-widget[aria-checked=true]')]
+        .map(n => n.querySelector('strong').textContent),
     })`);
     check('customise mode opens', on.hidden === false && on.mode === true, JSON.stringify(on));
-    // One chip per registered widget. Zero here meant shared/widgets.js was
+    // One switch per registered widget. Zero here meant shared/widgets.js was
     // never loaded on the page - the registry was empty and Reset silently
-    // fell back to a stub layout.
-    check('a chip per registered widget',
-      on.chips === Object.keys(require('../src/shared/widgets').WIDGETS).length,
-      on.chips + ' chips');
-    check('chips show which widgets are on',
-      on.chipsOn.length === 3, on.chipsOn.join(', '));
-    check('cards become draggable', on.draggable === 3, on.draggable + ' draggable');
+    // fell back to a stub layout - or that the list waited on something else.
+    check('a switch per registered widget',
+      on.switches === Object.keys(require('../src/shared/widgets').WIDGETS).length,
+      on.switches + ' switches');
+    check('the switches show which widgets are on',
+      on.switchesOn.length === 3, on.switchesOn.join(', '));
+
+    // While customising, the whole card is the handle, and where it is put
+    // is saved through settings rather than just moving the DOM.
+    const dragged = await dragBody('privacy');
+    await wait(900);
+    const spot = browser.settings.value.newTab.positions?.privacy;
+    check('while customising, dragging a card saves where it was put',
+      !!spot && spot.x >= 0 && spot.x <= 1 && spot.y >= 0 && spot.y <= 1,
+      JSON.stringify({ dragged, spot }));
 
     await wc.executeJavaScript(`(() => {
-      const chip = [...document.querySelectorAll('.customise-chip')]
-        .find((c) => c.textContent === 'Recently closed');
-      if (chip) chip.click();
+      const row = [...document.querySelectorAll('.studio-widget')]
+        .find((n) => n.querySelector('strong')?.textContent === 'Recently closed');
+      if (row) row.click();
     })()`);
     await wait(1100);
-    check('a chip adds a widget to the saved layout',
+    check('a switch adds a widget to the saved layout',
       browser.settings.value.newTab.widgets.includes('recent'),
       JSON.stringify(browser.settings.value.newTab.widgets));
 
-    await wc.executeJavaScript(`(() => {
-      const preset = [...document.querySelectorAll('.customise-preset')]
-        .find((p) => p.textContent === 'Minimal');
-      if (preset) preset.click();
-    })()`);
+    await wc.executeJavaScript("document.querySelector('.studio-tab[data-pane=\"layouts\"]')?.click()");
+    await wait(300);
+    await wc.executeJavaScript("document.querySelector('.studio-preset[data-preset=\"minimal\"]')?.click()");
     await wait(1100);
     check('a preset replaces the layout',
       JSON.stringify(browser.settings.value.newTab.widgets) === '["clock"]',
       JSON.stringify(browser.settings.value.newTab.widgets));
+    // A preset is a fresh arrangement, so it puts every widget back too.
+    check('and clears where cards had been dragged',
+      Object.keys(browser.settings.value.newTab.positions || {}).length === 0,
+      JSON.stringify(browser.settings.value.newTab.positions));
 
-    await wc.executeJavaScript(
-      "document.querySelector('.customise-preset.is-reset').click()");
+    await wc.executeJavaScript(`(() => {
+      const reset = [...document.querySelectorAll('.studio-action')]
+        .find((n) => /default layout/i.test(n.textContent));
+      if (reset) reset.click();
+    })()`);
     await wait(1100);
     const defaults = require('../src/shared/widgets').DEFAULT_LAYOUT;
     check('reset restores the real default layout',
       JSON.stringify(browser.settings.value.newTab.widgets) === JSON.stringify(defaults),
       JSON.stringify(browser.settings.value.newTab.widgets));
-
-    // Dragging must persist through settings, not just move the DOM.
-    browser.settings.update({ newTab: { widgets: ['clock', 'privacy', 'reading'] } });
-    await wait(1200);
-    await wc.executeJavaScript(`(() => {
-      const cards = document.querySelectorAll('#widgets .widget');
-      const dt = new DataTransfer();
-      cards[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-      cards[2].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      cards[2].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
-    })()`);
-    await wait(1200);
-    // Assert the MOVE, not a fixed array: which widgets are present depends on
-    // when the preceding settings update propagated to the page, and pinning
-    // the exact ids made this fail on correct behaviour.
-    const moved = browser.settings.value.newTab.widgets;
-    check('dragging a card reorders the saved layout',
-      moved.length === 3 && moved[2] === 'clock' && moved[0] !== 'clock',
-      JSON.stringify(moved) + ' (expected clock moved from first to last)');
 
     await wc.executeJavaScript(
       "window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))");

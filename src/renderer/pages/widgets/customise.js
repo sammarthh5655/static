@@ -289,6 +289,10 @@ function build(ctx, { getLayout, setLayout, onExit }) {
     paintWidgets();
   }
 
+  // Paint once now. Otherwise the first paint waited on the wallpaper
+  // catalogue, and while that was still loading - a slow connection, the
+  // service down - the Widgets pane had no switches at all.
+  refresh();
   show(recall('pane', 'wallpaper'));
   panel.refresh = () => {
     // A favourite added while filtered to favourites has to appear.

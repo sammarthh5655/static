@@ -40,7 +40,11 @@ async function run(browser) {
       result.skipped !== true, JSON.stringify(result));
     check('every list was fetched', result.fetched === result.total,
       result.fetched + '/' + result.total);
-    check('the engine has the full rule set', browser.shields.engine.count > 120000,
+    // The lists are fetched live and their size drifts by a few thousand rules
+    // from week to week (119,502 one day, over 120,000 another), so the floor
+    // sits below today's figure. The stale cache above holds two rules, so
+    // this still proves the fetched lists really reached the engine.
+    check('the engine has the full rule set', browser.shields.engine.count > 100000,
       browser.shields.engine.count + ' rules');
     check('and the full cosmetic set', browser.shields.engine.cosmeticCount > 40000,
       browser.shields.engine.cosmeticCount + ' cosmetic');

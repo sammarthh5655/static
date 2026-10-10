@@ -95,12 +95,41 @@ async function run(browser) {
     await shot('switches-appearance-dark');
 
     // ---- a real click, animated ----
+    // The glide is watched from inside the page. Sampling it from here meant a
+    // round trip per sample, and on a busy machine the first one could land
+    // after the whole transition had finished, failing a switch that glides.
+    // The page records the transition the browser actually started on the
+    // knob (and how long it runs), plus the knob's position on every frame.
+    await js(`(() => {
+      const n = document.querySelector('#bookmarksBar');
+      const glide = window.__glide = { runs: [], frames: [] };
+      n.addEventListener('transitionrun', (event) => {
+        if (event.pseudoElement !== '::before' || event.propertyName !== 'transform') return;
+        const running = n.getAnimations({ subtree: true })
+          .find((a) => a.transitionProperty === 'transform' && a.effect && a.effect.pseudoElement === '::before');
+        glide.runs.push(running ? running.effect.getComputedTiming().duration : 0);
+      });
+      const stop = performance.now() + 1200;
+      const sample = () => {
+        const t = getComputedStyle(n, '::before').transform;
+        glide.frames.push(t === 'none' ? 0 : new DOMMatrix(t).m41);
+        if (performance.now() < stop) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    })()`);
     await clickAt('#bookmarksBar');
-    const mid = [];
-    for (let i = 0; i < 6; i++) { mid.push(await knobX('#bookmarksBar')); await wait(25); }
     const flipped = await until(async () => browser.settings.value.bookmarksBar === false);
     check('clicking the switch turns the bookmarks bar off in main', flipped, browser.settings.value.bookmarksBar);
-    check('the knob glides rather than jumps', mid.some((x) => x > 0.5 && x < 17.5), mid.map((x) => x.toFixed(1)).join(' '));
+    await until(() => js('window.__glide.runs.length > 0'), 20);
+    const glide = await js('window.__glide');
+    // A jump is a transform change with no transition behind it. Either proof
+    // is a real one: the browser ran a transition long enough to see, or a
+    // frame caught the knob part-way across.
+    const ran = glide.runs.some((ms) => ms >= 100);
+    const between = glide.frames.some((x) => x > 0.5 && x < 17.5);
+    check('the knob glides rather than jumps', ran || between,
+      'transition ' + (glide.runs.map((ms) => Math.round(ms) + 'ms').join(',') || 'none') +
+      ', frames ' + glide.frames.slice(0, 12).map((x) => x.toFixed(1)).join(' '));
     await wait(400);
     check('and comes to rest at the start', Math.abs(await knobX('#bookmarksBar')) < 0.5, await knobX('#bookmarksBar'));
     check('aria state follows (checked=false)', await js(`!document.querySelector('#bookmarksBar').checked`));
@@ -169,8 +198,19 @@ async function run(browser) {
     await clickAt('label[for=reduce-motion]');
     check('"Reduce motion" (by its label) turns animations off', await until(async () => browser.settings.value.animations === false));
     await until(() => js(`getComputedStyle(document.documentElement).getPropertyValue('--motion-base').trim() === '0ms'`));
+    // Read the knob the moment the click lands, from inside the page: read a
+    // round trip later, it could be measured before the click was handled.
+    // Turning the setting back on restores the animations only after main
+    // replies, so this frame is still the one animations are off in.
+    const landed = js(`new Promise((resolve) => {
+      const n = document.querySelector('#reduce-motion');
+      n.addEventListener('change', () => {
+        const t = getComputedStyle(n, '::before').transform;
+        resolve(t === 'none' ? 0 : new DOMMatrix(t).m41);
+      }, { once: true });
+    })`);
     await clickAt('#reduce-motion');
-    const instant = await knobX('#reduce-motion');
+    const instant = await landed;
     check('with animations off the knob moves at once', Math.abs(instant) < 0.5, instant);
     check('and animations are back on', await until(async () => browser.settings.value.animations === true));
 
