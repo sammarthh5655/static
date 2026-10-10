@@ -820,17 +820,53 @@ class AppWindow {
     return id;
   }
 
-  /** Show or hide the drop zones while a tab is dragged. */
+  /**
+   * Show or hide the drop zones while a tab is dragged - any tab, the one
+   * you are on included (it then shares the page with the last one used).
+   *
+   * The drag ends in two places at once: the tab list says "dragend" and the
+   * zones say "drop", from different processes, in no fixed order. When the
+   * end arrives first the tab is remembered for a moment, so the drop still
+   * knows what was dragged (see splitDropTab).
+   */
   showSplitDrop(id) {
-    const valid = id && id !== this.tabs?.activeId && this.tabs?.tabs.has(id);
+    clearTimeout(this.splitDropTimer);
+    const valid = !!id && !!this.tabs?.tabs.has(id);
+    if (this.splitDragId && !valid) this.splitDragEnded = { id: this.splitDragId, at: Date.now() };
     this.splitDragId = valid ? id : null;
     if (!valid) {
-      if (this.splitDrop) this.splitDrop.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+      if (this.splitDrop && !this.splitDrop.webContents.isDestroyed()) this.splitDrop.setBounds({ x: 0, y: 0, width: 0, height: 0 });
       return;
     }
     if (!this.splitDrop || this.splitDrop.webContents.isDestroyed()) this.splitDrop = this.panelView('splitdrop.html');
     this.window.contentView.addChildView(this.splitDrop);
     this.splitDrop.setBounds(this.tabs.bounds);
+    // Never left covering the page: a drag that ends somewhere nothing
+    // reports it (another app, the desktop) still takes the zones away.
+    this.splitDropTimer = setTimeout(() => this.showSplitDrop(null), 30000);
+  }
+
+  /** The tab being dragged onto the zones, or the one whose drag just ended. */
+  splitDropTab() {
+    const recent = this.splitDragEnded && Date.now() - this.splitDragEnded.at < 2000 ? this.splitDragEnded.id : null;
+    const id = this.splitDragId || recent;
+    this.splitDragEnded = null;
+    return id && this.tabs?.tabs.has(id) ? id : null;
+  }
+
+  /**
+   * The tab to share the page with `id`: the one used most recently before
+   * it, in the same workspace. A new tab when there is no other.
+   */
+  splitPartner(id) {
+    const tab = this.tabs?.tabs.get(id);
+    if (!tab) return null;
+    const other = this.tabs.list()
+      .filter((t) => t.id !== id && t.workspaceId === tab.workspaceId)
+      .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))[0];
+    if (other) return other.id;
+    const index = this.tabs.order.indexOf(id) + 1;
+    return this.tabs.create({ background: true, index });
   }
 
   /** Create or remove the vertical tab list to match the setting. */
@@ -988,6 +1024,11 @@ class AppWindow {
       this.splitDivider.setBounds(divider);
     } else if (this.splitDivider) {
       this.splitDivider.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    }
+    // Mid-drag, a page brought on screen would land above the drop zones.
+    if (this.splitDragId && this.splitDrop && !this.splitDrop.webContents.isDestroyed()) {
+      this.window.contentView.addChildView(this.splitDrop);
+      this.splitDrop.setBounds(this.tabs.bounds);
     }
 
     // The autohide strip hugs the right edge, under the chrome. It sits above

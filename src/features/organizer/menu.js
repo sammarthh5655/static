@@ -47,6 +47,8 @@ function tabMenu({ id, ids, organizer, manager = organizer.tabs(), layout, bookm
   const others = visible.filter((t) => !ids.includes(t.id) && !t.pinned).length;
   const right = visible.slice(position + 1).filter((t) => !t.pinned).length;
   const split = tab.splitWith && manager.tabs.has(tab.splitWith);
+  // Tab records carry no "active" flag of their own; the manager knows.
+  const current = manager.activeId === id;
 
   // A new tab to the right joins the group this tab is in, as in Chrome.
   const index = manager.order.indexOf(id) + 1;
@@ -62,7 +64,11 @@ function tabMenu({ id, ids, organizer, manager = organizer.tabs(), layout, bookm
         { label: 'Swap sides', icon: 'split', action: act('split:swap', { id }) },
         { label: 'Exit split view', action: act('split:exit', { id }) },
       ]
-      : !tab.active && !many ? [{ label: 'Add tab to new split view', icon: 'split', action: act('split:with', { id }) }] : []),
+      // The tab you are on is split with one you choose; any other tab joins
+      // the one you are on.
+      : many ? [] : current
+        ? [{ label: 'Split view with…', icon: 'split', more: true, action: act('split:pick-menu', { id }) }]
+        : [{ label: 'Add tab to new split view', icon: 'split', action: act('split:with', { id }) }]),
     // Out into a window of its own - or, once there are others, into one of
     // those, chosen from a list where this menu was. A window is never left
     // empty by a move to a new one: with every tab chosen, there is nothing
@@ -73,14 +79,14 @@ function tabMenu({ id, ids, organizer, manager = organizer.tabs(), layout, bookm
       : { label: many ? 'Move ' + n + ' tabs to new window' : 'Move tab to new window', icon: 'window_move', disabled: n >= tabs.length,
         action: act('tabs:to-window', { ids, window: 'new' }) },
     { separator: true },
-    { label: plural(n, 'Reload', 'Reload # tabs'), icon: 'reload', shortcut: tab.active && !many ? accel('page:reload') : '', action: act('tabs:reload', { ids }) },
+    { label: plural(n, 'Reload', 'Reload # tabs'), icon: 'reload', shortcut: current && !many ? accel('page:reload') : '', action: act('tabs:reload', { ids }) },
     // The copy sits beside the original: pinned if it is, in its group if it has one.
     many ? null : { label: 'Duplicate', action: act('tabs:new', { url: tab.state.displayUrl || undefined, index, groupId: tab.groupId || null, pinned: !!tab.pinned }) },
     { label: pinned ? plural(n, 'Unpin', 'Unpin # tabs') : plural(n, 'Pin', 'Pin # tabs'), icon: 'pin', action: act('organizer:pin', { ids, pinned: !pinned }) },
     // A mixed selection is muted all together: the one that says "mute" wins.
     { label: muted ? plural(n, 'Unmute tab', 'Unmute # tabs') : plural(n, 'Mute tab', 'Mute # tabs'), icon: muted ? 'volume' : 'muted',
       action: act('tabs:mute', { ids, muted: !muted }) },
-    tab.active && !many ? null : sleeping
+    current && !many ? null : sleeping
       ? { label: plural(n, 'Wake tab', 'Wake # tabs'), action: act('organizer:wake', { ids }) }
       : { label: plural(n, 'Sleep tab', 'Sleep # tabs'), action: act('organizer:sleep', { ids }) },
     { separator: true },
@@ -89,7 +95,7 @@ function tabMenu({ id, ids, organizer, manager = organizer.tabs(), layout, bookm
       label: bookmarked(tab.state.displayUrl) ? 'Remove bookmark' : 'Bookmark', icon: 'star',
       action: act('bookmarks:toggle', { url: tab.state.displayUrl, title: tab.state.title }),
     }, { separator: true }] : []),
-    { label: plural(n, 'Close', 'Close # tabs'), icon: 'close', shortcut: tab.active && !many ? accel('tab:close') : '', action: act('tabs:close', { ids }) },
+    { label: plural(n, 'Close', 'Close # tabs'), icon: 'close', shortcut: current && !many ? accel('tab:close') : '', action: act('tabs:close', { ids }) },
     { label: 'Close other tabs', disabled: !others, action: act('tabs:close-others', { ids }) },
     { label: 'Close tabs to the right', disabled: !right, action: act('tabs:close-right', { id }) },
     { separator: true },
@@ -175,6 +181,34 @@ function windowPicker(ids, { windows, all = false }) {
 }
 
 /**
+ * "Split view with…", step two: what goes beside the tab you are on. A new
+ * tab first, as in Chrome, then this workspace's other tabs, the ones used
+ * most recently at the top. Opens where the menu that asked was.
+ */
+function splitPicker(manager, id, limit = 10) {
+  const tab = manager.tabs.get(id);
+  if (!tab) return null;
+  const short = (text) => {
+    const clean = String(text || 'New tab').replace(/\s+/g, ' ').trim();
+    return clean.length > 40 ? clean.slice(0, 39) + '…' : clean;
+  };
+  const site = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+  const others = manager.list()
+    .filter((t) => t.id !== id && t.workspaceId === tab.workspaceId)
+    .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0))
+    .slice(0, limit);
+  return [
+    { heading: 'Split view with' },
+    { label: 'New tab', icon: 'plus', action: act('split:new', { id }) },
+    others.length ? { separator: true } : null,
+    ...others.map((t) => ({
+      label: short(t.title || t.url), shortcut: site(t.url),
+      action: act('split:with', { id: t.id, from: id }),
+    })),
+  ].filter(Boolean);
+}
+
+/**
  * A group chip's menu, like Chrome's group editor: the name, ready to type
  * over, the colours, then what can be done to the whole group.
  */
@@ -207,4 +241,4 @@ function chipMenu(organizer, groupId) {
   ];
 }
 
-module.exports = { tabMenu, groupPicker, chipMenu, layoutChoice, windowPicker };
+module.exports = { tabMenu, groupPicker, chipMenu, layoutChoice, windowPicker, splitPicker };

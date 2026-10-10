@@ -163,6 +163,10 @@ function mainMenuItems() {
     } },
     { separator: true },
     { label: 'New window', icon: 'window_new', shortcut: accel('window:new'), action: doAction('window:new') },
+    // In split view, the way out; otherwise the list of what to put beside it.
+    (state.tabs || []).some((t) => t.active && t.splitWith)
+      ? { label: 'Exit split view', icon: 'split', action: action('split:exit') }
+      : { label: 'Split view', icon: 'split', more: true, action: action('split:pick-menu') },
     { label: 'Find in page', icon: 'search', shortcut: accel('find:open'), action: doAction('find:open') },
     { label: 'Print…', icon: 'doc', shortcut: accel('page:print'), action: doAction('page:print') },
     // Its three kinds open in this menu's place (see main's shot:menu).

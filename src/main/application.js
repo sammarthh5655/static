@@ -22,7 +22,7 @@ const pagecontext = require('../features/ai/pagecontext');
 const { Chats } = require('../features/ai/chats');
 const { Resources } = require('../features/resources');
 const { Productivity } = require('../features/productivity');
-const { groupPicker, tabMenu, chipMenu, windowPicker } = require('../features/organizer/menu');
+const { groupPicker, tabMenu, chipMenu, windowPicker, splitPicker } = require('../features/organizer/menu');
 const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
@@ -2451,23 +2451,62 @@ class BrowserApplication {
       'split:reset': (_sender, _payload, w) => { w.tabs.setSplitRatio(w.tabs.activeId, 0.5); w.layout(); return true; },
       'split:swap': (_sender, payload, w) => { w.tabs.swapSplit(payload?.id || w.tabs.activeId); w.layout(); return true; },
       'split:exit': (_sender, payload, w) => { w.tabs.unsplit(payload?.id || w.tabs.activeId); w.layout(); return true; },
+      // `id` goes on the right of `from` (the tab you are on, unless the
+      // split picker names another).
       'split:with': (_sender, payload, w) => {
         const id = String(payload?.id || '');
-        const active = w.tabs.activeId;
-        if (!w.tabs.tabs.has(id) || id === active) return false;
-        w.tabs.split(active, id);
+        const from = w.tabs.tabs.has(String(payload?.from || '')) ? String(payload.from) : w.tabs.activeId;
+        if (!w.tabs.tabs.has(id) || id === from) return false;
+        w.tabs.split(from, id);
+        w.tabs.select(from);
         w.layout();
         return true;
       },
+      // "Split view with…" > New tab: a new tab beside it, ready to type in.
+      'split:new': (_sender, payload, w) => {
+        const from = w.tabs.tabs.has(String(payload?.id || '')) ? String(payload.id) : w.tabs.activeId;
+        if (!from) return false;
+        const id = w.tabs.create({ background: true, index: w.tabs.order.indexOf(from) + 1 });
+        w.tabs.split(from, id);
+        w.tabs.select(id);
+        w.layout();
+        w.chrome?.webContents.send('ui:focus-address');
+        return true;
+      },
+      // "Split view with…": which tab goes beside it, where the menu was.
+      'split:pick-menu': (_sender, payload, w) => {
+        const id = w.tabs.tabs.has(String(payload?.id || '')) ? String(payload.id) : w.tabs.activeId;
+        const items = id && splitPicker(w.tabs, id);
+        if (!items) return false;
+        const from = w.lastMenu || {};
+        w.showMenu(items, from.anchor || w.promptAnchor(), from.align || 'left');
+        return true;
+      },
       'split:drag': (_sender, payload, w) => { w.showSplitDrop(payload?.id ? String(payload.id) : null); return true; },
+      /**
+       * A tab let go on one side of the page. Not yet in split view: it opens
+       * on that side, beside the tab you are on - or, when it IS the tab you
+       * are on, beside the one used before it. Already in split view: it
+       * takes that side, and the other side stays as it was.
+       */
       'split:drop': (_sender, payload, w) => {
-        const id = w.splitDragId;
-        const active = w.tabs.activeId;
+        const id = w.splitDropTab();
         w.showSplitDrop(null);
-        if (!id || id === active) return false;
-        if (payload?.side === 'left') w.tabs.split(id, active);
-        else w.tabs.split(active, id);
-        w.tabs.select(active);
+        if (!id) return false;
+        const side = payload?.side === 'left' ? 'left' : 'right';
+        const active = w.tabs.activeId;
+        const pair = w.tabs.pairOf(active);
+        let keep;
+        if (pair) {
+          keep = side === 'left' ? pair.right : pair.left;
+          if (id === keep) { w.tabs.swapSplit(active); w.layout(); return true; }
+        } else {
+          keep = id === active ? w.splitPartner(id) : active;
+        }
+        if (!keep || keep === id) return false;
+        if (side === 'left') w.tabs.split(id, keep);
+        else w.tabs.split(keep, id);
+        w.tabs.select(id);
         w.layout();
         return true;
       },

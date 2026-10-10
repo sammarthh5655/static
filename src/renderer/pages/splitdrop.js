@@ -1,25 +1,29 @@
 'use strict';
 (function () {
-/** Drop zones for opening a dragged tab beside the current one. */
+/** Drop zones: let a dragged tab go on a half of the page to split with it. */
 const { invoke, onState } = window.page;
 
-for (const zone of document.querySelectorAll('.zone')) {
+const zones = [...document.querySelectorAll('.zone')];
+const light = (zone) => zones.forEach((z) => z.classList.toggle('over', z === zone));
+
+for (const zone of zones) {
   zone.addEventListener('dragover', (event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    zone.classList.add('over');
+    light(zone);
   });
-  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
   zone.addEventListener('drop', (event) => {
     event.preventDefault();
-    zone.classList.remove('over');
+    light(null);
     invoke('split:drop', { side: zone.dataset.side });
   });
 }
-// Dropping in the middle, or anywhere else, does nothing but must not
-// navigate this view to the dragged data.
+// Back over the tab strip: nothing is lit. Leaving one half for the other
+// is handled by the dragover above, so only a leave out of the page counts.
+document.addEventListener('dragleave', (event) => { if (!event.relatedTarget) light(null); });
+// Anything else let go here must not navigate this view to the dragged data.
 document.addEventListener('dragover', (event) => event.preventDefault());
-document.addEventListener('drop', (event) => { event.preventDefault(); invoke('split:drag', { id: null }); });
+document.addEventListener('drop', (event) => event.preventDefault());
 
 onState(() => {});
 })();
