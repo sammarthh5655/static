@@ -26,6 +26,9 @@ if (testFlag) {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   app.commandLine.appendSwitch('disable-background-timer-throttling');
+  // An off-screen window is still heard: the ad-blocking probes play real
+  // YouTube videos, and that sound reached whoever was at the computer.
+  app.commandLine.appendSwitch('mute-audio');
 }
 
 // Incognito is its own process with its own throwaway data folder: nothing
