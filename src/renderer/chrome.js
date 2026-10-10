@@ -958,14 +958,14 @@ function renderToolbar() {
   const marks = { secure: 'lock', insecure: 'warn', error: 'warn', internal: 'gear', extension: 'puzzle', file: 'doc' };
   el.security.replaceChildren(window.ui.icon(marks[active.security] || 'search', { size: 14 }));
   el.security.className = 'security ' + (active.security || '');
-  el.security.title = {
-    secure: 'Connection is secure (HTTPS)',
-    insecure: 'Not secure (HTTP)',
+  el.security.title = ({
+    secure: 'Connection is secure',
+    insecure: 'Not secure',
     error: 'Page failed to load',
-    internal: 'Built-in page',
+    internal: 'Static page',
     extension: 'Extension page',
     file: 'A file from this computer, opened only because you dragged it in',
-  }[active.security] || '';
+  }[active.security] || 'This page') + (active.security === 'internal' ? ' - click for Settings' : ' - click for site information');
 
   // The key: this site has saved logins or passkeys. One click lists them.
   const saved = state.saved;
@@ -1398,6 +1398,12 @@ el.star.addEventListener('click', () => act('bookmarks:toggle'));
 el.reader.addEventListener('click', () => invoke('reader:toggle'));
 el.reader.addEventListener('animationend', () => el.reader.classList.remove('is-new'));
 el.qr.addEventListener('click', () => invoke('qr:show', { anchor: anchorRect(el.qr) }));
+// The icon before the address: the site card (on Static's own pages, the way to Settings).
+const siteInfo = () => invoke('site:info', { anchor: anchorRect(el.security) });
+el.security.addEventListener('click', siteInfo);
+el.security.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); siteInfo(); }
+});
 el.key.addEventListener('click', () => {
   const box = el.key.getBoundingClientRect();
   invoke('passwords:key-menu', { anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height } });

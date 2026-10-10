@@ -121,6 +121,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .empty { color: var(--text-dim); padding: 32px; text-align: center; }
 
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 18px; }
+/* A short action never wraps or squashes beside a search box that grows:
+   "Clear all" was being folded onto two lines. The box gives way instead. */
+.toolbar > input, .toolbar > select { flex: 1 1 auto; min-width: 0; }
+.toolbar > button, .toolbar > a, .row > button, .field .control > button { flex: none; white-space: nowrap; }
 
 .checks { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
 .checks label { display: flex; align-items: center; gap: 10px; }

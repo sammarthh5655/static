@@ -347,6 +347,42 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       root.append(form);
       continue;
     }
+    // The site card's head: what this page is, then a few counted facts.
+    // Text only, never markup - a page's address and title end up here.
+    if (item.site) {
+      const card = document.createElement('div');
+      card.className = 'menu-site tone-' + (item.site.tone || 'internal');
+      const badge = document.createElement('span');
+      badge.className = 'menu-site-badge';
+      badge.append(icon(item.site.icon || 'info', { size: 17 }));
+      const text = document.createElement('div');
+      text.className = 'menu-site-text';
+      const title = document.createElement('strong');
+      title.textContent = item.site.title || '';
+      text.append(title);
+      if (item.site.subtitle) {
+        const sub = document.createElement('small');
+        sub.textContent = item.site.subtitle;
+        text.append(sub);
+      }
+      card.append(badge, text);
+      root.append(card);
+      if (item.site.facts?.length) {
+        const facts = document.createElement('dl');
+        facts.className = 'menu-site-facts';
+        for (const fact of item.site.facts) {
+          const row = document.createElement('div');
+          const dt = document.createElement('dt');
+          dt.textContent = fact.label;
+          const dd = document.createElement('dd');
+          dd.textContent = fact.value;
+          row.append(dt, dd);
+          facts.append(row);
+        }
+        root.append(facts);
+      }
+      continue;
+    }
     if (item.heading) {
       const heading = document.createElement('div');
       heading.className = 'menu-heading';

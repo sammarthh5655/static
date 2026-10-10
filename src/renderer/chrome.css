@@ -416,10 +416,13 @@ body.dropping .strip-drag::after {
 }
 
 .security {
-  display: flex; align-items: center;
-  margin-right: 7px;
-  color: var(--text-faint);
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; margin: 0 3px 0 -5px; border-radius: 50%;
+  color: var(--text-faint); cursor: pointer;
+  transition: background var(--motion-fast) var(--ease), color var(--motion-fast) var(--ease);
 }
+.security:hover { background: var(--surface-hover); }
+.security:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .security.secure { color: var(--success); }
 .security.insecure, .security.error { color: var(--warn); }
 
@@ -696,6 +699,33 @@ body.dropping .strip-drag::after {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- the site card ----------------------------------------------------------
+   Under the icon at the start of the address bar: what the page is, in a
+   tinted head that says at a glance whether it is private, then counted facts. */
+.menu-site {
+  --site-tone: var(--accent);
+  display: flex; align-items: center; gap: 10px;
+  margin: 2px 2px 4px; padding: 10px 10px 10px 8px; min-width: 248px;
+  border-radius: calc(var(--radius) + 2px);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--site-tone) 16%, transparent), color-mix(in srgb, var(--site-tone) 4%, transparent));
+  border: 1px solid color-mix(in srgb, var(--site-tone) 22%, transparent);
+}
+.menu-site.tone-secure { --site-tone: var(--success); }
+.menu-site.tone-warn { --site-tone: var(--warn); }
+.menu-site-badge {
+  flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  color: var(--site-tone);
+  background: color-mix(in srgb, var(--site-tone) 18%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--site-tone) 28%, transparent);
+}
+.menu-site-text { min-width: 0; display: grid; gap: 2px; }
+.menu-site-text strong { font-size: 13.5px; font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-site-text small { font-size: 11.5px; color: var(--text-dim); line-height: 1.35; }
+.menu-site-facts { margin: 0 2px 4px; padding: 2px 8px 6px; display: grid; gap: 3px; }
+.menu-site-facts div { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; line-height: 18px; }
+.menu-site-facts dt { color: var(--text-dim); }
+.menu-site-facts dd { margin: 0; color: var(--text); font-weight: 550; text-align: right; white-space: nowrap; }
 
 /* ---- tab group colours ----------------------------------------------------
    A group's colour is stored in its pastel form (organizer/classify.js). On a

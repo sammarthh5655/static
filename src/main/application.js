@@ -271,6 +271,82 @@ class BrowserApplication {
     return true;
   }
 
+  /**
+   * The site card under the icon at the start of the address bar, as in
+   * Chrome: whether the connection is private, what Shields did here, the
+   * site's cookies, and the way into Settings. On Static's own pages (the
+   * gear) its main button is Settings itself.
+   *
+   * Every figure is counted, never estimated. Where the icon is on screen
+   * comes from the chrome view only, and is checked.
+   */
+  async #siteInfo(sender, payload, w) {
+    const tab = w.tabs?.active;
+    if (!tab) return false;
+    let anchor = null;
+    const a = payload?.anchor;
+    if (a && sender === w.chrome?.webContents && ['left', 'right', 'top', 'bottom'].every((k) => Number.isFinite(Number(a[k])))) {
+      const b = w.chrome.getBounds();
+      anchor = { left: Number(a.left) + b.x, right: Number(a.right) + b.x, top: Number(a.top) + b.y, bottom: Number(a.bottom) + b.y, width: 0, height: 0 };
+    }
+    const act = (channel, body = {}) => ({ channel, payload: body });
+    const open = (url) => act('tabs:new', { url });
+    const security = tab.state.security || 'internal';
+    const facts = [];
+    const items = [];
+    if (this.incognito) facts.push({ label: 'Private window', value: 'Nothing is kept' });
+
+    if (security === 'internal' || security === 'extension' || security === 'file') {
+      const kind = {
+        internal: { title: 'Static', subtitle: 'One of Static\'s own pages', icon: 'gear' },
+        extension: { title: 'Extension', subtitle: 'A page from one of your extensions', icon: 'puzzle' },
+        file: { title: 'A file', subtitle: 'From this computer, opened because you dragged it in', icon: 'doc' },
+      }[security];
+      items.push({ site: { ...kind, tone: 'internal', facts } });
+      items.push({ label: 'Open Settings', icon: 'gear', shortcut: ACCEL.get('open:settings')?.display || '', action: act('ui:action', { action: 'open:settings' }) });
+      items.push({ label: 'Privacy & Shields', icon: 'shield', action: open('browser://settings#privacy') });
+      w.showMenu(items, anchor || w.promptAnchor(), 'left');
+      return true;
+    }
+
+    let host = '';
+    try { host = new URL(tab.state.url || tab.state.displayUrl || '').hostname; } catch { /* no address */ }
+    const site = host.replace(/^www\./, '');
+    const subtitle = {
+      secure: 'Connection is secure',
+      insecure: 'Not secure: others on your network can see this page',
+      error: 'This page did not load',
+    }[security] || '';
+    const shieldsOn = this.shields.config.enabled !== false;
+    const here = !!site && this.shields.activeFor(site);
+    if (shieldsOn && here) {
+      const blocked = this.shields.tabReport(tab.id).count;
+      facts.push({ label: 'Blocked on this page', value: blocked ? blocked.toLocaleString() + (blocked === 1 ? ' ad or tracker' : ' ads and trackers') : 'Nothing yet' });
+    }
+    const cookies = site ? await this.session.cookies.get({ domain: site }).catch(() => []) : [];
+    facts.push({ label: 'Cookies', value: cookies.length ? cookies.length + (cookies.length === 1 ? ' cookie' : ' cookies') : 'None' });
+    // Static grants these to no site at all (see #hardenSession).
+    facts.push({ label: 'Camera, microphone & location', value: 'Blocked' });
+    items.push({ site: { title: site || 'This page', subtitle, icon: security === 'secure' ? 'lock' : 'warn', tone: security === 'secure' ? 'secure' : 'warn', facts } });
+
+    if (!shieldsOn) {
+      items.push({ label: 'Turn Shields on', icon: 'shield', hint: 'They are off on every site', action: act('shields:update', { enabled: true }) });
+    } else if (site) {
+      items.push({
+        label: 'Shields', icon: 'shield', value: here ? 'on' : 'off', hint: 'Block ads and trackers on ' + site,
+        choices: [
+          { label: 'On', value: 'on', action: act('shields:site', { host: site, enabled: true }) },
+          { label: 'Off', value: 'off', action: act('shields:site', { host: site, enabled: false }) },
+        ],
+      });
+    }
+    if (site) items.push({ label: 'Clear cookies and site data', icon: 'trash', hint: 'Signs you out of ' + site, action: act('site:clear') });
+    items.push({ separator: true });
+    items.push({ label: 'Site settings', icon: 'gear', action: open('browser://settings#privacy') });
+    w.showMenu(items, anchor || w.promptAnchor(), 'left');
+    return true;
+  }
+
   /** What a closed window held, for Reopen closed tab. */
   #rememberClosedWindow(w) {
     const moment = (url) => /^browser:\/\/(newtab|welcome|profiles)/.test(url || '');
@@ -1759,13 +1835,14 @@ class BrowserApplication {
   }
 
   /**
-   * Open an incognito window: a separate Static process. Already in one,
-   * it is a new tab in window `w` - one incognito window is one session.
+   * Open an incognito window: a separate Static process. Already in one, a
+   * link opens in a new tab there, and the shortcut opens another window of
+   * the same private session, as Chrome does.
    */
   openIncognito(url, w = this.front) {
     if (this.incognito) {
       if (url) w?.tabs.create({ url });
-      else w?.tabs.create({});
+      else this.openWindow({ from: w });
       return;
     }
     const { spawn } = require('node:child_process');
@@ -3860,6 +3937,25 @@ class BrowserApplication {
           if (host && (host === target || host.endsWith('.' + target)) && !tab.view.webContents.isDestroyed()) tab.view.webContents.reload();
         }
         return { ok: true };
+      },
+      // The icon at the start of the address bar: what this page is, and
+      // what Static is doing on it.
+      'site:info': (sender, payload, w) => this.#siteInfo(sender, payload, w),
+      'site:clear': async (_sender, _payload, w) => {
+        const tab = w.tabs?.active;
+        let origin = '';
+        try { origin = new URL(tab?.state.url || '').origin; } catch { /* not a web page */ }
+        if (!/^https?:/.test(origin)) return false;
+        const host = new URL(origin).hostname;
+        await this.session.clearStorageData({ origin }).catch(() => {});
+        // Cookies are kept per domain, not per origin: a site's cookies can
+        // belong to its parent domain too.
+        const site = host.replace(/^www\./, '');
+        const cookies = await this.session.cookies.get({ domain: site }).catch(() => []);
+        await Promise.all(cookies.map((c) => this.session.cookies.remove(
+          (c.secure ? 'https://' : 'http://') + c.domain.replace(/^\./, '') + (c.path || '/'), c.name).catch(() => {})));
+        w.notify('Cleared cookies and site data for ' + site + '. Reload to sign in again.');
+        return true;
       },
       'shields:report': (_sender, _payload, w) => this.shields.tabReport(w.tabs?.activeId),
       'shields:refresh': () => this.shields.refresh({ force: true }),

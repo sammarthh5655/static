@@ -143,7 +143,7 @@ function buildItems(params, ctx) {
   section([
     ctx.has.blockElement && isWeb(ctx.pageUrl) ? { label: 'Block element…', icon: 'shield', action: run('block-element') } : null,
     isWeb(ctx.pageUrl) ? { label: 'View page source', icon: 'code', action: run('view-source'), shortcut: 'Ctrl+U' } : null,
-    { label: 'Inspect', icon: 'code', action: run('inspect'), shortcut: 'Ctrl+Shift+I' },
+    { label: 'Inspect', icon: 'code', action: run('inspect'), shortcut: process.platform === 'darwin' ? 'Cmd+Opt+I' : 'F12' },
   ]);
 
   return items.map((item) => ({

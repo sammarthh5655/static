@@ -105,7 +105,9 @@ body.ai-page.sidebar-hidden .chat-sidebar { display: none; }
 
 /* ---- main column ---------------------------------------------------------- */
 
-.chat-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* Always the second column: with the list hidden (toggled off, or a narrow
+   window) it leaves the grid, and the chat would land in its empty column. */
+.chat-main { grid-column: 2; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
 .chat-header {
   display: flex;

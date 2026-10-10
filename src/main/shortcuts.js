@@ -42,6 +42,9 @@ const ACCELERATORS = [
   accel('sidebar:toggle', 'AI sidebar', '.', { mod: true }),
   accel('window:new', 'New window', 'n', { mod: true }),
   accel('window:incognito', 'New incognito window', 'n', { mod: true, shift: true }),
+  // "I" for incognito, as people here expect. On Windows and Linux it was
+  // Chromium's developer tools key; those keep F12 and Ctrl+Shift+J.
+  accel('window:incognito', 'New incognito window', 'i', { mod: true, shift: true }),
   ...Array.from({ length: 9 }, (_, i) => accel('tab:' + (i + 1), i === 8 ? 'Last tab' : 'Tab ' + (i + 1), String(i + 1), { mod: true })),
   accel('tab:next', 'Next tab', 'PageDown', { mod: true }),
   accel('tab:previous', 'Previous tab', 'PageUp', { mod: true }),
@@ -93,7 +96,7 @@ const ACCELERATORS = [
   accel('open:extensions', 'Extensions', 'e', { mod: true, shift: true }),
 
   accel('window:devtools', 'Toggle developer tools', 'F12', {}),
-  accel('window:devtools', 'Toggle developer tools', 'i', isMac ? { mod: true, alt: true } : { mod: true, shift: true }),
+  ...(isMac ? [accel('window:devtools', 'Toggle developer tools', 'i', { mod: true, alt: true })] : []),
   accel('window:console', 'JavaScript console', 'j', isMac ? { mod: true, alt: true } : { mod: true, shift: true }),
   accel('menu:main', 'Open menu', 'F10', {}),
 ];
