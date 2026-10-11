@@ -23,6 +23,12 @@ if (testFlag) {
   // off-screen window as occluded and stop painting it, which breaks
   // screenshots and animation checks, so occlusion tracking is disabled.
   process.env.STATIC_OFFSCREEN = '1';
+  // A crash in a probe must never put Electron's error box on the person's
+  // screen: it is printed into the probe's log instead, and the run ends.
+  process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception in main:', (error && error.stack) || error);
+    app.exit(1);
+  });
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
   app.commandLine.appendSwitch('disable-renderer-backgrounding');
   app.commandLine.appendSwitch('disable-background-timer-throttling');
