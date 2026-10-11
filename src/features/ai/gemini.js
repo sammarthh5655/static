@@ -257,6 +257,14 @@ function buildBody({ prompt, system, context, history, temperature, maxOutputTok
  */
 function netTransport(model, body, { signal, timeout }) {
   return new Promise((resolve, reject) => {
+    // Test runs never spend the real key: its free allowance is the person's,
+    // and probes once used it up. A probe that wants an answer stubs
+    // generate(); one that reaches here is told there is no connection.
+    if (process.env.STATIC_OFFSCREEN === '1') {
+      const error = new Error('Gemini is not called during test runs.');
+      error.kind = 'network';
+      return reject(error);
+    }
     const request = net.request({
       method: 'POST',
       url: `${ENDPOINT}/${encodeURIComponent(model)}:generateContent`,
