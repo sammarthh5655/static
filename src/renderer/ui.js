@@ -376,6 +376,10 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
           dt.textContent = fact.label;
           const dd = document.createElement('dd');
           dd.textContent = fact.value;
+          // Cut short when long, so the whole of it is on hover.
+          dd.title = String(fact.value ?? '');
+          if (fact.mono) row.className = 'mono';
+          else if (fact.wide) row.className = 'wide';
           row.append(dt, dd);
           facts.append(row);
         }

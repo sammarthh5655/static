@@ -425,6 +425,8 @@ body.dropping .strip-drag::after {
 .security:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .security.secure { color: var(--success); }
 .security.insecure, .security.error { color: var(--warn); }
+/* A Safe Browsing warning is on show: the address it is about, marked in red. */
+.security.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 
 #address {
   flex: 1;
@@ -713,6 +715,7 @@ body.dropping .strip-drag::after {
 }
 .menu-site.tone-secure { --site-tone: var(--success); }
 .menu-site.tone-warn { --site-tone: var(--warn); }
+.menu-site.tone-danger { --site-tone: var(--danger); }
 .menu-site-badge {
   flex: none; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
   color: var(--site-tone);
@@ -725,7 +728,13 @@ body.dropping .strip-drag::after {
 .menu-site-facts { margin: 0 2px 4px; padding: 2px 8px 6px; display: grid; gap: 3px; }
 .menu-site-facts div { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; line-height: 18px; }
 .menu-site-facts dt { color: var(--text-dim); }
-.menu-site-facts dd { margin: 0; color: var(--text); font-weight: 550; text-align: right; white-space: nowrap; }
+.menu-site-facts dd { margin: 0; min-width: 0; color: var(--text); font-weight: 550; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-site-facts dt { flex: none; }
+/* Long values (an issuer's full name, a reason) take a line of their own;
+   a fingerprint or a serial is long and exact, so it wraps rather than being cut. */
+.menu-site-facts div.wide, .menu-site-facts div.mono { flex-direction: column; gap: 0; }
+.menu-site-facts div.wide dd, .menu-site-facts div.mono dd { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.menu-site-facts div.mono dd { font: 500 11px/1.5 var(--font-mono, ui-monospace, monospace); color: var(--text-dim); }
 
 /* ---- tab group colours ----------------------------------------------------
    A group's colour is stored in its pastel form (organizer/classify.js). On a

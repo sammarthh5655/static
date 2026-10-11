@@ -38,7 +38,7 @@ async function run(browser) {
     check('listing carries NO password', !JSON.stringify(list).includes('hunter2'),
       Object.keys(list[0]).join(','));
 
-    const raw = fs.readFileSync(path.join(app.getPath('userData'), 'vault.json'), 'utf8');
+    const raw = fs.readFileSync(path.join(browser.dir || app.getPath('userData'), 'vault.json'), 'utf8');
     check('vault file is encrypted', !raw.includes('hunter2') && !/correct|horse/i.test(raw),
       raw.length + ' bytes');
 

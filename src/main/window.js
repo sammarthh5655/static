@@ -296,6 +296,8 @@ class AppWindow {
       preload: path.join(app.getAppPath(), 'build', 'tab.preload.cjs'),
       extensions: browser.extensions,
       getEngine: () => browser.settings.value.searchEngine,
+      // A certificate you went past is not a padlock (features/netguard).
+      securityOf: (url) => browser.netguard?.securityOf(url) || null,
       onSelected: (id) => this.#selected(id),
       // Every tab gets the shortcut interceptor and the rest of its wiring,
       // which follows the tab if it moves to another window.

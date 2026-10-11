@@ -1,6 +1,6 @@
 ﻿const INTERNAL_PAGES = new Set(['newtab', 'bookmarks', 'history', 'extensions', 'downloads', 'settings', 'ai',
   'dashboard', 'notes', 'focus', 'resources', 'safety',
-  'student', 'legal', 'shopping', 'shields', 'passwords', 'autofill', 'organizer', 'screentime', 'health', 'welcome', 'guide', 'profiles', 'edge', 'licences', 'help', 'reader']);
+  'student', 'legal', 'shopping', 'shields', 'passwords', 'autofill', 'organizer', 'screentime', 'health', 'welcome', 'guide', 'profiles', 'edge', 'licences', 'help', 'reader', 'warning']);
 const ENGINES = { google: 'https://www.google.com/search?q=', brave: 'https://search.brave.com/search?q=' };
 function internalPage(input) {
   try { const u = new URL(input); return u.protocol === 'browser:' && INTERNAL_PAGES.has(u.hostname) ? u.hostname : null; }
@@ -47,11 +47,24 @@ function readerSource(url) {
     return source.protocol === 'http:' || source.protocol === 'https:' ? source.href : '';
   } catch { return ''; }
 }
+/**
+ * The address a browser://warning page is warning about, or ''. The address
+ * bar shows it (as Chrome does), marked dangerous rather than secure.
+ */
+function warningSource(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'browser:' || u.hostname !== 'warning') return '';
+    const source = new URL(u.searchParams.get('url') || '');
+    return source.protocol === 'http:' || source.protocol === 'https:' ? source.href : '';
+  } catch { return ''; }
+}
 function securityState(url, error) {
+  if (internalPage(url) === 'warning') return 'danger';
   if (error) return 'error';
   if (internalPage(url) || url === 'about:blank') return 'internal';
   if (url.startsWith('chrome-extension://')) return 'extension';
   if (url.startsWith('static-file://')) return 'file';
   return url.startsWith('https://') ? 'secure' : 'insecure';
 }
-module.exports = { ENGINES, INTERNAL_PAGES, internalPage, allowedURL, resolveInput, securityState, readerSource };
+module.exports = { ENGINES, INTERNAL_PAGES, internalPage, allowedURL, resolveInput, securityState, readerSource, warningSource };

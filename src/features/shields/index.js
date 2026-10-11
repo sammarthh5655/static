@@ -143,6 +143,15 @@ const TRACKING_PARAMS = [
   'msclkid', 'twclid', 'igshid', 'ttclid', 'yclid', 'rb_clickid',
   'mc_eid', 'mkt_tok', 'oly_anon_id', 'oly_enc_id', 'vero_id',
   '_openstat', 'icid', 'ncid', 'ref_src', 'ref_url',
+  // Click and e-mail campaign identifiers, from Brave's and uBlock's own
+  // query-stripping lists: each names one person's click, nothing a page needs.
+  'utm_source_platform', 'utm_creative_format', 'utm_marketing_tactic',
+  'mc_cid', '_hsenc', '_hsmi', '__hssc', '__hstc', '__hsfp', 'hsCtaTracking',
+  'srsltid', 'gad_source', 'gad_campaignid', 'epik', 'ScCid', 'li_fat_id', 'mibextid', 'igsh',
+  'rdt_cid', 'irclickid', 'ml_subscriber', 'ml_subscriber_hash', 'vgo_ee', 'wickedid', 'xtor', '_kx',
+  'oft_id', 'oft_k', 'oft_lk', 'oft_d', 'oft_c', 'oft_ck', 'oft_ids', 'oft_sk', 'ss_email_id',
+  'bsft_uid', 'bsft_clkid', 'guce_referrer', 'guce_referrer_sig', 'fb_action_ids', 'fb_action_types',
+  'fb_ref', 'fb_source', 'sms_click', 'sms_source', 'sms_uph', 'unicorn_click_id',
 ];
 
 /**
@@ -312,16 +321,21 @@ class Shields {
   /**
    * Decide what to do with a request.
    *
+   * `skipUpgrade` (from network protection): this http address has no
+   * working https, so it is not upgraded. `allowDocument`: you chose to open
+   * this page despite a Safe Browsing warning, so no list blocks the page
+   * itself (what it loads is still filtered).
+   *
    * @returns {{block?: boolean, redirect?: string}|null} null means allow
    */
-  inspect({ url, docHost, resourceType, tabId, method }) {
+  inspect({ url, docHost, resourceType, tabId, method, skipUpgrade = false, allowDocument = false }) {
     if (!this.ready) return null;
 
     // Never interfere with our own pages or extension resources.
     if (!/^https?:/i.test(url)) return null;
     if (!this.activeFor(docHost)) return null;
 
-    if (this.config.blockTrackers) {
+    if (this.config.blockTrackers && !(allowDocument && resourceType === 'mainFrame')) {
       const verdict = this.engine.match({ url, docHost, resourceType, method });
       if (verdict.blocked) {
         this.#count(tabId, docHost, url);
@@ -347,7 +361,7 @@ class Shields {
     // Upgrades and cleaning only make sense on a top-level navigation; doing
     // them to subresources risks breaking signed URLs and CORS.
     if (resourceType === 'mainFrame') {
-      const rewritten = this.rewrite(url);
+      const rewritten = this.rewrite(url, { upgrade: !skipUpgrade });
       if (rewritten && rewritten !== url) {
         // Record what actually changed rather than one generic event: an
         // https upgrade and a stripped parameter are different protections and
@@ -364,7 +378,7 @@ class Shields {
    * HTTPS upgrade and tracking-parameter removal for a top-level URL.
    * Returns the new URL, or the original when nothing changed.
    */
-  rewrite(url) {
+  rewrite(url, { upgrade = true } = {}) {
     let parsed;
     try { parsed = new URL(url); } catch { return url; }
     let changed = false;
@@ -378,7 +392,7 @@ class Shields {
       }
     }
 
-    if (this.config.upgradeHttps && parsed.protocol === 'http:') {
+    if (upgrade && this.config.upgradeHttps && parsed.protocol === 'http:') {
       // Localhost and raw IPs are left alone: they frequently have no TLS at
       // all, and upgrading them just breaks local development.
       const host = parsed.hostname;

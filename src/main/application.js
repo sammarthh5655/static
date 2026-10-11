@@ -8,7 +8,7 @@ const { THEMES, SURFACE_STYLES, RADIUS, forgePlanet, cssVariables } = require('.
 const { WIDGETS, BACKGROUNDS } = require('../shared/widgets');
 const { ACCELERATORS, ACCEL, matchAccelerator } = require('./shortcuts');
 const { JsonStore } = require('./storage');
-const { Settings, DEFAULTS } = require('../features/settings');
+const { Settings, DEFAULTS, NETWORK_KEYS } = require('../features/settings');
 const { Bookmarks } = require('../features/bookmarks');
 const { History } = require('../features/history');
 const { SearchSuggestions } = require('../features/suggest');
@@ -27,6 +27,7 @@ const { Focus } = require('../features/focus');
 const { Notes } = require('../features/notes');
 const { Safety } = require('../features/safety');
 const { Shields } = require('../features/shields');
+const { NetGuard } = require('../features/netguard');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Biometric } = require('../features/passwords/biometric');
 const { LocalFiles } = require('../features/tabs/local-files');
@@ -289,6 +290,8 @@ class BrowserApplication {
       const b = w.chrome.getBounds();
       anchor = { left: Number(a.left) + b.x, right: Number(a.right) + b.x, top: Number(a.top) + b.y, bottom: Number(a.bottom) + b.y, width: 0, height: 0 };
     }
+    // Back from the certificate card: the same place it was opened from.
+    if (!anchor && payload?.again === true && w.lastMenu?.anchor) anchor = w.lastMenu.anchor;
     const act = (channel, body = {}) => ({ channel, payload: body });
     const open = (url) => act('tabs:new', { url });
     const security = tab.state.security || 'internal';
@@ -309,12 +312,37 @@ class BrowserApplication {
       return true;
     }
 
+    // A Safe Browsing, certificate or HTTPS-only warning is on show: the card
+    // says so, about the address the warning is for.
+    if (security === 'danger') {
+      let warned = '';
+      try { warned = new URL(tab.state.displayUrl || '').hostname; } catch { /* no address */ }
+      // Which warning it is: the page's own address says (never trusted for
+      // more than these words; what the warning is about is kept in main).
+      let kind = '';
+      try { kind = new URL(tab.state.internalUrl || '').searchParams.get('kind') || ''; } catch { /* no warning address */ }
+      const why = {
+        threat: 'A threat list names this site, so Static stopped it opening. Nothing from it was loaded.',
+        suspicious: 'Its address imitates another site, so Static stopped it opening. Nothing from it was loaded.',
+        cert: 'Its certificate could not be verified, so nothing from it was loaded.',
+        nohttps: 'It has no secure version, so HTTPS-only mode asked before opening it.',
+      }[kind] || 'Static stopped this page opening. Nothing from it was loaded.';
+      items.push({ site: { title: warned || 'This page', subtitle: why, icon: 'warn', tone: 'danger', facts } });
+      items.push({ label: kind === 'cert' || kind === 'nohttps' ? 'Secure connection settings' : 'Safe Browsing settings', icon: kind === 'cert' || kind === 'nohttps' ? 'lock' : 'shield', action: open('browser://settings#privacy') });
+      w.showMenu(items, anchor || w.promptAnchor(), 'left');
+      return true;
+    }
+
     let host = '';
     try { host = new URL(tab.state.url || tab.state.displayUrl || '').hostname; } catch { /* no address */ }
     const site = host.replace(/^www\./, '');
     const subtitle = {
       secure: 'Connection is secure',
-      insecure: 'Not secure: others on your network can see this page',
+      // https whose certificate you went past (features/netguard) is
+      // encrypted, but to whom cannot be known.
+      insecure: /^https:/i.test(tab.state.url || '')
+        ? 'Not secure: this site’s certificate could not be verified'
+        : 'Not secure: others on your network can see this page',
       error: 'This page did not load',
     }[security] || '';
     const shieldsOn = this.shields.config.enabled !== false;
@@ -327,6 +355,15 @@ class BrowserApplication {
     facts.push({ label: 'Cookies', value: cookies.length ? cookies.length + (cookies.length === 1 ? ' cookie' : ' cookies') : 'None' });
     // Static grants these to no site at all (see #hardenSession).
     facts.push({ label: 'Camera, microphone & location', value: 'Blocked' });
+    // The certificate, insecure content, a warning you went past.
+    let guard = { facts: [], items: [] };
+    try {
+      // Never more than a moment's wait: a slow site's card opens without
+      // the row, and has it the next time.
+      await Promise.race([this.netguard?.ensureCertificate(tab, host), new Promise((r) => setTimeout(r, 1200))]);
+      guard = this.netguard?.siteCard(tab, host) || guard;
+    } catch (error) { console.error('[netguard] site card', error); }
+    facts.push(...guard.facts);
     items.push({ site: { title: site || 'This page', subtitle, icon: security === 'secure' ? 'lock' : 'warn', tone: security === 'secure' ? 'secure' : 'warn', facts } });
 
     if (!shieldsOn) {
@@ -341,6 +378,7 @@ class BrowserApplication {
       });
     }
     if (site) items.push({ label: 'Clear cookies and site data', icon: 'trash', hint: 'Signs you out of ' + site, action: act('site:clear') });
+    items.push(...guard.items);
     items.push({ separator: true });
     items.push({ label: 'Site settings', icon: 'gear', action: open('browser://settings#privacy') });
     w.showMenu(items, anchor || w.promptAnchor(), 'left');
@@ -531,7 +569,16 @@ class BrowserApplication {
     });
     // The last few page warnings and errors, in memory only, so a bug
     // report can include them if - and only if - the user ticks the box.
+    // Network protection: a load that failed (an https that does not work, a
+    // certificate refused), a page committed (history tidied after a
+    // warning), and the insecure content Chromium reports on the console.
+    contents.on('did-fail-load', (_event, code, _description, url, isMainFrame) => {
+      if (!isMainFrame) return;
+      try { this.netguard?.loadFailed(this.tabOf(contents), code, url); } catch (error) { console.error('[netguard] load failed', error); }
+    });
+    contents.on('did-navigate', () => this.netguard?.committed(contents));
     contents.on('console-message', (event) => {
+      this.netguard?.consoleMessage(contents, event.message);
       const level = typeof event.level === 'string' ? event.level : ['verbose', 'info', 'warning', 'error'][event.level] || 'info';
       if (level !== 'warning' && level !== 'error') return;
       this.consoleLog = [...(this.consoleLog || []).slice(-39), {
@@ -574,6 +621,7 @@ class BrowserApplication {
   async start() {
     if (this.incognito) this.#stockIncognitoLists();
     this.settings = new Settings(this.dir);
+    if (this.incognito) this.#inheritProtection();
     this.bookmarks = new Bookmarks(this.dir);
     this.history = new History(this.dir);
     // What the search engine guesses comes next, for the address bar and the
@@ -663,8 +711,13 @@ class BrowserApplication {
       },
     });
     this.#hardenSession();
+    // Network protection: Safe Browsing, HTTPS-only, certificates, Secure
+    // DNS, WebRTC, bounce tracking, AMP and the privacy signals. Its request
+    // decisions are made inside the one request filter below.
+    this.netguard = new NetGuard(this);
     this.#installRequestFilter();
     this.#installCookiePolicy();
+    this.netguard.start();
     // Fetch newer wallpapers in the background; never holds startup up.
     setTimeout(() => { wallpapers.refresh(); }, 6000);
     // Files dragged into Static: served by token, only the ones dropped.
@@ -793,15 +846,33 @@ class BrowserApplication {
           return;
         }
 
+        // Network protection next: a listed dangerous site, a bounce-tracking
+        // hop, AMP, HTTPS-only. Its warnings are pages of their own, shown
+        // in the tab that asked (see features/netguard).
+        const tab = this.#tabByWebContentsId(details.webContentsId);
+        let guard = null;
+        try { guard = this.netguard?.inspect(details, tab) || null; } catch (error) { console.error('[netguard]', error); }
+        if (guard?.cancel) return callback({ cancel: true });
+        if (guard?.redirect) return callback({ redirectURL: guard.redirect });
+
         const verdict = this.shields.inspect({
           url: details.url,
           docHost: this.#hostForRequest(details),
           resourceType: details.resourceType,
-          tabId: this.#tabIdForWebContents(details.webContentsId),
+          tabId: tab?.id ?? null,
           method: details.method,
+          skipUpgrade: !!guard?.skipUpgrade,
+          allowDocument: !!guard?.allowSite,
         });
         if (verdict?.block) return callback({ cancel: true });
-        if (verdict?.redirect) return callback({ redirectURL: verdict.redirect });
+        if (verdict?.redirect) {
+          // Shields' quiet https upgrade: if the site turns out to have no
+          // https, network protection opens it over http instead of failing.
+          if (details.resourceType === 'mainFrame' && /^http:/i.test(details.url) && /^https:/i.test(verdict.redirect)) {
+            this.netguard?.noteUpgrade(details.webContentsId, details.url, verdict.redirect);
+          }
+          return callback({ redirectURL: verdict.redirect });
+        }
         return callback({});
       });
   }
@@ -862,14 +933,17 @@ class BrowserApplication {
       } catch { return false; }
     };
 
+    // ONE onBeforeSendHeaders too, for the same reason: cookies here, and
+    // network protection's Global Privacy Control, Do Not Track and Strict
+    // referrers on every request.
     this.session.webRequest.onBeforeSendHeaders((details, callback) => {
-      if (!this.shields.config.blockThirdPartyCookies || !isThirdParty(details)) {
-        return callback({ requestHeaders: details.requestHeaders });
-      }
       const headers = { ...details.requestHeaders };
-      if (headers.Cookie || headers.cookie) this.shields.stats.record('cookies');
-      delete headers.Cookie;
-      delete headers.cookie;
+      try { this.netguard?.requestHeaders(details, headers); } catch (error) { console.error('[netguard] headers', error); }
+      if (this.shields.config.blockThirdPartyCookies && isThirdParty(details)) {
+        if (headers.Cookie || headers.cookie) this.shields.stats.record('cookies');
+        delete headers.Cookie;
+        delete headers.cookie;
+      }
       callback({ requestHeaders: headers });
     });
 
@@ -1356,6 +1430,9 @@ class BrowserApplication {
     });
   }
 
+  /** The same question-and-answer menu, for services (network protection's download warning). */
+  ask(items, options) { return this.#prompt(items, options); }
+
   #settlePrompt(id, value) {
     const entry = this.prompts.get(id);
     if (!entry) return;
@@ -1829,9 +1906,35 @@ class BrowserApplication {
       fs.cpSync(path.join(from, 'filter-lists'), path.join(this.dir, 'filter-lists'), { recursive: true });
       const shields = path.join(from, 'shields.json');
       if (fs.existsSync(shields)) fs.copyFileSync(shields, path.join(this.dir, 'shields.json'));
+      // Safe Browsing's threat lists and Brave's debounce rules too.
+      const threats = path.join(from, 'threat-lists');
+      if (fs.existsSync(threats)) fs.cpSync(threats, path.join(this.dir, 'threat-lists'), { recursive: true });
     } catch (error) {
       console.error('[incognito] could not copy filter lists', error.message);
     }
+  }
+
+  /**
+   * Incognito keeps the protections the normal profile chose - Safe
+   * Browsing, HTTPS-only, Secure DNS, tracking protection - rather than
+   * quietly falling back to the defaults. Read once, never written back.
+   */
+  #inheritProtection() {
+    const arg = process.argv.find((a) => a.startsWith('--incognito-lists='));
+    const from = arg ? arg.slice('--incognito-lists='.length) : '';
+    if (!from || !path.isAbsolute(from)) return;
+    try {
+      const saved = JSON.parse(fs.readFileSync(path.join(from, 'settings.json'), 'utf8').replace(/^\uFEFF/, ''));
+      const patch = {};
+      for (const key of NETWORK_KEYS) if (key in saved) patch[key] = saved[key];
+      // One at a time: a value this version does not accept is skipped, not fatal.
+      for (const [key, value] of Object.entries(patch)) {
+        try { this.settings.update({ [key]: value }); } catch { /* keeps the default */ }
+      }
+      // Lists dated as the normal profile's, so they are not fetched again at once.
+      const store = JSON.parse(fs.readFileSync(path.join(from, 'netguard.json'), 'utf8').replace(/^\uFEFF/, ''));
+      fs.writeFileSync(path.join(this.dir, 'netguard.json'), JSON.stringify({ threatsFetched: store.threatsFetched || 0, debounceFetched: store.debounceFetched || 0 }));
+    } catch { /* a profile with nothing to inherit */ }
   }
 
   /**
@@ -2167,6 +2270,7 @@ class BrowserApplication {
           lifetime: this.shields.stats.lifetime(),
         },
         safety: this.safety.state(),
+        netguard: this.netguard?.state() || null,
         resources: {
           gameMode: !!this.resources.config.gameMode,
           // Sample on demand if nothing has measured recently. Without this,
@@ -2294,6 +2398,7 @@ class BrowserApplication {
     const handlers = {
       ...this.productivity.handlers(),
       ...this.pageTools.handlers(),
+      ...this.netguard.handlers(),
       'app:state': (_sender, _payload, w) => this.state(w),
 
       'ui:layout': (_sender, _payload, w) => { w.layout(); return true; },
@@ -2903,6 +3008,8 @@ class BrowserApplication {
           win.layout(); // bookmarks bar toggle changes the chrome height
         }
         if (next.tabPreviews === false) this.thumbs.clear();
+        // Secure DNS and WebRTC live outside the request path: applied now.
+        this.netguard?.settingsChanged(payload);
         if (payload?.tabLayout === 'vertical') {
           w.notify('Tabs are down the side now: whole titles, tidy groups, more room for the page. Right-click the tab list to move them back.');
         }
@@ -2913,6 +3020,7 @@ class BrowserApplication {
       'settings:reset': (_sender, payload) => {
         const next = this.settings.reset(payload?.scope);
         for (const win of this.#open()) { win.applyTabLayout(); win.layout(); }
+        this.netguard?.settingsChanged(null);
         this.push();
         return next;
       },
@@ -3958,7 +4066,11 @@ class BrowserApplication {
         return true;
       },
       'shields:report': (_sender, _payload, w) => this.shields.tabReport(w.tabs?.activeId),
-      'shields:refresh': () => this.shields.refresh({ force: true }),
+      // The Safe Browsing lists are refreshed with the Shields lists.
+      'shields:refresh': () => {
+        this.netguard?.refreshLists({ force: true }).catch(() => {});
+        return this.shields.refresh({ force: true });
+      },
       // Real per-day, per-category counters for the privacy widget. Returns
       // `isEmpty` so the widget can show an empty state rather than zeros
       // that look like a broken blocker.
@@ -4736,6 +4848,7 @@ class BrowserApplication {
       }
     } catch { /* geometry is a convenience, never a reason to fail */ }
     this.productivity?.flush();
+    this.netguard?.flush();
     this.history.flush();
     this.downloads.flush();
     this.chats.flush();

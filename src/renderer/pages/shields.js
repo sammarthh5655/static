@@ -233,6 +233,9 @@ function tiles() {
     tile('cookies', t.cookies, 'Third-party cookies', 'cookies', 'close'),
     tile('params', t.params, 'Tracking links cleaned', 'params', 'sparkle'),
     tile('https', t.https, 'Upgraded to HTTPS', 'https', 'check'),
+    // Network protection (features/netguard), counted as each happened.
+    tile('hops', (t.bounce || 0) + (t.amp || 0), 'Tracking hops skipped', 'hops', 'forward'),
+    tile('threats', (t.phishing || 0) + (t.dangerous || 0), 'Dangerous sites stopped', 'threats', 'warn'),
     tile('cosmetic', t.cosmetic, 'Pages de-cluttered', 'cosmetic', 'grid'),
     tile('bytes', t.bytesSaved, 'Data saved', 'saved', 'download', bytes, 'estimate'),
     tile('time', t.msSaved, 'Time saved', 'saved', 'clock', duration, 'estimate'),

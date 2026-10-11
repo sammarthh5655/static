@@ -33,6 +33,9 @@ const CATEGORIES = [
   'videoAds',       // video ad payloads stripped (YouTube)
   'scriptlet',      // pages where filter-list scriptlets were injected
   'redirect',       // requests answered with a harmless stand-in resource
+  'dangerous',      // scripts, frames and files from a Safe Browsing threat list, stopped
+  'bounce',         // bounce-tracking hops skipped: the tracker never saw the click
+  'amp',            // AMP pages skipped for the publisher's own page
 ];
 
 /** How many days of history to keep. */

@@ -545,3 +545,36 @@ body.settings-page { padding: 0; display: grid; grid-template-columns: 276px min
 @media (prefers-reduced-motion: reduce) {
   .ws-stage .wp-slide.is-on { animation: none; }
 }
+
+/* ---- block: network protection (settings-network.js) -----------------------
+   Safe Browsing and tracking protection levels are tiles: the check-tile of
+   Clear browsing data, holding a radio rather than a switch. */
+.settings-page .net-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(156px, 100%), 1fr)); gap: 10px; padding: 20px 22px 18px; border-bottom: 1px solid var(--border-soft); }
+.net-tile { align-items: flex-start; min-height: 96px; }
+.net-tile > span { gap: 5px; }
+.net-tile strong { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.net-badge { font-style: normal; font-size: 9.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.settings-page input[type=radio].net-radio {
+  appearance: none; flex: none; width: 18px; height: 18px; margin: 1px 0 0; border-radius: 50%;
+  border: 1.5px solid var(--border); background: color-mix(in srgb, var(--surface) 60%, transparent);
+  display: grid; place-items: center; cursor: pointer;
+  transition: border-color var(--motion-base) var(--ease), background var(--motion-base) var(--ease);
+}
+.settings-page input[type=radio].net-radio::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); transform: scale(0); transition: transform var(--motion-base) var(--ease); }
+.settings-page input[type=radio].net-radio:checked { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.settings-page input[type=radio].net-radio:checked::after { transform: scale(1); }
+.settings-page input[type=radio].net-radio:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.check-tile:has(.net-radio:focus-visible) { border-color: var(--accent); }
+/* Custom is a result, not a choice: it lights up when the switches say so. */
+.net-tile-custom { cursor: default; opacity: .62; }
+.net-tile-custom.is-active { opacity: 1; }
+.net-tile-custom .net-radio { cursor: default; }
+/* Safe Browsing off is a real loss of protection, so it is said plainly. */
+.net-alert { margin: 0 22px 16px; padding: 11px 14px; border-radius: var(--radius); font-size: 11.5px; line-height: 1.55; color: var(--text); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.net-alert::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--danger); vertical-align: 1px; box-shadow: 0 0 10px var(--danger); }
+.net-tile:has(input[value="off"]:checked) { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: linear-gradient(110deg, color-mix(in srgb, var(--danger) 10%, transparent), transparent); }
+.net-tile:has(input[value="off"]:checked) .net-radio { border-color: var(--danger); }
+.net-tile:has(input[value="off"]:checked) .net-radio::after { background: var(--danger); }
+.settings-page .hint.net-error { color: var(--danger); }
+.settings-page #net-dnsCustom { font-family: var(--font-mono, ui-monospace, monospace); font-size: 11.5px; }
+/* ---- end block: network protection ----------------------------------------- */

@@ -30,6 +30,9 @@
 .tone-cosmetic { --tone: var(--tone-cosmetic); }
 .tone-saved { --tone: var(--tone-saved); }
 .tone-other { --tone: var(--tone-other); }
+/* Network protection's two tiles: hops skipped, dangerous sites stopped. */
+.tone-hops { --tone: color-mix(in srgb, var(--accent) 50%, var(--success)); }
+.tone-threats { --tone: var(--danger); }
 
 .sh-dot {
   display: inline-block;

@@ -52,6 +52,8 @@ module.exports = {
     'workspace:recent-page', 'workspace:read-page',
     'shot:menu', 'shot:take', 'shot:region', 'shot:copy', 'shot:save', 'shot:reveal',
     'qr:show', 'reader:toggle', 'reader:article', 'reader:leave',
+    'netguard:state', 'netguard:level', 'netguard:forget', 'netguard:refresh',
+    'netguard:interstitial', 'netguard:back', 'netguard:proceed', 'site:certificate',
   ],
   events: ['wallpapers:changed', 'find:result', 'find:focus', 'app:state', 'ui:focus-address', 'ui:notice', 'ui:open-menu', 'ui:render-menu', 'ui:menu-closed', 'ui:menu-focus', 'ui:tab-preview', 'chat:changed', 'resources:changed', 'focus:changed', 'notes:changed', 'safety:changed', 'shields:changed', 'passwords:changed', 'organizer:changed', 'screentime:changed'],
 };

@@ -29,6 +29,10 @@ if (testFlag) {
   // An off-screen window is still heard: the ad-blocking probes play real
   // YouTube videos, and that sound reached whoever was at the computer.
   app.commandLine.appendSwitch('mute-audio');
+  // Probes stand up local sites under made-up public-looking names (a
+  // dangerous site, a site with no https) so the protections that leave
+  // this computer's own addresses alone can be tested for real.
+  app.commandLine.appendSwitch('host-resolver-rules', 'MAP *.probe.test 127.0.0.1');
 }
 
 // Incognito is its own process with its own throwaway data folder: nothing

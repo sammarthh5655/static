@@ -7,7 +7,8 @@ class Downloads {
     this.items = new Map();
     this.changed = changed;
     this.store.data.forEach(d => { if (d.state === 'progressing') d.state = 'interrupted'; });
-    session.on('will-download', (_event, item) => this.track(item));
+    // A download Safe Browsing stopped before it began is not one (features/netguard).
+    session.on('will-download', (event, item) => { if (!event.defaultPrevented) this.track(item); });
   }
   track(item) {
     const record = { id: randomUUID(), name: item.getFilename(), url: item.getURL(), path: '', received: 0, total: item.getTotalBytes(), state: 'progressing', startedAt: Date.now() };

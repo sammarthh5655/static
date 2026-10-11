@@ -4,6 +4,9 @@ const { PAGE_SCRIPT, isYouTubeHost } = require('../features/shields/youtube');
 // Pre-built at build time: a sandboxed preload cannot read resources.json,
 // so resolving the scriptlets here would silently produce nothing.
 const BRAVE_YOUTUBE = require('../features/shields/brave/youtube-bundle');
+// Plain JavaScript with no Node or Electron, bundled in (scripts/build.cjs).
+const { signalsScript, cappedReferrer, ampCanonical } = require('../features/netguard/page-signals');
+const { siteOf } = require('../features/netguard/site');
 
 /**
  * Preload for TAB content. This runs inside every tab, including untrusted
@@ -14,7 +17,14 @@ const BRAVE_YOUTUBE = require('../features/shields/brave/youtube-bundle');
  * `renderer/pages/`. Only those get the bridge. Main independently validates
  * the sender on every call, so a page that spoofs its location still fails.
  */
-const isInternalPage = location.protocol === 'file:' &&
+/**
+ * This preload runs in every frame of a tab, not just the top one, so that
+ * the privacy signals below reach iframes too. Every other part of it is for
+ * the top frame only, as it always was: `top` is what keeps them there.
+ */
+const top = process.isMainFrame === true;
+
+const isInternalPage = top && location.protocol === 'file:' &&
   /[\\/]renderer[\\/]pages[\\/][a-z]+\.html$/.test(location.pathname);
 
 if (isInternalPage) {
@@ -38,6 +48,38 @@ if (isInternalPage) {
 }
 
 /**
+ * Network protection's privacy signals, in the PAGE's own world of every
+ * frame, before any of the page's scripts run: navigator.globalPrivacyControl
+ * and navigator.doNotTrack as Settings has them, and document.referrer capped
+ * to an origin when Strict referrers are on (the Referer header itself is
+ * rewritten in main). Main answers which apply; it decides nothing else here.
+ */
+if (!isInternalPage && /^https?:$/.test(location.protocol)) {
+  let signals = null;
+  try { signals = ipcRenderer.sendSync('netguard:signals'); } catch { /* no answer, no signals */ }
+  if (signals) {
+    const script = signalsScript({
+      gpc: signals.gpc === true,
+      dnt: signals.dnt === true,
+      referrer: signals.strictReferrer === true ? cappedReferrer(document.referrer, location.href, siteOf) : null,
+    });
+    if (script) {
+      try { webFrame.executeJavaScript(script); } catch { /* the headers are still sent */ }
+    }
+  }
+  // An AMP page a site hosts itself names its real page; main decides
+  // whether to go there (AMP skipping on, a real tab, not a loop).
+  if (top) {
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        const canonical = ampCanonical(document, location.href);
+        if (canonical) ipcRenderer.send('netguard:amp', canonical);
+      } catch { /* an odd page stays as it is */ }
+    }, { once: true });
+  }
+}
+
+/**
  * YouTube video-ad removal, injected into the PAGE's own world.
  *
  * Timing is the whole point. This preload runs at document-start, before any
@@ -53,7 +95,7 @@ if (isInternalPage) {
  * Main decides whether this should run at all (shields on, video-ad blocking
  * on, site not excepted) and sets the flag below before the page loads.
  */
-if (!isInternalPage && isYouTubeHost(location.hostname)) {
+if (top && !isInternalPage && isYouTubeHost(location.hostname)) {
   let enabled = false;
   try {
     // Synchronous on purpose. The accessor this installs must be in place
@@ -85,7 +127,7 @@ if (!isInternalPage && isYouTubeHost(location.hostname)) {
 }
 
 // Autofill and password saving, on web pages only.
-if (!isInternalPage && /^https?:$/.test(location.protocol)) {
+if (top && !isInternalPage && /^https?:$/.test(location.protocol)) {
   try { require('./autofill'); } catch { /* a page that breaks the helper must not break the page */ }
   // Passkeys and the Credential Management API, before the page's own scripts.
   try { require('./credentials').start(); } catch { /* the browser's own handling still works */ }
@@ -98,7 +140,7 @@ if (!isInternalPage && /^https?:$/.test(location.protocol)) {
  * scriptlet that stubs an ad library must be in place before the page's own
  * first script. Main decides what applies (Shields on, site not excepted).
  */
-if (!isInternalPage && /^https?:$/.test(location.protocol)) {
+if (top && !isInternalPage && /^https?:$/.test(location.protocol)) {
   let rules = null;
   try { rules = ipcRenderer.sendSync('shields:page-rules', location.hostname); } catch { /* main decides; no answer, no rules */ }
   if (rules && rules.scriptlets) {

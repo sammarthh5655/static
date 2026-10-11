@@ -1,7 +1,7 @@
 const { WebContentsView } = require('electron');
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
-const { resolveInput, securityState, internalPage, readerSource } = require('../../shared/urls');
+const { resolveInput, securityState, internalPage, readerSource, warningSource } = require('../../shared/urls');
 const { pathToFileURL } = require('node:url');
 const { tidyOrder } = require('./order');
 
@@ -42,7 +42,10 @@ function pageFromFile(url) {
  *   was born in.
  */
 class Tabs {
-  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, onSelected, extensions, getEngine }) {
+  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, onSelected, extensions, getEngine, securityOf }) {
+    // (url) => 'insecure' for an https page whose certificate you chose to
+    // go past (features/netguard): it must not wear the padlock.
+    this.securityOf = securityOf;
     this.window = window;
     this.session = session;
     this.preload = preload;
@@ -240,6 +243,12 @@ class Tabs {
         // electron-chrome-extensions prepends its own preload on top of this
         // one; ours only exposes the internal-page bridge.
         preload: this.preload,
+        // The preload runs in every frame, not just the top one, so privacy
+        // signals (Global Privacy Control, Do Not Track) reach iframes too.
+        // Despite the name this gives frames no Node: with the sandbox on and
+        // nodeIntegration off, all it does is run the sandboxed preload there.
+        // Everything else in the preload checks process.isMainFrame.
+        nodeIntegrationInSubFrames: true,
         session: this.session,
         // Test runs are off-screen; a page going fullscreen must not drag the
         // window onto the user's monitor. Layout still reacts to the request.
@@ -325,10 +334,14 @@ class Tabs {
       }
       // Internal pages keep showing their browser:// URL, never the file path;
       // reading view shows the article's own address (see readerSource).
-      tab.state.displayUrl = readerSource(tab.state.internalUrl) || tab.state.internalUrl || tab.state.url;
+      // A Safe Browsing warning shows the address it is about, marked
+      // dangerous - never as the padlocked page it stopped.
+      const warned = warningSource(tab.state.internalUrl);
+      tab.state.displayUrl = readerSource(tab.state.internalUrl) || warned || tab.state.internalUrl || tab.state.url;
       tab.state.canGoBack = wc.navigationHistory.canGoBack();
       tab.state.canGoForward = wc.navigationHistory.canGoForward();
-      tab.state.security = securityState(tab.state.displayUrl, tab.state.loadError);
+      tab.state.security = securityState(warned ? tab.state.internalUrl : tab.state.displayUrl, tab.state.loadError);
+      if (tab.state.security === 'secure' && owner().securityOf?.(tab.state.url) === 'insecure') tab.state.security = 'insecure';
       owner().onChange();
     };
 
@@ -417,7 +430,7 @@ class Tabs {
     const tab = this.tabs.get(id);
     if (!tab) return;
     const target = resolveInput(input, this.getEngine?.() || 'google');
-    tab.state.displayUrl = readerSource(target) || target;
+    tab.state.displayUrl = readerSource(target) || warningSource(target) || target;
     tab.state.security = securityState(target);
     const page = internalPage(target);
     if (page) {

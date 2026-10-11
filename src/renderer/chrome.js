@@ -955,13 +955,14 @@ function renderToolbar() {
     el.address.value = displayUrl(active.url);
   }
 
-  const marks = { secure: 'lock', insecure: 'warn', error: 'warn', internal: 'gear', extension: 'puzzle', file: 'doc' };
+  const marks = { secure: 'lock', insecure: 'warn', error: 'warn', danger: 'warn', internal: 'gear', extension: 'puzzle', file: 'doc' };
   el.security.replaceChildren(window.ui.icon(marks[active.security] || 'search', { size: 14 }));
   el.security.className = 'security ' + (active.security || '');
   el.security.title = ({
     secure: 'Connection is secure',
     insecure: 'Not secure',
     error: 'Page failed to load',
+    danger: 'Static stopped this page opening: see the warning',
     internal: 'Static page',
     extension: 'Extension page',
     file: 'A file from this computer, opened only because you dragged it in',

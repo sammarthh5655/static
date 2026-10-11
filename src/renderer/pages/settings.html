@@ -292,11 +292,150 @@
           <button id="sh-open">Open Shields</button>
         </div>
       </div>
-    </div><h2>Safety</h2><div class="card">
+    </div>
+    <!-- ===== block: network protection =========================================
+         Safe Browsing, secure connections and tracking protection
+         (features/netguard). Logic in settings-network.js, styles in the
+         network protection block of settings.css. -->
+    <h2>Safe Browsing</h2><div class="card net-card" id="net-safe">
+      <div class="net-tiles" role="radiogroup" aria-label="Safe Browsing level">
+        <label class="check-tile net-tile" data-keywords="safe browsing off"><span><strong>Off</strong><small>No warnings about dangerous sites or files.</small></span><input type="radio" name="net-safe" value="off" class="net-radio"></label>
+        <label class="check-tile net-tile"><span><strong>Standard <em class="net-badge">Recommended</em></strong><small>Warns before known malware, phishing and scam sites, and fake look-alike addresses.</small></span><input type="radio" name="net-safe" value="standard" class="net-radio"></label>
+        <label class="check-tile net-tile"><span><strong>Enhanced</strong><small>Also checks downloads, warns before programs from sites you have never visited, and looks harder for fakes.</small></span><input type="radio" name="net-safe" value="enhanced" class="net-radio"></label>
+      </div>
+      <p class="net-alert" id="net-safe-off" hidden>Safe Browsing is off. Static will not warn you before a known malware or phishing site, or before a dangerous download.</p>
+      <div class="field" data-keywords="safe browsing malware phishing badware urlhaus threat lists blocklist">
+        <div>
+          <label>Threat lists</label>
+          <div class="hint" id="net-lists">URLhaus, Phishing URL Blocklist and Badware risks.</div>
+          <div class="hint">Downloaded whole and matched on this computer: nothing about where you browse is sent anywhere.</div>
+        </div>
+        <div class="control right"><button id="net-lists-refresh">Update now</button></div>
+      </div>
+      <div class="field" id="net-allowed-field" data-keywords="safe browsing exceptions continue anyway allowed sites">
+        <div>
+          <label>Sites you opened anyway</label>
+          <div class="hint" id="net-allowed">None. Static warns about every listed site.</div>
+        </div>
+        <div class="control right"><button id="net-forget">Warn me again</button></div>
+      </div>
+    </div>
+    <h2>Secure connections</h2><div class="card net-card">
+      <div class="field" data-keywords="https only https-only ssl tls encrypted secure connection http">
+        <div>
+          <label for="net-httpsOnly">HTTPS-only mode</label>
+          <div class="hint">Opens every site over an encrypted connection, and asks first when a site has none.</div>
+        </div>
+        <div class="control right"><input id="net-httpsOnly" type="checkbox" class="toggle" role="switch"></div>
+      </div>
+      <div class="field" data-keywords="secure dns doh dns over https resolver cloudflare google quad9 nextdns">
+        <div>
+          <label for="net-secureDns">Secure DNS</label>
+          <div class="hint" id="net-dns-hint">Looks up site addresses over an encrypted connection.</div>
+        </div>
+        <div class="control right">
+          <select id="net-secureDns">
+            <option value="automatic">Automatic</option>
+            <option value="secure">Always encrypted</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="net-provider-field" data-keywords="secure dns doh provider cloudflare google quad9 nextdns custom" hidden>
+        <div>
+          <label for="net-dnsProvider">Provider</label>
+          <div class="hint">Every address you look up goes to this provider, encrypted. If it cannot be reached, pages do not load.</div>
+        </div>
+        <div class="control right">
+          <select id="net-dnsProvider">
+            <option value="cloudflare">Cloudflare</option>
+            <option value="google">Google</option>
+            <option value="quad9">Quad9</option>
+            <option value="nextdns">NextDNS</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="net-custom-field" data-keywords="secure dns doh custom template" hidden>
+        <div>
+          <label for="net-dnsCustom">Custom provider</label>
+          <div class="hint" id="net-custom-hint">A DNS-over-HTTPS address, such as https://dns.example.com/dns-query</div>
+        </div>
+        <div class="control right"><input id="net-dnsCustom" type="text" spellcheck="false" autocomplete="off" placeholder="https://…/dns-query"></div>
+      </div>
+      <div class="field" data-keywords="certificate certificates padlock ssl tls issuer fingerprint">
+        <div>
+          <label>Certificates</label>
+          <div class="hint">Checked on every connection. To see who issued a site's certificate and until when, click the padlock at the start of the address bar.</div>
+        </div>
+      </div>
+    </div>
+    <h2>Tracking protection</h2><div class="card net-card">
+      <div class="net-tiles" role="radiogroup" aria-label="Tracking protection level">
+        <label class="check-tile net-tile"><span><strong>Standard <em class="net-badge">Recommended</em></strong><small id="net-level-standard">Blocks trackers without breaking sites.</small></span><input type="radio" name="net-level" value="standard" class="net-radio"></label>
+        <label class="check-tile net-tile"><span><strong>Strict</strong><small id="net-level-strict">Hides more, at the cost of some video calls.</small></span><input type="radio" name="net-level" value="strict" class="net-radio"></label>
+        <label class="check-tile net-tile net-tile-custom"><span><strong>Custom</strong><small>Your own mix of the switches below and in Shields.</small></span><input type="radio" name="net-level" value="custom" class="net-radio" disabled></label>
+      </div>
+      <div class="field" data-keywords="bounce tracking redirect debounce link tracker google url facebook">
+        <div>
+          <label for="net-bounceTracking">Skip bounce trackers</label>
+          <div class="hint">Goes straight to where a link points, past redirect pages that record your click, like google.com/url and l.facebook.com.</div>
+        </div>
+        <div class="control right"><input id="net-bounceTracking" type="checkbox" class="toggle" role="switch"></div>
+      </div>
+      <div class="field" data-keywords="amp accelerated mobile pages google amp canonical">
+        <div>
+          <label for="net-ampSkip">Skip AMP pages</label>
+          <div class="hint">Opens the publisher's own page instead of Google's AMP copy of it.</div>
+        </div>
+        <div class="control right"><input id="net-ampSkip" type="checkbox" class="toggle" role="switch"></div>
+      </div>
+      <div class="field" data-keywords="gpc global privacy control do not sell share opt out ccpa">
+        <div>
+          <label for="net-gpc">Global Privacy Control</label>
+          <div class="hint">Tells every site not to sell or share your data. In California, Colorado and other places, sites must respect it.</div>
+        </div>
+        <div class="control right"><input id="net-gpc" type="checkbox" class="toggle" role="switch"></div>
+      </div>
+      <div class="field" data-keywords="do not track dnt">
+        <div>
+          <label for="net-doNotTrack">Do Not Track</label>
+          <div class="hint">An older request that most sites ignore. It also makes you a little easier to tell apart, so it is off unless you want it.</div>
+        </div>
+        <div class="control right"><input id="net-doNotTrack" type="checkbox" class="toggle" role="switch"></div>
+      </div>
+      <div class="field" data-keywords="referrer referer header origin">
+        <div>
+          <label for="net-referrerPolicy">Referrers</label>
+          <div class="hint">Strict: other sites only learn which site you came from, never the page.</div>
+        </div>
+        <div class="control right">
+          <select id="net-referrerPolicy">
+            <option value="standard">Standard</option>
+            <option value="strict">Strict</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" data-keywords="webrtc ip leak vpn proxy video call local address">
+        <div>
+          <label for="net-webrtcPolicy">WebRTC IP protection</label>
+          <div class="hint" id="net-webrtc-hint">Stops video-call technology revealing your local network address.</div>
+        </div>
+        <div class="control right">
+          <select id="net-webrtcPolicy">
+            <option value="standard">Standard</option>
+            <option value="strict">Strict</option>
+            <option value="off">Off</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <!-- ===== end block: network protection ===================================== -->
+    <h2>Fake-site check</h2><div class="card">
       <div class="field">
         <div>
           <label for="sf-enabled">Warn about fake and risky sites</label>
-          <div class="hint">Checks addresses that imitate a known brand.</div>
+          <div class="hint">Checks addresses that imitate a known brand. Part of Safe Browsing Standard and Enhanced.</div>
         </div>
         <div class="control right"><input id="sf-enabled" type="checkbox" class="toggle" role="switch"></div>
       </div>
@@ -409,6 +548,7 @@
 <script src="wallpaper-picker.js"></script>
 <script src="settings-navigation.js"></script>
 <script src="settings.js"></script>
+<script src="settings-network.js"></script>
 <script src="settings-profiles.js"></script>
 <script src="settings-forge.js"></script>
 <script src="settings-wallpaper.js"></script>

@@ -31,6 +31,7 @@ const RUNS = {
   windowsedge: [[], []],
   splitdrag: [[], ['--incognito']],
   siteinfo: [[], ['--incognito']],
+  netprivacy: [[], ['--incognito']],
 };
 
 const args = process.argv.slice(2);

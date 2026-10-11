@@ -1,4 +1,6 @@
+const { domainToUnicode } = require('node:url');
 const { JsonStore } = require('../../main/storage');
+const { siteOf } = require('../netguard/site');
 
 /**
  * Fake website and phishing warnings.
@@ -33,7 +35,43 @@ const LEGITIMATE = new Set([
   'binance.com', 'coinbase.com', 'metamask.io', 'chase.com', 'wellsfargo.com',
   'hdfcbank.com', 'icicibank.com', 'onlinesbi.sbi', 'sbi.co.in', 'axisbank.com',
   'paytm.com', 'phonepe.com', 'flipkart.com', 'irctc.co.in', 'uidai.gov.in',
+  // The same companies' other real addresses that carry the brand's name as
+  // a word. Safe Browsing (features/netguard) stops a page this check flags,
+  // so these must never trip it.
+  'google-analytics.com', 'googlemail.com', 'youtube-nocookie.com', 'facebookmail.com',
+  'icloud-content.com', 'apple-dns.net', 'microsoftonline.com', 'microsoft365.com',
+  'paypal-community.com', 'amazon-adsystem.com', 'amazonpay.in', 'adobelogin.com',
+  'discordapp.com', 'discordapp.net', 'office365.com',
 ]);
+
+/**
+ * Words a fake site glues onto a brand's name to look official:
+ * paypal-login, applesupport, secure-chase. A brand inside another word
+ * (purchase, pineapple, amazonaws) is not imitation.
+ */
+const BAIT_WORDS = new Set([
+  'login', 'logon', 'signin', 'sign', 'secure', 'security', 'verify', 'verification', 'account', 'accounts',
+  'support', 'help', 'helpdesk', 'update', 'billing', 'wallet', 'service', 'services', 'id', 'auth',
+  'online', 'web', 'mail', 'pay', 'payment', 'team', 'official', 'alert',
+  'alerts', 'confirm', 'recovery', 'unlock', 'gift', 'prize', 'promo', 'bonus', 'airdrop', 'claim',
+  'reward', 'rewards', 'refund', 'app', 'apps', 'portal', 'access', 'safe',
+]);
+
+/**
+ * Letters drawn alike in other alphabets (Cyrillic and Greek mostly), as the
+ * Latin letter they pass for. An internationalised address spelled with
+ * these to read as a brand is the classic homograph attack.
+ */
+const HOMOGLYPHS = {
+  'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c', 'у': 'y', 'х': 'x', 'і': 'i', 'ј': 'j',
+  'ԁ': 'd', 'ɡ': 'g', 'һ': 'h', 'ӏ': 'l', 'ո': 'n', 'ս': 'u', 'ѕ': 's', 'ԛ': 'q', 'ԝ': 'w', 'ᴠ': 'v',
+  'ο': 'o', 'α': 'a', 'ν': 'v', 'ι': 'i', 'κ': 'k', 'τ': 't', 'ρ': 'p', 'ε': 'e', 'υ': 'u',
+  'ı': 'i', 'ł': 'l', 'ö': 'o', 'ó': 'o', 'ò': 'o', 'ô': 'o', 'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a',
+  'é': 'e', 'è': 'e', 'ë': 'e', 'í': 'i', 'ì': 'i', 'ï': 'i', 'ú': 'u', 'ù': 'u', 'ü': 'u', 'ç': 'c', 'ñ': 'n',
+};
+
+/** Letters a quick reader takes for one another: paypai, rnicrosoft. */
+const SIMILAR = new Set(['il', 'li', 'ij', 'ji', 'lj', 'jl', 'uv', 'vu', 'nm', 'mn', 'oq', 'qo', 'gq', 'qg']);
 
 /** TLDs disproportionately used for throwaway phishing hosts. */
 const RISKY_TLDS = new Set([
@@ -109,24 +147,36 @@ class Safety {
     if (LEGITIMATE.has(bare)) return result;
     if ([...LEGITIMATE].some((good) => bare.endsWith('.' + good))) return result;
 
-    const add = (points, title, detail) => {
+    // `imitates` marks the signals that on their own say "imitation": a
+    // brand's name or spelling, or an address built to disguise itself. The
+    // rest (an odd ending, a long name) only ever add weight, so Safe
+    // Browsing never stops a page for its shape alone.
+    const add = (points, title, detail, primary = false) => {
       result.score += points;
       result.reasons.push({ title, detail, points });
+      if (primary) result.imitates = true;
     };
 
     // --- punycode / homograph -------------------------------------------
-    if (host.startsWith('xn--') || host.includes('.xn--')) {
+    const idn = host.startsWith('xn--') || host.includes('.xn--');
+    if (idn) {
       add(45, 'Internationalised domain name',
         'This address uses non-Latin characters that can be drawn to look like ordinary letters.');
     }
 
     // --- brand imitation --------------------------------------------------
+    // The site is the registrable domain (amazon.co.uk, not co.uk). An
+    // internationalised address is read as the Latin letters it passes for,
+    // so apple.com spelled with a Cyrillic "a" is seen for what it imitates.
+    const shown = idn ? skeleton(domainToUnicode(bare) || bare) : bare;
+    const homograph = idn && shown !== bare;
+    const registrable = siteOf(shown);
     const labels = bare.split('.');
-    const registrable = labels.slice(-2).join('.');
-    const brandHit = this.#brandImitation(bare, registrable);
+    const brandHit = this.#brandImitation(shown, registrable, homograph);
     if (brandHit) {
-      add(brandHit.points, 'Looks like ' + brandHit.brand,
-        brandHit.detail);
+      add(brandHit.points, 'Looks like ' + brandHit.brand, homograph
+        ? `This address is spelled with letters from another alphabet so that it reads as "${registrable}".`
+        : brandHit.detail, true);
     }
 
     // --- structural signals ------------------------------------------------
@@ -146,12 +196,13 @@ class Safety {
         'Long chains like login.secure.account.example.com are used to push the real domain out of view.');
     }
 
-    if (bare.length > 40) {
+    if (shown.length > 40) {
       add(12, 'Very long address',
         'Long addresses make it hard to see which part is the real domain.');
     }
 
-    const hyphens = (bare.match(/-/g) || []).length;
+    // Counted on the address as it reads: punycode's own xn-- is not one.
+    const hyphens = (shown.match(/-/g) || []).length;
     if (hyphens >= 3) {
       add(15, 'Many hyphens in the address',
         'Repeated hyphens are typical of generated scam domains.');
@@ -163,8 +214,8 @@ class Safety {
       if (parsed.protocol === 'http:') {
         add(40, 'Sign-in page without encryption',
           'This page asks for account details over an unencrypted connection, so anything typed can be read in transit.');
-      } else if (result.score > 0) {
-        // Only counts as a signal when something else is already suspicious;
+      } else if (result.score >= 45) {
+        // Only counts as a signal when the address is already suspicious;
         // on its own, a /login path is completely ordinary.
         add(15, 'Sign-in page on a suspicious address',
           'The address already looks irregular and this page is asking for credentials.');
@@ -173,7 +224,7 @@ class Safety {
 
     if (parsed.username || parsed.password) {
       add(40, 'Credentials embedded in the address',
-        'An address of the form user@host is a classic way to disguise where a link really goes.');
+        'An address of the form user@host is a classic way to disguise where a link really goes.', true);
     }
 
     result.score = Math.min(100, result.score);
@@ -187,20 +238,40 @@ class Safety {
   /**
    * Does this domain imitate a protected brand without being it?
    *
-   * Two patterns matter: the brand appearing as a label in a domain that is
-   * not the brand's own, and a near-miss spelling of the brand.
+   * Two patterns matter: the brand's name as a word of an address that is
+   * not the brand's (paypal-login.com, secure.applesupport.net), and a
+   * near-miss spelling of the brand as the site's own name (paypa1.com).
+   * A brand inside an ordinary word - purchase, pineapple, amazonaws - is
+   * not imitation, and neither is a real word one letter from a brand
+   * (finance, stream, email): Safe Browsing stops pages this check flags,
+   * so a false alarm on an ordinary site costs more than a miss.
+   *
+   * `homograph`: the address was read from look-alike letters, so even the
+   * brand's own name is an imitation - the real site is never spelled so.
    */
-  #brandImitation(bare, registrable) {
-    const labels = bare.split('.');
+  #brandImitation(bare, registrable, homograph = false) {
     const registrableName = registrable.split('.')[0];
+    const suffix = registrable.slice(registrableName.length);
+    const words = bare.slice(0, bare.length - suffix.length).split(/[.-]/).filter(Boolean);
 
     for (const brand of PROTECTED_BRANDS) {
-      // The brand name appears somewhere, but this is not the brand's domain.
-      if (bare.includes(brand)) {
-        if (registrableName === brand) continue; // e.g. amazon.de - fine
+      if (registrableName === brand) {
+        if (!homograph) continue; // amazon.de, amazon.co.uk: the brand's own
+        return { brand, points: 55, detail: '' };
+      }
+      // The brand glued to a bait word (paypallogin, secure-chase), or beside
+      // one or its own ending (paypal.com.account-check.ru): built to deceive.
+      // The brand alone as part of another site's address (as in
+      // apple.stackexchange.com) is only a hint.
+      const glued = words.some((word) => word !== brand &&
+        ((word.startsWith(brand) && BAIT_WORDS.has(word.slice(brand.length))) ||
+         (word.endsWith(brand) && BAIT_WORDS.has(word.slice(0, -brand.length)))));
+      const alone = words.indexOf(brand);
+      const baited = alone !== -1 && words.some((word, i) => i !== alone && (BAIT_WORDS.has(word) || (i === alone + 1 && ['com', 'net', 'org', 'co'].includes(word))));
+      if (glued || alone !== -1) {
         return {
           brand,
-          points: 50,
+          points: glued || baited ? 60 : 35,
           detail: `The name "${brand}" appears in this address, but the actual site is "${registrable}", which does not belong to them.`,
         };
       }
@@ -260,20 +331,40 @@ class Safety {
 /**
  * Is `candidate` a deliberate near-miss of `brand`?
  *
- * Confusable substitutions are normalised first (paypa1 -> paypal), then edit
- * distance catches single insertions, deletions and transpositions. A distance
- * of 1 on a short word is too loose, so the threshold scales with length.
+ * Only the slips a fake is made of: confusable characters (paypa1,
+ * arnazon), two neighbouring letters swapped (gogole), a doubled letter
+ * added or dropped (gooogle, facebok), or one letter traded for one drawn
+ * alike (paypai). Any other one-letter difference is how ordinary words
+ * differ (finance and binance, stream and steam), so it is not counted -
+ * except on long names, where one slip is rarely a real word.
  */
 function isLookalike(candidate, brand) {
-  let normalised = candidate;
-  for (const [from, to] of Object.entries(CONFUSABLES)) {
-    normalised = normalised.split(from).join(to);
+  if (candidate === brand) return false;
+  let a = candidate;
+  for (const [from, to] of Object.entries(CONFUSABLES)) a = a.split(from).join(to);
+  const b = brand;
+  if (a === b) return true;
+  if (a.length === b.length) {
+    const diff = [];
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff.push(i);
+    if (diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]]) return true;
+    if (diff.length === 1 && SIMILAR.has(a[diff[0]] + b[diff[0]])) return true;
   }
-  if (normalised === brand) return true;
+  // One letter more or fewer, where that letter doubles its neighbour.
+  const [long, short] = a.length > b.length ? [a, b] : [b, a];
+  if (long.length === short.length + 1) {
+    for (let i = 0; i < long.length; i++) {
+      if ((long[i] === long[i - 1] || long[i] === long[i + 1]) && long.slice(0, i) + long.slice(i + 1) === short) return true;
+    }
+  }
+  return b.length >= 8 && editDistance(a, b) === 1;
+}
 
-  const allowed = brand.length >= 8 ? 2 : 1;
-  return editDistance(normalised, brand) <= allowed &&
-         Math.abs(normalised.length - brand.length) <= allowed;
+/** An internationalised address as the Latin letters it passes for. */
+function skeleton(text) {
+  let out = '';
+  for (const ch of String(text).toLowerCase()) out += HOMOGLYPHS[ch] || ch;
+  return out;
 }
 
 /** Levenshtein distance, iterative and allocation-light. */
@@ -296,4 +387,4 @@ function editDistance(a, b) {
   return previous[b.length];
 }
 
-module.exports = { Safety, WARN_THRESHOLD, isLookalike, editDistance };
+module.exports = { Safety, WARN_THRESHOLD, isLookalike, editDistance, skeleton };

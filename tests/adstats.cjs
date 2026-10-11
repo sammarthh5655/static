@@ -80,7 +80,7 @@ async function run(browser) {
     const hero = await page.executeJavaScript(`document.querySelector('.sh-count').textContent`);
     check('the hero shows the lifetime figure', hero.replace(/\D/g, '') === String(browser.shields.stats.lifetime().blocked), hero);
     const tiles = await page.executeJavaScript(`[...document.querySelectorAll('.sh-tile')].map(t => t.querySelector('.sh-tile-label').firstChild.textContent + '=' + t.querySelector('.sh-tile-value').textContent)`);
-    check('tiles show ads, trackers, cookies and the estimates', tiles.length === 9 && tiles.some((t) => /^Ads blocked=[1-9]/.test(t)) && tiles.some((t) => /^Third-party cookies=[1-9]/.test(t)), tiles.join(' | '));
+    check('tiles show ads, trackers, cookies and the estimates', tiles.length === 11 && tiles.some((t) => /^Tracking hops skipped=/.test(t)) && tiles.some((t) => /^Dangerous sites stopped=/.test(t)) && tiles.some((t) => /^Ads blocked=[1-9]/.test(t)) && tiles.some((t) => /^Third-party cookies=[1-9]/.test(t)), tiles.join(' | '));
     const bars = await page.executeJavaScript(`document.querySelectorAll('.sh-chart-svg .sh-bar.lane-ads, .sh-chart-svg .sh-bar.lane-trackers').length`);
     check('the chart draws this hour', bars >= 1, bars + ' bars');
     const ranked = await page.executeJavaScript(`[...document.querySelectorAll('.sh-rank-name')].map(n => n.textContent)`);

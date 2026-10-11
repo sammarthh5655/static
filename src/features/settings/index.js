@@ -5,6 +5,7 @@ const { THEMES, SURFACE_STYLES, RADIUS, FONTS, ACCENTS, DENSITY,
 const { WIDGETS, BACKGROUNDS, DEFAULT_LAYOUT } = require('../../shared/widgets');
 const { MODES } = require('../../shared/modes');
 const wallpapers = require('../wallpapers');
+const { PROVIDERS: DNS_PROVIDERS, MODES: DNS_MODES, normaliseTemplate } = require('../netguard/dns');
 
 const DEFAULTS = {
   searchEngine: 'google',
@@ -56,6 +57,32 @@ const DEFAULTS = {
   // Planets the user made. `theme` may be any of their ids ('planet-...').
   customPlanets: [],
 
+  // ---- block: network protection (features/netguard) ---------------------
+  // Safe Browsing: 'off', 'standard' (real threat lists, matched on this
+  // computer) or 'enhanced' (also download warnings, a stricter fake-site
+  // check).
+  safeBrowsing: 'standard',
+  // Try every http:// address over https first, and ask before an insecure
+  // one. Off by default, as in Chrome: some sites still have no https at all.
+  httpsOnly: false,
+  // Secure DNS: 'off', 'automatic' (encrypt when the computer's resolver can)
+  // or 'secure' (always one provider). See features/netguard/dns.js.
+  secureDns: 'automatic',
+  secureDnsProvider: 'cloudflare',
+  secureDnsCustom: '',
+  // Tracking protection switches. The level (Standard / Strict / Custom) is
+  // read from these, never stored - see features/netguard/presets.js.
+  bounceTracking: true,
+  ampSkip: true,
+  gpc: true,
+  doNotTrack: false,
+  referrerPolicy: 'standard',
+  webrtcPolicy: 'standard',
+  // Implemented by fingerprinting protection; the levels above set it too.
+  // Shared key: if both blocks define it when merged, keep one.
+  fingerprinting: 'standard',
+  // ---- end block: network protection --------------------------------------
+
   // New tab page. `widgets` is an ordered list of widget ids - order here is
   // render order, so rearranging is just a reorder of this array.
   newTab: {
@@ -83,6 +110,26 @@ const DEFAULTS = {
     wallpaperFavourites: [],
   },
 };
+
+/* ---- block: network protection ---------------------------------------------
+   The allowed values for each network protection setting. */
+const NETWORK_CHOICES = {
+  safeBrowsing: ['off', 'standard', 'enhanced'],
+  secureDns: DNS_MODES,
+  secureDnsProvider: [...Object.keys(DNS_PROVIDERS), 'custom'],
+  referrerPolicy: ['standard', 'strict'],
+  webrtcPolicy: ['standard', 'strict', 'off'],
+  fingerprinting: ['off', 'standard', 'strict'],
+};
+const NETWORK_SWITCHES = ['httpsOnly', 'bounceTracking', 'ampSkip', 'gpc', 'doNotTrack'];
+const NETWORK_DEFAULTS = Object.fromEntries([...Object.keys(NETWORK_CHOICES), ...NETWORK_SWITCHES]
+  .map((key) => [key, DEFAULTS[key]]));
+
+function validNetworkSetting(key, value) {
+  if (NETWORK_SWITCHES.includes(key)) return typeof value === 'boolean';
+  return !!NETWORK_CHOICES[key]?.includes(value);
+}
+/* ---- end block: network protection ------------------------------------------ */
 
 /**
  * Validated preferences.
@@ -179,6 +226,11 @@ class Settings {
     next.accentCustom = normalizeHex(next.accentCustom) || '';
     next.newTab = this.#normaliseNewTab(next.newTab);
     next.reader = normaliseReader(next.reader);
+    // block: network protection
+    for (const [key, value] of Object.entries(NETWORK_DEFAULTS)) {
+      if (!validNetworkSetting(key, next[key])) next[key] = value;
+    }
+    next.secureDnsCustom = normaliseTemplate(next.secureDnsCustom);
     return next;
   }
 
@@ -258,6 +310,14 @@ class Settings {
       else if (key === 'fontSize') next[key] = clampSize(value, DEFAULTS.fontSize);
       else if (key === 'newTab') next[key] = this.#normaliseNewTab({ ...next.newTab, ...value });
       else if (key === 'reader' && value && typeof value === 'object') next[key] = normaliseReader({ ...next.reader, ...value });
+      // block: network protection. A custom DNS template that is not a
+      // https:// address is refused with a reason rather than stored.
+      else if (key === 'secureDnsCustom') {
+        const template = normaliseTemplate(value);
+        if (String(value || '').trim() && !template) throw new Error('A secure DNS address must start with https:// and name a server, like https://dns.example.com/dns-query');
+        next[key] = template;
+      }
+      else if (key in NETWORK_DEFAULTS && validNetworkSetting(key, value)) next[key] = value;
       else throw new Error('Invalid setting: ' + key);
     }
     // A theme naming a planet that does not exist (or was just removed) falls
@@ -339,4 +399,7 @@ function normaliseWidgetStyles(raw) {
   return out;
 }
 
-module.exports = { Settings, DEFAULTS };
+/** block: network protection - every key of it, for incognito to inherit. */
+const NETWORK_KEYS = [...Object.keys(NETWORK_DEFAULTS), 'secureDnsCustom'];
+
+module.exports = { Settings, DEFAULTS, NETWORK_KEYS };
