@@ -44,7 +44,8 @@
     "prepack": "npm run build",
     "dist:mac:arm": "npm run build && electron-builder --mac --arm64",
     "dist:mac:intel": "npm run build && electron-builder --mac --x64",
-    "icon": "node -e \"const{spawn}=require('child_process');const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;spawn(require('electron'),['scripts/make-icon.cjs'],{stdio:'inherit',env})\""
+    "icon": "node -e \"const{spawn}=require('child_process');const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;spawn(require('electron'),['scripts/make-icon.cjs'],{stdio:'inherit',env})\"",
+    "probes": "npm run build && node scripts/probes.cjs"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",
