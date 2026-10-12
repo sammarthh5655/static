@@ -14,28 +14,48 @@ Status: `OPEN` · `FIXED` · `NOT-A-BUG`
 
 ## Open
 
-### The planetarium occasionally renders blank on first open
-**Status:** OPEN (reduced, not eliminated)
-
-The theme picker's canvas is empty on roughly one Settings open in four. Three
-causes were found and fixed - a render loop that gave up when the node was not
-yet in the DOM, a canvas measured before it had a size, and a mount that ran
-with an empty catalog and left a canvas nobody would rebuild - and the failure
-rate went from about 1 in 3 to about 1 in 4, so something else remains.
-
-Reopening Settings always fixes it, so it is a first-paint race rather than a
-broken picker.
-
-**Fix direction:** have the settings page mount the planetarium from a state
-push that is KNOWN to carry the catalog, rather than from whichever push
-arrives first; or have planetarium.build() retry its first frame until the
-canvas reports a non-zero size AND the planet list is non-empty.
+_(none)_
 
 ---
 
 ## Fixed
 
 _(moved here during the fix pass, with the commit that fixed them)_
+
+### The planetarium occasionally rendered blank on first open
+**Status:** FIXED
+**Found:** reported as "about one open in four"; root cause found by probing
+the loop rather than the paint.
+
+Three earlier fixes (a render loop that gave up before the node was in the
+DOM, a canvas measured before it had a size, a mount that ran with an empty
+catalog) each reduced the rate without eliminating it, because none of them
+was the actual cause.
+
+The cause was the animation loop re-arming itself as the **last statement** of
+its drawing code. Any single throw mid-frame - a sky that failed to build,
+anything unexpected in the drawing path - skipped that re-arm and stopped the
+loop **permanently**. A throw on a later frame froze the picture; a throw on
+the first frame, before anything had been drawn, left the canvas blank until
+Settings was reopened. That is the reported symptom exactly, and it explains
+why reopening always fixed it: reopening builds a new loop.
+
+The re-arm now sits in a `finally`, so one bad frame costs one frame. The sky
+is also treated as optional scenery (`drawImage(null)` would itself throw and
+cost the frame), and a faulting frame logs once rather than every frame.
+
+Proved rather than argued, by `tests/planetblank.cjs`, which breaks exactly one
+frame and then measures whether the planets are still moving:
+
+| code | drift after one thrown frame | result |
+| --- | --- | --- |
+| before | `0` | loop dead, canvas frozen |
+| after | `3.382` | loop survives |
+
+The same probe also opens Settings on `start` six times - the ordinary path,
+where the planetarium is built inside a hidden section - and checks the canvas
+paints within about a second of switching to Appearance. `tests/planetarium.cjs`
+navigates straight to `#appearance`, so it never exercised that path.
 
 ### 4. Health reported "excellent" for a browser with no shields at all
 **Status:** FIXED

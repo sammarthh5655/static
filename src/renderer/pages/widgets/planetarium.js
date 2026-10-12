@@ -282,20 +282,20 @@ function build(ctx, options) {
     context.restore();
   };
 
-  const frame = (now) => {
-    // Keep waiting rather than giving up. The loop is started before the node
-    // is appended, so isConnected is false on the first frame - returning
-    // there killed the loop permanently and the canvas stayed blank, which is
-    // why the planetarium failed to draw about one launch in three.
-    if (disposed) return;
-    const stamp = typeof now === 'number' ? now : performance.now();
+  /**
+   * One frame. Never re-arms the loop itself: `frame` below does that in a
+   * `finally`, so there is exactly one place that keeps the loop alive.
+   */
+  const drawFrame = (stamp) => {
     // Real elapsed time, capped so a hidden tab coming back does not jump
     // the planets half an orbit.
     const elapsed = last ? Math.min(64, Math.max(0, stamp - last)) : 16;
     last = stamp;
     // The canvas has no size until it is in the document and its section is
-    // shown, so measure then, rather than guess at construction.
-    if (!wrap.isConnected || ((!width || !height) && !resize())) { requestAnimationFrame(frame); return; }
+    // shown, so measure then, rather than guess at construction. Keep waiting
+    // rather than giving up: the loop is started before the node is appended,
+    // so isConnected is false on the first frame.
+    if (!wrap.isConnected || ((!width || !height) && !resize())) return;
 
     // While the pointer is over the system the orbits ease to a stop, so the
     // planet someone is reading about is still there when they click it.
@@ -305,8 +305,10 @@ function build(ctx, options) {
     if (!reduced) time += elapsed * SPEED * pace;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
+    // The sky is optional scenery. If building it fails, the planets still
+    // have to be drawn - `drawImage(null)` would throw and cost the frame.
     if (!stars) paintStars();
-    context.drawImage(stars, 0, 0);
+    if (stars) context.drawImage(stars, 0, 0);
 
     const cx = width / 2;
     const cy = height / 2;
@@ -381,8 +383,34 @@ function build(ctx, options) {
     // The pointer can rest while the system still drifts: keep what is named
     // below the system true to what is actually under it.
     if (pointer && !dragging) hover(hitAt(pointer.x, pointer.y));
+  };
 
-    requestAnimationFrame(frame);
+  // Whether a frame has already reported a fault, so a failure that happens
+  // every frame writes one line to the console instead of thousands.
+  let faulted = false;
+
+  /**
+   * The animation loop, and the ONLY thing that re-arms it.
+   *
+   * The re-arm is in a `finally` deliberately. It used to be the last
+   * statement of the drawing code, which meant any single throw mid-frame -
+   * a sky that failed to build, a palette the drawing code did not expect -
+   * permanently killed the loop and left the canvas blank until Settings was
+   * reopened. That is the shape of the "blank about one open in four" bug:
+   * one bad frame should cost one frame, not the whole planetarium.
+   */
+  const frame = (now) => {
+    if (disposed) return;
+    try {
+      drawFrame(typeof now === 'number' ? now : performance.now());
+    } catch (error) {
+      if (!faulted) {
+        faulted = true;
+        console.error('planetarium: frame failed, continuing', error);
+      }
+    } finally {
+      if (!disposed) requestAnimationFrame(frame);
+    }
   };
 
   /** Pointer position in the canvas's drawing coordinates. */

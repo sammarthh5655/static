@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The planetarium theme picker no longer renders blank. Its animation loop
+  re-armed itself as the last statement of its drawing code, so a single
+  throw mid-frame stopped the loop permanently - blank until Settings was
+  reopened, about one open in four. The re-arm is now in a `finally`, so one
+  bad frame costs one frame; the star field is treated as optional scenery,
+  and a faulting frame logs once instead of every frame. A new probe
+  (`npm start -- --planetblank`) breaks one frame on purpose and checks the
+  planets are still moving, and opens Settings on its default section six
+  times to cover the path where the picker is built inside a hidden section.
+
 ### Added — Reading view, screenshots and QR codes
 
 - Reading view: a book in the address bar on pages that read like articles
