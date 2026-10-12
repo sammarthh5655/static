@@ -134,14 +134,24 @@ until the binary is signed.
 ```
 src/
   main/                  Main process (Node side)
-    main.js              Entry point: app lifecycle, single-instance lock
-    secure/keys.js       Baked-in API keys - GITIGNORED, see keys.example.js
-    application.js       Owns the window, wires features, registers all IPC
-    shortcuts.js         Keyboard accelerator table and matcher
+    main.js              Entry point: app lifecycle, single-instance lock, probe flags
+    application.js       Owns the windows, wires features, registers all IPC
+    window.js            One browser window: its views (chrome, tabs, overlay,
+                         sidebar, vertical tabs, find bar) and their layout
+    incognito.js         Cleans up folders left by closed incognito windows
+    page-menu.js         The right-click menu for web pages
+    shortcuts.js         Keyboard accelerator table and matcher, per platform
     storage.js           Atomic JSON store used by every feature
+    secure/load.js       Reads the API keys, in main only
+    secure/keys.js       Baked-in API keys - GITIGNORED, see keys.example.js
   preload/               Context-isolated bridges (bundled into build/)
     chrome.js            For the browser UI - exposes the IPC whitelist
-    tab.js               For tab content - exposes IPC ONLY on browser:// pages
+    tab.js               For tab content - exposes IPC ONLY on browser:// pages;
+                         on web pages, privacy signals and ad-blocking rules
+    autofill.js          Password and address autofill, isolated world, top frame
+    callout.js           The "saved login for this site" callout under sign-in boxes
+    credentials.js       Passkeys: carries navigator.credentials calls to main
+    procedural.js        Ad hiding that no stylesheet rule can express
   renderer/              The browser UI itself
     index.html/.css/.js  Title bar, tab strip, toolbar, omnibox, bookmarks bar
     ui.js                Icon builder and the custom menu system
@@ -178,12 +188,26 @@ src/
     safety/              Phishing and lookalike-domain heuristics
     workspaces/          Prompt definitions for Student, Legal and Shopping
     shields/             Ad/tracker filter engine, HTTPS upgrade, URL cleaning
-    passwords/           OS-encrypted credential vault
+    netguard/            Safe Browsing, HTTPS-only, certificates, Secure DNS,
+                         WebRTC, bounce tracking and AMP, GPC, Do Not Track
+    passwords/           OS-encrypted credential vault, passkeys, lock
+    autofill/            Addresses, payment cards, UPI IDs and documents
+    profiles/            Separate browsing identities, each with its own folder
+    importer/            Bookmarks and history from Chrome, Edge, Brave, Firefox...
+    onboarding/          First-launch questions, written through Settings
+    pagetools/           Reading view, screenshots and QR codes
+    shopping/            Price comparison across shops
+    sense/               Local suggestions for the next step, from open tabs
+    suggest/             Remote search suggestions, fetched in main
+    wallpapers/          New tab wallpapers: built-in set plus a remote catalogue
+    health/              Browser Health Center, every figure measured
+    feedback/            Feedback reports built only from what the user allowed
     tabs/                Tab lifecycle, WebContentsView management, navigation
     bookmarks/           Bookmark storage and toggling
     history/             Visit recording, search, omnibox suggestions
     downloads/           Download tracking via the session's will-download
-    extensions/          Chrome extension loading, enable/disable, web store
+    extensions/          Chrome extension loading, enable/disable, web store;
+                         crx.js verifies and unpacks .crx files from disk
     settings/            Validated preferences
   shared/                Code used by both main and renderer
     channels.js          The complete IPC contract - the security allowlist
@@ -192,15 +216,18 @@ src/
     modes.js             Mode registry: sidebar, cards and command bar build from it
     widgets.js           New tab widget registry
 scripts/
-  build.cjs              esbuild preload bundler
+  build.cjs              esbuild preload bundler, plus generated files
   start.cjs              Launcher (strips ELECTRON_RUN_AS_NODE)
   check.cjs              Syntax checker
+  probes.cjs             Runs every off-screen probe: npm run probes
+  security.cjs           How far behind the pinned Electron is: npm run check:security
 tests/
-  urls.test.cjs          Unit tests for omnibox parsing
-  smoke.cjs              End-to-end test, runs inside Electron
-  probe.cjs              Renders every surface, fails on console errors
-  appearance.cjs         Theme, motion, window controls, shortcuts
-  screenshot.cjs         Writes PNGs of the UI to .test-output/
+  *.test.cjs             Unit tests, pure Node: npm test
+  *.cjs                  Probes: run inside Electron, off-screen, one profile each
+                         (`node scripts/start.cjs --<name>`); e.g. smoke.cjs,
+                         extlocal.cjs (extensions from disk, across a restart)
+  fixtures/              Shared test builders, such as signed .crx packages
+  screenshot.cjs         Writes PNGs of the UI to .test-output/ (shows the window)
 ```
 
 ### Where to make changes
@@ -272,12 +299,30 @@ The IPC surface is locked down in three independent layers:
 1. **Declared channels.** `src/shared/channels.js` is the complete contract.
    Preloads only forward channels on that list; anything else is rejected in
    the renderer before it reaches main.
-2. **Sender validation.** Every handler in main validates the sender against
-   the known chrome WebContents or a trusted `browser://` page, *and* checks
-   its current top-level URL. Checking identity alone would let a tab that
-   navigated to a web page keep privileges it should have lost.
-3. **Preload scoping.** The tab preload exposes nothing at all unless the page
-   is a built-in `browser://` page. Web pages get an inert preload.
+2. **Sender validation.** Every handler for the declared channels validates
+   the sender against the known chrome WebContents or a trusted `browser://`
+   page, *and* checks its current top-level URL. Checking identity alone would
+   let a tab that navigated to a web page keep privileges it should have lost.
+3. **Preload scoping.** The `browser` bridge, the only thing that reaches the
+   declared channels, is exposed only to built-in `browser://` pages, in their
+   top frame. Web pages never get it.
+
+Web pages are not entirely silent, though, and this is a deliberate departure
+from "only the browser UI talks to main". Features that have to work inside a
+page run in the tab preload's isolated world, out of the page's reach, and
+send a small fixed set of messages that are not in the declared list:
+
+| Messages | Why | What main trusts |
+| --- | --- | --- |
+| `netguard:signals`, `netguard:amp` | Global Privacy Control, Do Not Track, AMP skipping | Only an http(s) address for the same tab to go to, from its top frame: nothing the page could not do with `location.href` |
+| `shields:page-rules`, `shields:video-ads-for-host` | Ad-blocking rules that must be in place before the page's first script | Only real tabs, top frame; answers are yes/no or filter rules |
+| `autofill:*` | Password and address autofill | The tab and origin come from main's own record of the sending frame |
+| `webauthn:enabled`, `webauthn:request` | Passkeys | Same; the origin is the frame's, never one the page names |
+
+Passkeys are the one case where something enters the page's own world. When
+they are on, `navigator.credentials.create()` and `get()` are replaced with
+functions that carry the request to main. The page can reach them only through
+that standard API, and main decides which origin is asking and what it may do.
 
 Beyond IPC: permissions default to denied (only fullscreen, pointer lock and
 sanitized clipboard writes are even considered), `webview` tag attachment is
@@ -339,9 +384,21 @@ A disabled extension is genuinely not running, which is stricter than Chrome.
   symbolic links, duplicate names, encrypted entries, ZIP64, and anything
   whose real size differs from what it declares. Size limits are enforced
   while decompressing, so a decompression bomb stops at the limit.
+  Every file's data must also be its own: entries that share bytes are
+  refused, so unpacking can never cost more than one pass over the file.
 - An installed `.crx` goes into the same `Extensions/<id>/<version>_0` layout
   as a Web Store install, so it loads at startup and Remove deletes it.
-  Installing a newer package with the same ID replaces the old one.
+  Installing a newer package with the same ID replaces the old one, but the
+  old one is only deleted once the new one has loaded; if it does not load,
+  the old one is put back as it was.
+- Loading a folder whose manifest `key` gives it the ID of an installed
+  extension replaces that install, as in Chrome. If the folder later loads
+  under a different ID, because a key was added, the record follows it.
+- **Web Store updates only ever touch the app's own copies.** The library's
+  updater looks at every loaded extension and deletes the old version's
+  folder, which for an unpacked extension would be yours. It is switched off;
+  the same update checks run through a view that shows only
+  `Extensions/<id>/<version>_0` installs.
 
 ---
 

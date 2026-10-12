@@ -10,6 +10,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Extensions from disk, hardened after an adversarial review.** Seven
+  defects in the .crx and unpacked fixes were reported and each reproduced
+  before being fixed. A crafted .crx whose entries shared one blob could
+  stall the browser for an hour; shared data is now refused. The library's
+  auto-updater could delete an unpacked extension's folder; updates now see
+  only the app's own copies. Reinstalling a .crx no longer deletes the working
+  copy before the new one loads. A folder with an installed extension's key
+  replaces the install, a folder whose ID changes is re-recorded, and the
+  manager stopped re-reading manifests on every refresh.
+- **Ctrl+Tab and Ctrl+Shift+Tab switch tabs on the Mac**, as in Chrome, along
+  with Cmd+Option+Right and Left. They were Option+Tab, and Ctrl+Tab did
+  nothing. The shortcut table is now built per platform, so the Mac rules are
+  unit tested on any machine.
+- **"A different one on every new tab" no longer repeats** within eight tabs.
+  It remembered only four picks and counted each photo twice.
+- **Switching animations off stills the wallpaper preview at once.** A slide
+  that was already loading used to swap in afterwards.
+- **Closing a tab no longer logs "Unauthorized sender"** for a request it had
+  in flight. The request had no access either way; it is now dropped quietly.
+- **README:** the security section no longer claims web pages get an inert
+  preload. It lists the messages web pages do send, why, and what the main
+  process trusts in each. The folder map now covers every feature, main
+  process file and preload.
+
 - **Install .crx file works.** It used to hand the file's path to the Web
   Store installer, which treats its argument as a store ID, so it asked Google
   for an extension named after the path and always failed. A new reader
