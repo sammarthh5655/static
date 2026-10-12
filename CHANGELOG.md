@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The AI probes pass again, without spending the Gemini allowance.** Test
+  runs were stopped from calling Gemini to protect the allowance, and four
+  probes that need answers then failed by construction. They now answer
+  through a stand-in at the HTTP layer (`tests/fixtures/gemini.cjs`), which
+  works out its answers from the request, so a dropped conversation history
+  still fails "remembers earlier turns". `--live-gemini` runs them against
+  the real API on purpose; `aispeed`, which times the real API, runs only
+  then and is otherwise reported as skipped, not passed.
+
 - **Extensions from disk, hardened after an adversarial review.** Seven
   defects in the .crx and unpacked fixes were reported and each reproduced
   before being fixed. A crafted .crx whose entries shared one blob could

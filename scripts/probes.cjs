@@ -5,6 +5,8 @@
  *   node scripts/probes.cjs smoke menu      just these
  *   node scripts/probes.cjs -j2             two at a time (default 3)
  *   node scripts/probes.cjs --failed        only those that failed last time
+ *   node scripts/probes.cjs --live-gemini   AI probes call the real Gemini API,
+ *                                           and aispeed runs (spends the allowance)
  *
  * Each probe runs from this checkout (wherever this script lives), with its
  * own throwaway profile, off-screen and silent, exactly as
@@ -24,6 +26,10 @@ fs.mkdirSync(OUT, { recursive: true });
 
 // Never run here: it shows the window on screen.
 const SKIP = new Set(['screenshot']);
+// Probes that measure the real Gemini API, so a stand-in would prove nothing.
+// They run only with --live-gemini, which also makes the AI probes use the
+// real API instead of their stand-in. That spends the person's allowance.
+const LIVE = new Set(['aispeed']);
 // Probes that are run with extra flags, or several times in a row (the
 // second run checks what the first left behind, such as restored windows).
 const RUNS = {
@@ -39,6 +45,7 @@ const args = process.argv.slice(2);
 const jArg = args.find((a) => /^-j\d+$/.test(a));
 const J = jArg ? Number(jArg.slice(2)) : 3;
 const onlyFailed = args.includes('--failed');
+const liveGemini = args.includes('--live-gemini');
 let names = args.filter((a) => !a.startsWith('-'));
 if (!names.length) {
   names = fs.readdirSync(path.join(ROOT, 'tests'))
@@ -64,7 +71,8 @@ function once(name, extra, n) {
     const start = Date.now();
     const file = path.join(OUT, name + (n ? '.' + (n + 1) : '') + '.log');
     const log = fs.createWriteStream(file);
-    const child = spawn(process.execPath, [path.join(ROOT, 'scripts', 'start.cjs'), '--' + name, ...extra], { cwd: ROOT, env });
+    const flags = liveGemini ? [...extra, '--live-gemini'] : extra;
+    const child = spawn(process.execPath, [path.join(ROOT, 'scripts', 'start.cjs'), '--' + name, ...flags], { cwd: ROOT, env });
     child.stdout.pipe(log, { end: false });
     child.stderr.pipe(log, { end: false });
     const timer = setTimeout(() => child.kill(), TIMEOUT);
@@ -92,6 +100,10 @@ async function probe(name) {
   return result;
 }
 
+// Named, not silently dropped: a skipped probe must never read as a pass.
+const skipped = liveGemini ? [] : names.filter((n) => LIVE.has(n));
+names = names.filter((n) => !skipped.includes(n));
+
 (async () => {
   const queue = [...names];
   const results = [];
@@ -102,5 +114,6 @@ async function probe(name) {
   fs.writeFileSync(path.join(OUT, 'summary.json'), JSON.stringify(results, null, 1));
   const bad = results.filter((r) => r.code !== 0 || r.fails > 0);
   console.log('\n' + (results.length - bad.length) + ' of ' + results.length + ' probes passed' + (bad.length ? '; failed: ' + bad.map((r) => r.name).join(', ') : ''));
+  if (skipped.length) console.log('skipped, needs --live-gemini: ' + skipped.join(', '));
   process.exit(bad.length ? 1 : 0);
 })();

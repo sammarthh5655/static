@@ -3,12 +3,17 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * browser://ai checks. Run with `npm run test:aipage`.
  *
- * Makes REAL Gemini calls: the failures worth catching here are a broken
- * transcript, history that does not persist, and a conversation that forgets
- * its own earlier turns - none of which a mock would surface.
+ * The failures worth catching here are a broken transcript, history that
+ * does not persist, and a conversation that forgets its own earlier turns.
+ * The stand-in Gemini (tests/fixtures/gemini.cjs) answers from the request it
+ * is sent, so "remembers earlier turns" still fails if they are not sent.
+ * --live-gemini runs the same checks against the real API.
  */
 async function run(browser) {
   const { app } = require('electron');
+  // Answers come from a stand-in at the HTTP layer (tests/fixtures/gemini.cjs)
+  // unless this run was started with --live-gemini.
+  require('./fixtures/gemini.cjs').install(require('../src/features/ai/gemini'));
   let fails = 0;
   const check = (name, ok, detail) => {
     console.log((ok ? '  ok  ' : 'FAIL  ') + name + (detail ? ' :: ' + String(detail).slice(0, 110) : ''));

@@ -23,6 +23,10 @@ if (testFlag) {
   // off-screen window as occluded and stop painting it, which breaks
   // screenshots and animation checks, so occlusion tracking is disabled.
   process.env.STATIC_OFFSCREEN = '1';
+  // Probes never call Gemini unless asked to, by name, for this one run:
+  // live calls spend the person's own allowance (features/ai/gemini.js).
+  if (process.argv.includes('--live-gemini')) process.env.STATIC_LIVE_GEMINI = '1';
+  else delete process.env.STATIC_LIVE_GEMINI;
   // A crash in a probe must never put Electron's error box on the person's
   // screen: it is printed into the probe's log instead, and the run ends.
   process.on('uncaughtException', (error) => {

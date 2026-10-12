@@ -3,12 +3,17 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * AI checks. Run with `npm run test:ai`.
  *
- * This makes a REAL Gemini call rather than mocking it - the failure worth
- * catching is a broken key, a retired model id, or an overload path that
- * surfaces an error to the user instead of retrying.
+ * By default Gemini is a stand-in at the HTTP layer, so this checks the
+ * whole path from the box to the panel without spending the allowance. With
+ * --live-gemini it makes a REAL call - the failure worth catching there is a
+ * broken key, a retired model id, or an overload path that surfaces an error
+ * to the user instead of retrying.
  */
 async function run(browser) {
   const { app } = require('electron');
+  // Answers come from a stand-in at the HTTP layer (tests/fixtures/gemini.cjs)
+  // unless this run was started with --live-gemini.
+  require('./fixtures/gemini.cjs').install(require('../src/features/ai/gemini'));
   let fails = 0;
   const check = (n, ok, d) => { console.log((ok?'  ok  ':'FAIL  ')+n+(d?' :: '+d:'')); if(!ok) fails++; };
   browser.window.show();
@@ -50,7 +55,7 @@ async function run(browser) {
   })()`);
   check('Escape leaves AI mode', back === false);
 
-  // A real Gemini answer must land in the panel.
+  // Gemini's answer must land in the panel.
   const answer = await wc.executeJavaScript(`(async () => {
     const q = document.getElementById('query');
     q.focus();

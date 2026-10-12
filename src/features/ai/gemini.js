@@ -258,9 +258,12 @@ function buildBody({ prompt, system, context, history, temperature, maxOutputTok
 function netTransport(model, body, { signal, timeout }) {
   return new Promise((resolve, reject) => {
     // Test runs never spend the real key: its free allowance is the person's,
-    // and probes once used it up. A probe that wants an answer stubs
-    // generate(); one that reaches here is told there is no connection.
-    if (process.env.STATIC_OFFSCREEN === '1') {
+    // and probes once used it up. A probe that wants an answer puts a
+    // stand-in transport in place (tests/fixtures/gemini.cjs); one that
+    // reaches here is told there is no connection. The one exception is a
+    // run started with --live-gemini, which someone chose on purpose to
+    // check the real key and model ids (see src/main/main.js).
+    if (process.env.STATIC_OFFSCREEN === '1' && process.env.STATIC_LIVE_GEMINI !== '1') {
       const error = new Error('Gemini is not called during test runs.');
       error.kind = 'network';
       return reject(error);

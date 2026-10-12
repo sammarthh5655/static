@@ -17,6 +17,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function run(browser) {
   const { app } = require('electron');
   const gemini = require('../src/features/ai/gemini');
+  // This one times the real API, so a stand-in would measure nothing. It
+  // runs only when asked for with --live-gemini, which spends the allowance.
+  if (process.env.STATIC_LIVE_GEMINI !== '1') {
+    console.log('skipped: aispeed times the real Gemini API. Run it with --live-gemini.');
+    app.exit(0);
+    return;
+  }
   let fails = 0;
   const check = (n, ok, d) => {
     console.log((ok ? '  ok  ' : 'FAIL  ') + n + (d ? ' :: ' + String(d).slice(0, 160) : ''));

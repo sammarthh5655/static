@@ -11,12 +11,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
  * one is about what the person sees: the permission line while a page is
  * still loading, the waiting state, each kind of failure as its own plain
  * message, a question on one of our own pages, and markdown never arriving
- * as stray asterisks. Real Gemini for the answers; the failures are faked,
- * because Google cannot be made to refuse on demand.
+ * as stray asterisks. Answers come from a stand-in at the HTTP layer (real
+ * Gemini with --live-gemini); the failures are faked either way, because
+ * Google cannot be made to refuse on demand.
  */
 async function run(browser) {
   const { app } = require('electron');
   const gemini = require('../src/features/ai/gemini');
+  const answers = require('./fixtures/gemini.cjs').install(gemini);
   let fails = 0;
   const check = (n, ok, d) => {
     console.log((ok ? '  ok  ' : 'FAIL  ') + n + (d ? ' :: ' + String(d).slice(0, 160) : ''));
@@ -175,7 +177,7 @@ async function run(browser) {
     await settle(40);
     await wait(400);
     await shoot(side, 'aiflow-failure.png');
-    gemini._testing.useTransport(null);
+    answers.use();
     gemini._testing.reset();
 
     // The network is back; Try again is clicked.

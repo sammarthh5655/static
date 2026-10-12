@@ -461,6 +461,26 @@ obfuscation only raises the effort. The protection that actually works is on
 Google's side: restrict the key and cap its quota in Google AI Studio so a leak
 is bounded rather than open-ended.
 
+**Tests never spend the allowance unless asked.** Off-screen probes cannot
+reach Gemini. The AI probes answer through a stand-in that replaces only the
+HTTP transport (`tests/fixtures/gemini.cjs`), so the request body, the model
+chain, parsing and the UI are all real. Its answers are worked out from the
+request it receives, so the checks still catch an app that stops sending
+earlier turns or stops asking for plain text. To check the real key and model
+ids, ask for it by name:
+
+```bash
+node scripts/start.cjs --aipage --live-gemini   # one probe, against the real API
+npm run probes -- --live-gemini                 # every probe, and aispeed too
+```
+
+`aispeed` times the real API, so it only runs with `--live-gemini`; without
+it, `npm run probes` reports it as skipped rather than passed.
+
+Plain-text answers rely on the model following the instruction to write
+without markdown. Nothing strips markdown afterwards, so a model that ignores
+the instruction would show stray asterisks.
+
 ---
 
 ## License
