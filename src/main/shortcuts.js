@@ -9,8 +9,6 @@
 // The display strings here are also what the custom menus render right-aligned
 // next to each item, so the menu and the actual binding can never drift apart.
 
-const isMac = process.platform === 'darwin';
-
 /**
  * @typedef {object} Accelerator
  * @property {string} id       action id, dispatched by application.js
@@ -19,21 +17,42 @@ const isMac = process.platform === 'darwin';
  * @property {object} match    key/modifier test applied to an input event
  */
 
-/** `mod` means Cmd on macOS, Ctrl everywhere else. */
-function accel(id, label, key, { mod = false, shift = false, alt = false } = {}) {
-  const parts = [];
-  if (mod) parts.push(isMac ? 'Cmd' : 'Ctrl');
-  if (alt) parts.push(isMac ? 'Opt' : 'Alt');
-  if (shift) parts.push('Shift');
-  parts.push(key.length === 1 ? key.toUpperCase() : key);
-  return { id, label, display: parts.join('+'), match: { key, mod, shift, alt } };
+/**
+ * The binding builder for one platform.
+ *
+ * `mod` means Cmd on macOS and Ctrl everywhere else - the key most shortcuts
+ * use. `ctrl` means the physical Control key on every platform; on macOS that
+ * is a different key from Cmd. Chrome uses it for Ctrl+Tab on the Mac, because
+ * Cmd+Tab belongs to the system's app switcher and never reaches an app.
+ */
+function makeAccel(isMac) {
+  return function accel(id, label, key, { mod = false, shift = false, alt = false, ctrl = false } = {}) {
+    const parts = [];
+    // Ctrl and Cmd are one key outside macOS, so it is only named once there.
+    if (ctrl && (isMac || !mod)) parts.push('Ctrl');
+    if (mod) parts.push(isMac ? 'Cmd' : 'Ctrl');
+    if (alt) parts.push(isMac ? 'Opt' : 'Alt');
+    if (shift) parts.push('Shift');
+    parts.push(key.length === 1 ? key.toUpperCase() : key);
+    return { id, label, display: parts.join('+'), match: { key, mod, shift, alt, ctrl } };
+  };
 }
 
-const ACCELERATORS = [
+/** Every binding for one platform. `isMac` here is that platform, not this machine. */
+function table(isMac) {
+  const accel = makeAccel(isMac);
+  return [
   accel('tab:new', 'New tab', 't', { mod: true }),
   accel('tab:close', 'Close tab', 'w', { mod: true }),
-  accel('tab:next', 'Next tab', 'Tab', { mod: !isMac, alt: isMac }),
-  accel('tab:previous', 'Previous tab', 'Tab', { mod: !isMac, alt: isMac, shift: true }),
+  // Ctrl+Tab on every platform, the Mac included, as in Chrome. It used to be
+  // Option+Tab there, and Ctrl+Tab did nothing on a Mac.
+  accel('tab:next', 'Next tab', 'Tab', { ctrl: true }),
+  accel('tab:previous', 'Previous tab', 'Tab', { ctrl: true, shift: true }),
+  // Chrome's other Mac pair for the same thing.
+  ...(isMac ? [
+    accel('tab:next', 'Next tab', 'ArrowRight', { mod: true, alt: true }),
+    accel('tab:previous', 'Previous tab', 'ArrowLeft', { mod: true, alt: true }),
+  ] : []),
   accel('tab:reopen', 'Reopen closed tab', 't', { mod: true, shift: true }),
   // Chrome's key for the same list, so hands that know it already know this.
   accel('tab:search', 'Search tabs', 'a', { mod: true, shift: true }),
@@ -99,38 +118,55 @@ const ACCELERATORS = [
   ...(isMac ? [accel('window:devtools', 'Toggle developer tools', 'i', { mod: true, alt: true })] : []),
   accel('window:console', 'JavaScript console', 'j', isMac ? { mod: true, alt: true } : { mod: true, shift: true }),
   accel('menu:main', 'Open menu', 'F10', {}),
-];
-
-/** Quick lookup for menus: ACCEL.get('tab:new').display === 'Ctrl+T' */
-// The FIRST binding for an action is the one menus show (Ctrl+F, not its
-// Ctrl+G alias), so later aliases must not overwrite it.
-const ACCEL = new Map();
-for (const a of ACCELERATORS) if (!ACCEL.has(a.id)) ACCEL.set(a.id, a);
-
-/**
- * Match an Electron `before-input-event` input object against the table.
- *
- * Only keyDown is considered, and the modifier test is exact: without that,
- * Ctrl+Shift+T would also fire the plain Ctrl+T action.
- *
- * @returns {string|null} the action id, or null if nothing matched
- */
-function matchAccelerator(input) {
-  if (input.type !== 'keyDown') return null;
-  const mod = isMac ? input.meta : input.control;
-  // On macOS, Ctrl is a separate modifier from Cmd and must not be held.
-  const strayMod = isMac ? input.control : input.meta;
-  if (strayMod) return null;
-
-  for (const entry of ACCELERATORS) {
-    const m = entry.match;
-    if (input.key.toLowerCase() !== m.key.toLowerCase()) continue;
-    if (!!m.mod !== !!mod) continue;
-    if (!!m.shift !== !!input.shift) continue;
-    if (!!m.alt !== !!input.alt) continue;
-    return entry.id;
-  }
-  return null;
+  ];
 }
 
-module.exports = { ACCELERATORS, ACCEL, matchAccelerator, isMac };
+/**
+ * The bindings and matcher for one platform. The module exports this
+ * machine's; tests build macOS's on Windows and the other way round, so the
+ * Mac rules are checked even where no Mac is to hand.
+ */
+function forPlatform(platform) {
+  const isMac = platform === 'darwin';
+  const ACCELERATORS = table(isMac);
+
+  /** Quick lookup for menus: ACCEL.get('tab:new').display === 'Ctrl+T' */
+  // The FIRST binding for an action is the one menus show (Ctrl+F, not its
+  // Ctrl+G alias), so later aliases must not overwrite it.
+  const ACCEL = new Map();
+  for (const a of ACCELERATORS) if (!ACCEL.has(a.id)) ACCEL.set(a.id, a);
+
+  /**
+   * Match an Electron `before-input-event` input object against the table.
+   *
+   * Only keyDown is considered, and the modifier test is exact: without that,
+   * Ctrl+Shift+T would also fire the plain Ctrl+T action.
+   *
+   * @returns {string|null} the action id, or null if nothing matched
+   */
+  function matchAccelerator(input) {
+    if (!input || input.type !== 'keyDown' || typeof input.key !== 'string') return null;
+    const control = !!input.control;
+    const meta = !!input.meta;
+    // Outside macOS the Windows/Super key is never part of a shortcut here.
+    if (!isMac && meta) return null;
+
+    for (const entry of ACCELERATORS) {
+      const m = entry.match;
+      if (input.key.toLowerCase() !== m.key.toLowerCase()) continue;
+      if (isMac) {
+        // Two separate keys: Cmd is `mod`, Control is `ctrl`. Each must be
+        // held exactly when the binding asks for it.
+        if (!!m.mod !== meta || !!m.ctrl !== control) continue;
+      } else if (!!(m.mod || m.ctrl) !== control) continue;
+      if (!!m.shift !== !!input.shift) continue;
+      if (!!m.alt !== !!input.alt) continue;
+      return entry.id;
+    }
+    return null;
+  }
+
+  return { ACCELERATORS, ACCEL, matchAccelerator, isMac };
+}
+
+module.exports = { ...forPlatform(process.platform), forPlatform };
