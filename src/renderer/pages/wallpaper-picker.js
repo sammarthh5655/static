@@ -100,13 +100,17 @@ function slideshow(ctx, host, entries, { every = 2600, key = 'thumb' } = {}) {
   let front = 0;
   let timer = 0;
   let stopped = false;
-  const show = () => {
+  const show = (first = false) => {
     const entry = order[at % order.length];
     const source = imageOf(entry, key);
     const img = new Image();
     img.decoding = 'async';
     img.onload = () => {
       if (stopped) return;
+      // A photo can take a moment to load. If motion was switched off while
+      // it did, it must not swap in afterwards: "off" means still at once,
+      // not after the slide already on its way. The first photo always shows.
+      if (!first && !motionAllowed()) return;
       front = 1 - front;
       layers[front].style.setProperty('background-color', entry.tone);
       layers[front].style.setProperty('background-image', cssUrl(source));
@@ -117,7 +121,7 @@ function slideshow(ctx, host, entries, { every = 2600, key = 'thumb' } = {}) {
     img.src = source;
     at++;
   };
-  show();
+  show(true);
   // Only while it can be seen: not behind another settings section, not in
   // a background tab. Motion is asked about on every turn, not once: the
   // animations switch sits on the same page as these previews, and turning

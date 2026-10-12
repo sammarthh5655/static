@@ -31,6 +31,41 @@ test('a random pick avoids the last few shown, and never gets stuck', () => {
   for (let i = 0; i < 20; i++) assert.notEqual(wallpapers.pick('space', [], space).id, space[space.length - 1]);
 });
 
+test('"a different one on every new tab": eight tabs, eight different wallpapers', () => {
+  // The worst luck there is: the random source always wants the first option,
+  // so only the avoidance rule keeps tabs apart. It used to remember just the
+  // last four picks, and the sixth tab could repeat the first.
+  const worstLuck = () => 0;
+  for (const pool of ['all', 'space', 'landscapes']) {
+    const size = wallpapers.poolOf(pool, []).length;
+    const tabs = Math.min(8, Math.floor(size / 2) + 1);
+    let recent = [];
+    let previous = '';
+    const shown = [];
+    for (let i = 0; i < tabs; i++) {
+      const next = wallpapers.nextRandom(pool, [], recent, previous, worstLuck);
+      recent = next.recent;
+      previous = next.entry.id;
+      shown.push(next.entry.id);
+    }
+    assert.equal(new Set(shown).size, shown.length, pool + ' (' + size + ' photos): ' + shown.join(', '));
+  }
+});
+
+test('a small pool still varies, and a pool of one still answers', () => {
+  const two = wallpapers.catalog().wallpapers.slice(0, 2).map((w) => w.id);
+  let recent = [];
+  let last = '';
+  for (let i = 0; i < 10; i++) {
+    const next = wallpapers.nextRandom('favourites', two, recent, last, () => 0);
+    assert.notEqual(next.entry.id, last, 'never the same twice in a row');
+    recent = next.recent;
+    last = next.entry.id;
+  }
+  const one = [two[0]];
+  for (let i = 0; i < 3; i++) assert.equal(wallpapers.nextRandom('favourites', one, recent, one[0]).entry.id, one[0]);
+});
+
 test('random from favourites uses only favourites, or everything if there are none', () => {
   const [a, b] = wallpapers.catalog().wallpapers;
   for (let i = 0; i < 20; i++) assert.ok([a.id, b.id].includes(wallpapers.pick('favourites', [a.id, b.id], '').id));

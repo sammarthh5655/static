@@ -302,6 +302,7 @@ class AppWindow {
       // Every tab gets the shortcut interceptor and the rest of its wiring,
       // which follows the tab if it moves to another window.
       onTabCreated: (contents) => browser.wireTab(contents),
+      onTabClosed: (contents) => browser.retire(contents),
       onChange: () => this.push(),
       onNavigate: (event) => browser.recordVisit(event),
     });

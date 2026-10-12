@@ -140,4 +140,41 @@ function pick(pool, favourites, previous, random = Math.random) {
   return options[Math.floor(random() * options.length)] || null;
 }
 
-module.exports = { catalog, find, pick, poolOf, configure, refresh, MODES };
+/** The most recent random picks remembered, whatever the pool's size. */
+const RECENT_MAX = 24;
+
+/**
+ * The next wallpaper for "a different one on every new tab".
+ *
+ * Different from the last few tabs too, not merely random: two tabs landing
+ * on the same photo, or flicking between the same two, reads as the setting
+ * not working. So it steers clear of the last half of the pool's worth of
+ * picks (up to RECENT_MAX), which leaves a small category room to vary
+ * instead of becoming a fixed loop. It used to remember only the last four,
+ * so with fifty photos the sixth tab could repeat the first - about one run
+ * of eight tabs in eight.
+ *
+ * `recent` is what was handed out lately, oldest first; `previous` is the one
+ * the asking page showed last. Returns the pick and the updated `recent`.
+ *
+ * Each photo takes ONE place in the memory. `previous` is usually the last
+ * pick already, and adding it again gave every photo two places, which
+ * halved the memory and let a photo come back twice as soon.
+ */
+function nextRandom(pool, favourites, recent, previous, random = Math.random) {
+  const size = poolOf(pool, favourites).length;
+  const keep = Math.max(1, Math.min(RECENT_MAX, Math.floor(size / 2)));
+  const ids = [...[].concat(recent || []), previous].filter(Boolean).map((id) => String(id).slice(0, 120));
+  const seen = uniqueTail(ids, RECENT_MAX);
+  const entry = pick(pool, favourites, seen.slice(-keep), random);
+  return { entry, recent: entry ? uniqueTail([...seen, entry.id], RECENT_MAX) : seen };
+}
+
+/** The last `max` distinct ids, oldest first; a repeat counts where it last appeared. */
+function uniqueTail(ids, max) {
+  const out = [];
+  for (let i = ids.length - 1; i >= 0 && out.length < max; i--) if (!out.includes(ids[i])) out.unshift(ids[i]);
+  return out;
+}
+
+module.exports = { catalog, find, pick, nextRandom, poolOf, configure, refresh, MODES };

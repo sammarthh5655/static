@@ -233,15 +233,24 @@ class BrowserApplication {
     try { this.saveSession(); } catch { /* a failed save must not stop the window closing */ }
   }
 
+  /**
+   * A page that is closing may still have a message on the way. Remembering
+   * it lets #guard drop that message quietly, rather than refuse it with an
+   * "Unauthorized sender" error that reads like an attack. It has no access
+   * either way: #guard only ever returns null for it.
+   */
+  retire(contents) {
+    if (this.retired.size > 2000) this.retired.clear();
+    if (contents && !contents.isDestroyed()) this.retired.add(contents.id);
+  }
+
   /** A window has closed: its pages go with it, and another comes to the front. */
   windowClosed(w) {
-    // Its views and pages may still have a message on the way as they close;
-    // those are let go quietly (see #guard) rather than refused loudly.
-    if (this.retired.size > 2000) this.retired.clear();
+    // Its views and pages may still have a message on the way as they close.
     for (const view of [w.chrome, w.overlay, w.sidebar, w.vtabs, w.findBar, w.edgeStrip, w.splitDivider, w.splitDrop]) {
-      if (view && !view.webContents.isDestroyed()) this.retired.add(view.webContents.id);
+      if (view) this.retire(view.webContents);
     }
-    for (const tab of w.tabs?.tabs.values() || []) if (!tab.view.webContents.isDestroyed()) this.retired.add(tab.view.webContents.id);
+    for (const tab of w.tabs?.tabs.values() || []) this.retire(tab.view.webContents);
     w.dispose();
     this.windows = this.windows.filter((other) => other !== w);
     if (this.front === w) {
@@ -2609,17 +2618,12 @@ class BrowserApplication {
       'feedback:reveal': () => { if (this.lastFeedbackFolder) shell.openPath(this.lastFeedbackFolder); return !!this.lastFeedbackFolder; },
       'wallpapers:random': (_sender, payload) => {
         const tab = this.settings.value.newTab;
-        // "A different one on every new tab" means different from the last
-        // few tabs too, not merely random: two tabs landing on the same photo,
-        // or flicking between the same two, reads as the setting not working.
-        // Each page asks once, so main remembers what it handed out lately -
-        // up to half the pool, so a small category never becomes a fixed loop.
-        const size = wallpapers.poolOf(tab.wallpaperPool, tab.wallpaperFavourites).length;
-        const keep = Math.max(1, Math.min(4, Math.floor(size / 2)));
-        const recent = (this.recentRandomWallpapers || []).slice(-keep);
-        if (payload?.previous) recent.push(String(payload.previous).slice(0, 120));
-        const entry = wallpapers.pick(tab.wallpaperPool, tab.wallpaperFavourites, recent);
-        if (entry) this.recentRandomWallpapers = [...recent, entry.id].slice(-4);
+        // Each page asks once, so main remembers what it handed out lately;
+        // the rule for how many is in features/wallpapers (nextRandom).
+        const { entry, recent } = wallpapers.nextRandom(
+          tab.wallpaperPool, tab.wallpaperFavourites, this.recentRandomWallpapers, payload?.previous,
+        );
+        this.recentRandomWallpapers = recent;
         return entry;
       },
       'split:resize': (_sender, payload, w) => {

@@ -42,7 +42,7 @@ function pageFromFile(url) {
  *   was born in.
  */
 class Tabs {
-  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, onSelected, extensions, getEngine, securityOf }) {
+  constructor({ window, session, preload, onChange, onNavigate, onTabCreated, onTabClosed, onSelected, extensions, getEngine, securityOf }) {
     // (url) => 'insecure' for an https page whose certificate you chose to
     // go past (features/netguard): it must not wear the padlock.
     this.securityOf = securityOf;
@@ -52,6 +52,7 @@ class Tabs {
     this.onChange = onChange;       // re-render the chrome
     this.onNavigate = onNavigate;   // record history
     this.onTabCreated = onTabCreated; // attach keyboard shortcut interception
+    this.onTabClosed = onTabClosed;   // its page may still have a message on the way
     this.onSelected = onSelected;
     this.extensions = extensions;   // electron-chrome-extensions instance
     this.getEngine = getEngine;     // () => 'google' | 'brave'
@@ -510,6 +511,9 @@ class Tabs {
     try {
       this.extensions?.removeTab(tab.view.webContents);
     } catch { /* extension host may already be gone */ }
+    // Before closing: a request the page had already sent arrives after it is
+    // gone, and is then let go quietly instead of refused as an intruder.
+    if (!tab.view.webContents.isDestroyed()) this.onTabClosed?.(tab.view.webContents);
     if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
 
     if (this.activeId === id) {
