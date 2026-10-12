@@ -275,6 +275,29 @@ function extractZip(archive, dest, limits = LIMITS) {
     plan.push({ name, segments, directory, method, crc, compressed, size, local });
   }
 
+  // Every file's data must be its own. The central directory can point any
+  // number of entries at the same bytes, and data that inflates to nothing
+  // passes every size check - so 20,000 entries sharing one large blob made
+  // a small package take over an hour to "unpack", all of it on the main
+  // process. With the ranges proven disjoint and before the directory, the
+  // decompression work can never exceed the size of the signed file itself.
+  const files = plan.filter((entry) => !entry.directory);
+  for (const entry of files) {
+    const header = entry.local;
+    if (header + 30 > dirStart || archive.readUInt32LE(header) !== 0x04034b50) {
+      throw new CrxError('zip', 'The package contents are damaged.');
+    }
+    entry.start = header + 30 + archive.readUInt16LE(header + 26) + archive.readUInt16LE(header + 28);
+    entry.end = entry.start + entry.compressed;
+    if (entry.end > dirStart) throw new CrxError('zip', 'The package contents are damaged.');
+  }
+  const byOffset = [...files].sort((a, b) => a.local - b.local);
+  for (let i = 1; i < byOffset.length; i++) {
+    if (byOffset[i].local < byOffset[i - 1].end) {
+      throw new CrxError('zip', 'The package contents are damaged: two files share the same data.');
+    }
+  }
+
   fs.mkdirSync(dest, { recursive: true });
   const written = [];
   let total = 0;
@@ -288,13 +311,8 @@ function extractZip(archive, dest, limits = LIMITS) {
     }
     if (entry.directory) { fs.mkdirSync(target, { recursive: true }); continue; }
 
-    const header = entry.local;
-    if (header + 30 > archive.length || archive.readUInt32LE(header) !== 0x04034b50) {
-      throw new CrxError('zip', 'The package contents are damaged.');
-    }
-    const start = header + 30 + archive.readUInt16LE(header + 26) + archive.readUInt16LE(header + 28);
-    if (start + entry.compressed > archive.length) throw new CrxError('zip', 'The package contents are damaged.');
-    const raw = archive.subarray(start, start + entry.compressed);
+    // Located and checked above, before anything was written.
+    const raw = archive.subarray(entry.start, entry.end);
 
     const budget = limits.totalBytes - total;
     if (entry.size > budget) throw new CrxError('size', 'The package unpacks to more than this browser will install.');

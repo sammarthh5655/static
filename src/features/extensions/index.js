@@ -1,9 +1,13 @@
 const path = require('node:path');
 const fs = require('node:fs');
-const { dialog } = require('electron');
+const { app, dialog } = require('electron');
 const { randomUUID } = require('node:crypto');
 const { JsonStore } = require('../../main/storage');
-const { unpackCrxFile } = require('./crx');
+const { unpackCrxFile, idFromKey } = require('./crx');
+
+// Web Store update checks: as often as electron-chrome-web-store ran them.
+const UPDATE_EVERY = 5 * 60 * 60 * 1000;
+const UPDATE_MIN_GAP = 3 * 60 * 60 * 1000;
 
 /** The system file picker, over `parent` when there is a window to put it over. */
 function openDialog(parent, options) {
@@ -52,6 +56,10 @@ class Extensions {
     this.staging = path.join(dir, 'ExtensionStaging');
     fs.mkdirSync(this.path, { recursive: true });
     this.api = null;
+    // What list() shows for an extension that is not loaded, by ID. Reading
+    // it off disk on every state push froze the browser for as long as a
+    // folder on an unreachable network share took to time out.
+    this.offline = new Map();
 
     this.impl = {
       // chrome.tabs.create -> a real tab; must resolve with the webContents so
@@ -90,38 +98,124 @@ class Extensions {
       extensionsPath: this.path,
       loadExtensions: true,
       allowUnpackedExtensions: true,
-      autoUpdate: true,
+      // Updates run through #startUpdater instead. The library's own updater
+      // considers EVERY loaded extension and deletes the old version's folder
+      // afterwards - for an unpacked one, a folder that is the person's (say,
+      // one loaded straight out of Chrome's profile, named 1.2.3_0, with a
+      // key and Google's update_url in its manifest).
+      autoUpdate: false,
       minimumManifestVersion: 2,
     });
+
+    // Leftovers from an install interrupted by a crash.
+    fs.rmSync(this.staging, { recursive: true, force: true });
+    this.offline.clear();
 
     // Honour the persisted disabled list on this launch.
     for (const id of this.disabled()) this.unload(id);
 
-    // Unpacked extensions are not in Extensions/, so the web store loader
-    // never sees them: load each recorded folder ourselves. A folder that has
-    // gone (a moved project, an unplugged drive) is skipped, not forgotten -
-    // it stays listed so it can be removed, and loads again if it comes back.
-    const disabled = new Set(this.disabled());
-    for (const record of this.unpacked()) {
-      if (disabled.has(record.id) || this.ext.getExtension(record.id)) continue;
-      try {
-        await this.ext.loadExtension(record.path, { allowFileAccess: true });
-      } catch (error) {
-        console.error('Unpacked extension did not load:', record.path, error.message);
-      }
-    }
-    // Leftovers from an install interrupted by a crash.
-    fs.rmSync(this.staging, { recursive: true, force: true });
+    await this.#loadUnpackedRecords();
+    this.#startUpdater();
 
     this.session.on('extension-loaded', () => this.onChange?.());
     this.session.on('extension-unloaded', () => this.onChange?.());
     this.onChange?.();
   }
 
+  /**
+   * Unpacked extensions are not in Extensions/, so the web store loader never
+   * sees them: load each recorded folder here. A folder that has gone (a
+   * moved project, an unplugged drive) is skipped, not forgotten - it stays
+   * listed so it can be removed, and loads again if it comes back.
+   */
+  async #loadUnpackedRecords() {
+    const disabled = new Set(this.disabled());
+    let records = this.unpacked();
+    let changed = false;
+    for (const record of this.unpacked()) {
+      // An install of the same ID in Extensions/ - a Web Store or .crx install
+      // made while this folder was switched off - is the newer choice. The
+      // record goes; the folder itself is never touched.
+      if (fs.existsSync(path.join(this.path, record.id))) {
+        records = records.filter((r) => r !== record);
+        changed = true;
+        continue;
+      }
+      if (disabled.has(record.id) || this.ext.getExtension(record.id)) continue;
+      try {
+        const ext = await this.ext.loadExtension(record.path, { allowFileAccess: true });
+        if (ext.id !== record.id) {
+          // The folder now loads under another ID - a "key" was added to its
+          // manifest. Same folder, so fix the record rather than keep a ghost
+          // of the old ID next to an extension that cannot be removed.
+          records = records.filter((r) => r !== record && r.id !== ext.id).concat({ id: ext.id, path: record.path });
+          changed = true;
+          if (disabled.has(ext.id)) this.unload(ext.id);
+        }
+      } catch (error) {
+        console.error('Unpacked extension did not load:', record.path, error.message);
+      }
+    }
+    if (changed) this.store.save({ ...this.store.data, unpacked: records });
+  }
+
+  /**
+   * Whether an update may replace `ext`: only our own installs, laid out as
+   * Extensions/<id>/<version>_0, and never one that came from a recorded
+   * unpacked folder.
+   */
+  updatable(ext) {
+    if (!ext?.path || !ext.id || this.unpackedRecord(ext.id)) return false;
+    const relative = path.relative(this.path, ext.path);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return false;
+    const parts = relative.split(/[\\/]/);
+    return parts.length === 2 && parts[0] === ext.id;
+  }
+
+  /**
+   * Web Store updates, as the library ran them (on start, every few hours,
+   * and when the browser comes to the front, at most every three hours), but
+   * through a view of the session that shows the updater only what
+   * updatable() allows - so nothing outside Extensions/ can be deleted.
+   */
+  #startUpdater() {
+    const { updateExtensions } = require('electron-chrome-web-store');
+    const real = this.ext;
+    this.updaterView = {
+      extensions: {
+        getAllExtensions: () => real.getAllExtensions().filter((ext) => this.updatable(ext)),
+        getExtension: (id) => real.getExtension(id),
+        removeExtension: (id) => real.removeExtension(id),
+        loadExtension: (where, options) => real.loadExtension(where, options),
+      },
+    };
+    let last = 0;
+    const check = () => {
+      if (this.updating || Date.now() - last < UPDATE_MIN_GAP) return;
+      last = Date.now();
+      this.updating = updateExtensions(this.updaterView)
+        .catch((error) => console.error('Extension update check failed:', error?.message || error))
+        .finally(() => { this.updating = null; this.onChange?.(); });
+    };
+    this.updateTimer = setInterval(check, UPDATE_EVERY);
+    app.on(process.platform === 'darwin' ? 'did-become-active' : 'browser-window-focus', check);
+    // Not in the middle of startup: give the first windows a moment.
+    setTimeout(check, 30 * 1000).unref?.();
+  }
+
   disabled() { return this.store.data.disabled || []; }
 
-  /** Recorded "Load unpacked" folders: [{ id, path }]. */
-  unpacked() { return this.store.data.unpacked || []; }
+  /**
+   * Recorded "Load unpacked" folders: [{ id, path }]. Anything malformed in
+   * extensions.json (an edited file, say) is ignored rather than allowed to
+   * break startup or the list.
+   */
+  unpacked() {
+    const list = this.store.data.unpacked;
+    return Array.isArray(list)
+      ? list.filter((r) => r && typeof r.id === 'string' && /^[a-p]{32}$/.test(r.id) && typeof r.path === 'string' && r.path)
+      : [];
+  }
 
   unpackedRecord(id) { return this.unpacked().find((record) => record.id === id) || null; }
 
@@ -156,10 +250,19 @@ class Extensions {
   }
 
   /**
-   * Manifest of an extension that is not loaded: from its recorded folder if
-   * it was loaded unpacked, else from the versioned install layout.
+   * What the manager shows for an extension that is not loaded: from its
+   * recorded folder if it was loaded unpacked, else from the versioned
+   * install layout. Cached (see `offline`); every action that can change the
+   * answer forgets it first.
    */
   readManifest(id) {
+    if (this.offline.has(id)) return this.offline.get(id);
+    const info = this.#readManifest(id);
+    this.offline.set(id, info);
+    return info;
+  }
+
+  #readManifest(id) {
     const record = this.unpackedRecord(id);
     if (record) {
       try {
@@ -212,6 +315,7 @@ class Extensions {
   async setEnabled(id, enabled) {
     if (typeof id !== 'string' || !id) return;
     const disabled = new Set(this.disabled());
+    this.offline.delete(id);
     if (enabled) {
       disabled.delete(id);
       const info = this.readManifest(id);
@@ -222,27 +326,32 @@ class Extensions {
       disabled.add(id);
       this.unload(id);
     }
+    this.offline.delete(id);
     this.store.save({ ...this.store.data, disabled: [...disabled] });
     this.onChange?.();
   }
 
+  /**
+   * Remove, whatever kind it is: unload it, forget any unpacked record, and
+   * delete the app's OWN copy in Extensions/<id> if there is one - which also
+   * covers an ID that was both installed and recorded. A recorded folder is
+   * the person's and is never deleted.
+   */
   async remove(id) {
-    if (typeof id !== 'string' || !id) return;
-    if (this.unpackedRecord(id)) {
-      // An unpacked extension lives in the person's own folder: forget it,
-      // never delete it. That folder may be their source code.
+    if (typeof id !== 'string' || !/^[a-p]{32}$/.test(id)) return;
+    const { uninstallExtension } = require('electron-chrome-web-store');
+    try {
+      // Unloads it and deletes Extensions/<id>; nothing outside that folder.
+      await uninstallExtension(id, { session: this.session, extensionsPath: this.path });
+    } catch {
       this.unload(id);
-      this.store.save({ ...this.store.data, unpacked: this.unpacked().filter((record) => record.id !== id) });
-    } else {
-      const { uninstallExtension } = require('electron-chrome-web-store');
-      try {
-        // Unloads it and deletes Extensions/<id> - our copy, nothing else.
-        await uninstallExtension(id, { session: this.session, extensionsPath: this.path });
-      } catch {
-        this.unload(id);
-      }
     }
-    this.store.save({ ...this.store.data, disabled: this.disabled().filter((x) => x !== id) });
+    this.offline.delete(id);
+    this.store.save({
+      ...this.store.data,
+      unpacked: this.unpacked().filter((record) => record.id !== id),
+      disabled: this.disabled().filter((x) => x !== id),
+    });
     this.onChange?.();
   }
 
@@ -250,6 +359,10 @@ class Extensions {
    * "Load unpacked" - the developer-mode button on the extensions page.
    * `dir` skips the folder picker (tests, and anything that already knows it).
    * Returns { ok, id, name } or { ok: false, error } for the page to show.
+   *
+   * As in Chrome, a folder whose manifest key gives it the ID of an installed
+   * extension replaces that install: the app's copy is deleted, the folder is
+   * recorded, and from then on the folder is what loads.
    */
   async loadUnpacked(parent = this.getWindow(), dir = null) {
     if (!dir) {
@@ -258,19 +371,36 @@ class Extensions {
       dir = result.filePaths[0];
     }
     dir = path.resolve(dir);
-    if (!fs.existsSync(path.join(dir, 'manifest.json'))) {
-      return { ok: false, error: 'That folder has no manifest.json. Choose the folder that contains it.' };
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8').replace(/^﻿/, ''));
+    } catch (error) {
+      return error?.code === 'ENOENT'
+        ? { ok: false, error: 'That folder has no manifest.json. Choose the folder that contains it.' }
+        : { ok: false, error: 'That folder\'s manifest.json could not be read: ' + (error?.message || error) };
     }
+    // A key fixes the ID. Unload whatever has that ID now, rather than rely on
+    // Electron replacing it, which it does not promise.
+    let keyed = null;
+    if (typeof manifest?.key === 'string') {
+      try { keyed = idFromKey(Buffer.from(manifest.key, 'base64')); } catch { keyed = null; }
+    }
+    const same = (a, b) => (process.platform === 'linux' ? a === b : a.toLowerCase() === b.toLowerCase());
     let ext;
     try {
       // Loading the same folder again picks up edits, as Chrome's reload does.
-      const already = this.unpacked().find((record) => path.resolve(record.path) === dir);
+      const already = this.unpacked().find((record) => same(path.resolve(record.path), dir));
       if (already) this.unload(already.id);
+      if (keyed) this.unload(keyed);
       ext = await this.ext.loadExtension(dir, { allowFileAccess: true });
     } catch (error) {
       return { ok: false, error: 'The extension did not load: ' + (error?.message || error) };
     }
-    const records = this.unpacked().filter((record) => record.id !== ext.id && path.resolve(record.path) !== dir);
+    const home = path.join(this.path, ext.id);
+    const inside = path.relative(home, dir);
+    if (inside.startsWith('..') || path.isAbsolute(inside)) fs.rmSync(home, { recursive: true, force: true });
+    const records = this.unpacked().filter((record) => record.id !== ext.id && !same(path.resolve(record.path), dir));
+    this.offline.delete(ext.id);
     this.store.save({
       ...this.store.data,
       unpacked: [...records, { id: ext.id, path: dir }],
@@ -286,8 +416,10 @@ class Extensions {
    * The package is verified and unpacked by ./crx.js (signature checked, no
    * adm-zip), staged outside Extensions/, then moved to the same versioned
    * layout a Web Store install uses - so it loads at every startup and
-   * "remove" deletes it like any other install. Installing a package whose ID
-   * is already installed replaces it, as an update would.
+   * "remove" deletes it like any other install. A package whose ID is
+   * already installed replaces it, as an update would, but nothing of the
+   * old install is destroyed until the new one has loaded: on any failure
+   * the old one is put back exactly as it was, running if it was running.
    */
   async loadCrx(parent = this.getWindow(), file = null) {
     if (!file) {
@@ -300,44 +432,80 @@ class Extensions {
       file = result.filePaths[0];
     }
     const stage = path.join(this.staging, randomUUID());
+    let aside = null;
+    // Set when the old install could not be put back: it is then kept where
+    // it is (startup clears staging later) rather than deleted with the rest.
+    let keepAside = false;
     try {
       fs.mkdirSync(this.staging, { recursive: true });
       const { id, manifest } = unpackCrxFile(file, stage);
 
-      // A .crx carrying an unpacked extension's ID replaces that record too.
-      if (this.unpackedRecord(id)) {
-        this.store.save({ ...this.store.data, unpacked: this.unpacked().filter((record) => record.id !== id) });
-      }
-      this.unload(id);
       const home = path.join(this.path, id);
-      fs.rmSync(home, { recursive: true, force: true });
-      fs.mkdirSync(home, { recursive: true });
       const target = path.join(home, manifest.version + '_0');
-      fs.renameSync(stage, target);
+      const running = this.ext.getExtension(id);
+      const before = running ? { path: running.path, unpacked: !!this.unpackedRecord(id) } : null;
+
+      // Put everything back as it was: called on any failure from here on.
+      const restore = async (message) => {
+        this.unload(id);
+        fs.rmSync(home, { recursive: true, force: true });
+        if (aside) { try { fs.renameSync(aside, home); aside = null; } catch { keepAside = true; } }
+        if (before) {
+          try { await this.ext.loadExtension(before.path, before.unpacked ? { allowFileAccess: true } : undefined); } catch { /* reported below */ }
+        }
+        this.offline.delete(id);
+        this.onChange?.();
+        return { ok: false, error: message };
+      };
+
+      this.unload(id);
+      if (fs.existsSync(home)) {
+        // Set aside, not deleted. ExtensionStaging sits next to Extensions,
+        // so this is a rename on one volume.
+        aside = path.join(this.staging, randomUUID());
+        try {
+          fs.renameSync(home, aside);
+        } catch (error) {
+          aside = null;
+          return await restore('The installed copy could not be replaced (' + (error?.code || error?.message || error) + '). Close anything using it and try again.');
+        }
+      }
+      try {
+        fs.mkdirSync(home, { recursive: true });
+        fs.renameSync(stage, target);
+      } catch (error) {
+        return await restore('The .crx could not be installed: ' + (error?.message || error));
+      }
 
       let ext;
       try {
         ext = await this.ext.loadExtension(target);
       } catch (error) {
-        fs.rmSync(home, { recursive: true, force: true });
-        return { ok: false, error: 'The extension did not load: ' + (error?.message || error) };
+        return await restore('The extension did not load: ' + (error?.message || error));
       }
       if (ext.id !== id) {
         // Electron derives the ID from the manifest key we wrote. A mismatch
         // means that derivation changed: refuse rather than install under a
         // different identity than the one that was verified.
         this.unload(ext.id);
-        fs.rmSync(home, { recursive: true, force: true });
-        return { ok: false, error: 'The extension loaded under an unexpected ID, so it was not installed.' };
+        return await restore('The extension loaded under an unexpected ID, so it was not installed.');
       }
-      this.store.save({ ...this.store.data, disabled: this.disabled().filter((x) => x !== id) });
+
+      // Installed and running: only now is the old install let go.
+      this.offline.delete(id);
+      this.store.save({
+        ...this.store.data,
+        unpacked: this.unpacked().filter((record) => record.id !== id),
+        disabled: this.disabled().filter((x) => x !== id),
+      });
       this.onChange?.();
       return { ok: true, id, name: ext.name };
     } catch (error) {
       const message = error?.name === 'CrxError' ? error.message : 'The .crx could not be installed: ' + (error?.message || error);
       return { ok: false, error: message };
     } finally {
-      fs.rmSync(stage, { recursive: true, force: true });
+      try { fs.rmSync(stage, { recursive: true, force: true }); } catch { /* startup clears staging */ }
+      if (aside && !keepAside) { try { fs.rmSync(aside, { recursive: true, force: true }); } catch { /* startup clears staging */ } }
     }
   }
 

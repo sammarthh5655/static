@@ -100,9 +100,71 @@ async function run(browser) {
       check('the Extensions page lists the unpacked one, marked Unpacked', page.some((t) => /Fixture Unpacked/.test(t) && /Unpacked/.test(t.replace('Fixture Unpacked', ''))), page);
       check('and the installed .crx', page.some((t) => /Fixture Crx/.test(t)), page);
 
+      // A reinstall that fails to load must leave the working version alone.
+      // Electron's loader is made to refuse once, as it would a broken package.
+      const real = ex.session.extensions.loadExtension.bind(ex.session.extensions);
+      ex.session.extensions.loadExtension = async (where, options) => {
+        if (/1\.4\.0_0/.test(String(where))) throw new Error('simulated load failure');
+        return real(where, options);
+      };
+      const broken = fx.crx(fx.extensionArchive({ name: 'Fixture Crx', version: '1.4.0' }), { signer: pkg.signer });
+      const brokenFile = path.join(dir, 'broken.crx');
+      fs.writeFileSync(brokenFile, broken.buffer);
+      const failed = await ex.loadCrx(null, brokenFile);
+      ex.session.extensions.loadExtension = real;
+      check('a reinstall that does not load is reported', !failed.ok && /did not load/.test(failed.error || ''), failed);
+      check('and the working version is still installed and running',
+        find(pkg.id)?.version === '1.3.0' && !!ex.ext.getExtension(pkg.id) && fs.readdirSync(path.join(ex.path, pkg.id)).join() === '1.3.0_0',
+        { listed: find(pkg.id)?.version, folders: fs.readdirSync(path.join(ex.path, pkg.id)) });
+
+      // A folder whose manifest key gives it an installed extension's ID
+      // replaces that install, as in Chrome.
+      const twin = fx.crx(fx.extensionArchive({ name: 'Fixture Twin', version: '1.0.0' }));
+      const twinFile = path.join(dir, 'twin.crx');
+      fs.writeFileSync(twinFile, twin.buffer);
+      await ex.loadCrx(null, twinFile);
+      const twinDir = path.join(dir, 'twin-dev');
+      fs.mkdirSync(twinDir);
+      fs.writeFileSync(path.join(twinDir, 'manifest.json'), JSON.stringify({
+        manifest_version: 3, name: 'Fixture Twin (dev)', version: '9.9.9', key: twin.signer.publicDer.toString('base64'),
+      }));
+      const twinLoaded = await ex.loadUnpacked(null, twinDir);
+      check('loading a folder with an installed extension\'s key replaces the install',
+        twinLoaded.ok && twinLoaded.id === twin.id && find(twin.id)?.version === '9.9.9' && find(twin.id)?.unpacked === true &&
+        !fs.existsSync(path.join(ex.path, twin.id)), { twinLoaded, listed: find(twin.id) });
+
+      // A folder recorded under one ID that will load under another next time.
+      const rekeyDir = path.join(dir, 'rekey');
+      fs.mkdirSync(rekeyDir);
+      fs.writeFileSync(path.join(rekeyDir, 'manifest.json'), JSON.stringify({ manifest_version: 3, name: 'Fixture Rekey', version: '1.0.0' }));
+      const rekeyed = await ex.loadUnpacked(null, rekeyDir);
+      const newKey = fx.keyPair();
+      fs.writeFileSync(path.join(rekeyDir, 'manifest.json'), JSON.stringify({
+        manifest_version: 3, name: 'Fixture Rekey', version: '1.0.1', key: newKey.publicDer.toString('base64'),
+      }));
+
+      // Updates may only ever replace the app's own copies.
+      const updatable = ex.updaterView.extensions.getAllExtensions().map((e) => e.id);
+      check('the updater sees the installed .crx', updatable.includes(pkg.id), updatable);
+      check('but never an unpacked folder', !updatable.includes(loaded.id) && !updatable.includes(twin.id) && !updatable.includes(rekeyed.id), updatable);
+
+      // The list does not go back to disk for what it already knows.
+      await ex.setEnabled(loaded.id, false);
+      ex.list();
+      let reads = 0;
+      const readFile = fs.readFileSync;
+      fs.readFileSync = function (...args) { if (/manifest\.json$/.test(String(args[0]))) reads++; return readFile.apply(this, args); };
+      for (let i = 0; i < 5; i++) ex.list();
+      fs.readFileSync = readFile;
+      check('refreshing the list does not re-read manifests from disk', reads === 0, reads + ' reads');
+      await ex.setEnabled(loaded.id, true);
+
       // Leave the .crx switched off: the second launch checks that holds too.
       await ex.setEnabled(pkg.id, false);
-      fs.writeFileSync(marker, JSON.stringify({ dir, unpackedDir, unpackedId: loaded.id, crxId: pkg.id }));
+      fs.writeFileSync(marker, JSON.stringify({
+        dir, unpackedDir, unpackedId: loaded.id, crxId: pkg.id,
+        twinId: twin.id, twinDir, rekeyDir, oldRekeyId: rekeyed.id, newRekeyId: fx.idOf(newKey.publicDer),
+      }));
       console.log('first launch done; run again to check the restart');
     } else {
       /* ---------------- second launch: what a restart kept ---------------- */
@@ -130,6 +192,20 @@ async function run(browser) {
       check('a missing unpacked folder stays listed so it can be removed', missing?.missing === true && missing?.enabled === false, missing);
       await ex.remove(fakeId);
       check('and removing it forgets it', !find(fakeId) && !ex.unpackedRecord(fakeId));
+
+      // The folder that replaced an install is what loads after a restart.
+      const twin = find(m.twinId);
+      check('after a restart the folder, not the old install, is what runs',
+        twin?.version === '9.9.9' && twin?.unpacked === true && !fs.existsSync(path.join(ex.path, m.twinId)), twin);
+      await ex.remove(m.twinId);
+      check('and removing it leaves nothing behind but the person\'s folder',
+        !find(m.twinId) && !fs.existsSync(path.join(ex.path, m.twinId)) && fs.existsSync(path.join(m.twinDir, 'manifest.json')));
+
+      // The folder whose ID changed is listed once, under its new ID.
+      check('a folder whose ID changed is loaded under the new ID', !!ex.ext.getExtension(m.newRekeyId) && find(m.newRekeyId)?.unpacked === true, find(m.newRekeyId));
+      check('and no ghost of the old ID is left', !find(m.oldRekeyId) && !ex.unpackedRecord(m.oldRekeyId), ex.unpacked());
+      await ex.remove(m.newRekeyId);
+      check('and it can be removed', !find(m.newRekeyId) && !ex.unpackedRecord(m.newRekeyId) && fs.existsSync(path.join(m.rekeyDir, 'manifest.json')));
 
       fs.rmSync(m.dir, { recursive: true, force: true });
     }

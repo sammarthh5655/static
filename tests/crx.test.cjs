@@ -153,6 +153,27 @@ test('too many entries are refused before anything is written', () => inTmp((dir
   assert.deepStrictEqual(tree(dir), []);
 }));
 
+test('two entries that share the same data are refused before anything is written', () => inTmp((dir) => {
+  const shared = fx.zip([{ name: 'a.txt', data: 'hello' }, { name: 'b.txt', aliasOf: 0 }]);
+  rejects(() => extractZip(shared, path.join(dir, 'out')), 'zip');
+  assert.deepStrictEqual(tree(dir), []);
+}));
+
+test('thousands of entries pointing at one blob cannot make unpacking slow', () => inTmp((dir) => {
+  // The reviewed attack, scaled down: deflate data made only of empty stored
+  // blocks inflates to nothing, so every size and CRC check passes - yet
+  // each entry that points at it costs a full pass over it. Shared data is
+  // now refused up front, so this is fast however large it is made.
+  const empty = Buffer.from([0x00, 0x00, 0x00, 0xff, 0xff]);
+  const blob = Buffer.concat([...Array(200000).fill(empty), Buffer.from([0x01, 0x00, 0x00, 0xff, 0xff])]);
+  const entries = [{ name: 'manifest.json', data: '{}' }, { name: 'p', raw: blob, size: 0, crc: 0 }];
+  for (let i = 0; i < 5000; i++) entries.push({ name: 'f' + i, aliasOf: 1 });
+  const started = Date.now();
+  rejects(() => extractZip(fx.zip(entries), path.join(dir, 'out')), 'zip');
+  assert.ok(Date.now() - started < 2000, 'took ' + (Date.now() - started) + 'ms');
+  assert.deepStrictEqual(tree(dir), []);
+}));
+
 test('an encrypted entry is refused', () => inTmp((dir) => {
   rejects(() => extractZip(fx.zip([{ name: 'e.txt', data: 'x', flags: 0x1 }]), path.join(dir, 'out')), 'zip');
 }));

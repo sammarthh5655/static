@@ -26,15 +26,28 @@ const crc32 = typeof zlib.crc32 === 'function' ? (b) => zlib.crc32(b) >>> 0 : ((
 /**
  * A ZIP archive. Each entry: { name, data, method = 8, size?, crc?, flags?, external? }
  * `size` and `crc` override what the headers claim, to build lying archives.
+ * `aliasOf: i` writes no data of its own: its directory record points at
+ * entry i's bytes, under its own name (the overlapping-entries trick).
  */
 function zip(entries) {
   const locals = [];
   const centrals = [];
+  const placed = [];
   let offset = 0;
   for (const e of entries) {
+    if (Number.isInteger(e.aliasOf)) {
+      const target = placed[e.aliasOf];
+      const name = Buffer.from(e.name, 'utf8');
+      const central = Buffer.from(target.central);
+      central.writeUInt16LE(name.length, 28);
+      centrals.push(central, name);
+      placed.push(target);
+      continue;
+    }
     const data = Buffer.isBuffer(e.data) ? e.data : Buffer.from(e.data || '');
     const method = e.method ?? 8;
-    const body = method === 8 ? zlib.deflateRawSync(data) : data;
+    // `raw`: the stored bytes exactly as given, for hand-made deflate streams.
+    const body = e.raw ?? (method === 8 ? zlib.deflateRawSync(data) : data);
     const name = Buffer.from(e.name, 'utf8');
     const flags = (e.flags ?? 0) | 0x800;
     const crc = e.crc ?? crc32(data);
@@ -64,6 +77,7 @@ function zip(entries) {
     central.writeUInt32LE((e.external ?? (0o100644 << 16)) >>> 0, 38);
     central.writeUInt32LE(offset, 42);
     centrals.push(central, name);
+    placed.push({ central });
 
     offset += 30 + name.length + body.length;
   }
