@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **Electron 44.4.3 → 44.7.0**, the six 44.x releases it was behind, each
+  carrying Chromium security fixes. All 77 off-screen probes and 329 unit
+  tests pass on it.
+
 ### Fixed
 
 - **The AI probes pass again, without spending the Gemini allowance.** Test
