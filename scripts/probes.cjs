@@ -32,6 +32,7 @@ const RUNS = {
   splitdrag: [[], ['--incognito']],
   siteinfo: [[], ['--incognito']],
   netprivacy: [[], ['--incognito']],
+  extlocal: [[], []],
 };
 
 const args = process.argv.slice(2);

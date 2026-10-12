@@ -320,6 +320,29 @@ tabs/windows APIs are all supported — but some things differ:
 disabling unloads it and records the id, and enabling loads it back from disk.
 A disabled extension is genuinely not running, which is stricter than Chrome.
 
+### Extensions from your own disk
+
+- **Load unpacked** runs the extension from the folder you pick, as Chrome's
+  developer mode does, so edits show after loading it again. The folder's
+  location is remembered in `extensions.json` and loaded at every startup.
+  **Remove** forgets it and never deletes the folder. If the folder goes
+  missing, the extension stays listed as "Folder not found" until it comes
+  back or is removed.
+- **Install .crx file** accepts CRX3 packages only; Chrome itself stopped
+  installing CRX2. Every signature in the package must verify, and the
+  extension ID must belong to a key that signed it, so a package cannot claim
+  another extension's ID and replace it. The library's own CRX reader checks
+  neither, which is acceptable for files it downloads from Google over HTTPS
+  but not for a file from disk.
+- The package is unpacked by `src/features/extensions/crx.js`, not adm-zip.
+  It refuses entries that would write outside the extension's folder,
+  symbolic links, duplicate names, encrypted entries, ZIP64, and anything
+  whose real size differs from what it declares. Size limits are enforced
+  while decompressing, so a decompression bomb stops at the limit.
+- An installed `.crx` goes into the same `Extensions/<id>/<version>_0` layout
+  as a Web Store install, so it loads at startup and Remove deletes it.
+  Installing a newer package with the same ID replaces the old one.
+
 ---
 
 ## Data storage
@@ -334,8 +357,8 @@ macOS, `~/.config/static` on Linux):
 | `bookmarks.json` | Bookmarks |
 | `history.json` | Visit history (capped at 50,000 entries) |
 | `downloads.json` | Download history |
-| `extensions.json` | Which extensions are disabled |
-| `Extensions/` | Installed extension packages |
+| `extensions.json` | Which extensions are disabled, and the folders of unpacked ones |
+| `Extensions/` | Installed extension packages, from the Web Store or a `.crx` file |
 
 **Why JSON and not SQLite:** the data volumes here are small and read entirely
 into memory at startup, so SQLite's query engine buys nothing — while a native

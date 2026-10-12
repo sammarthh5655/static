@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Install .crx file works.** It used to hand the file's path to the Web
+  Store installer, which treats its argument as a store ID, so it asked Google
+  for an extension named after the path and always failed. A new reader
+  (`src/features/extensions/crx.js`) verifies every signature in a CRX3
+  package, requires the extension ID to belong to a key that signed it, and
+  unpacks without adm-zip, refusing escaping paths, symlinks, duplicate
+  names, encrypted entries, ZIP64 and size lies. The package is installed in
+  the Web Store layout, so it survives restarts and Remove deletes it.
+- **Unpacked extensions survive a restart.** "Load unpacked" loaded the
+  folder for the current session only. The folder is now recorded and loaded
+  at every startup, as in Chrome. Remove forgets it and never deletes the
+  folder; a folder that has gone missing stays listed so it can be removed.
+- **Disabling an unpacked extension no longer loses it.** It vanished from
+  the list and could not be re-enabled, because its manifest was looked for
+  only in the installed-extensions folder.
+- The Extensions page now says what happened when loading fails, instead of
+  silently doing nothing. A new probe (`tests/extlocal.cjs`, run twice by
+  `npm run probes`) covers all of this across a restart, and 37 unit tests
+  cover the CRX reader.
 - The planetarium theme picker no longer renders blank. Its animation loop
   re-armed itself as the last statement of its drawing code, so a single
   throw mid-frame stopped the loop permanently - blank until Settings was
