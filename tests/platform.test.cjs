@@ -15,6 +15,26 @@ const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'
 const root = path.join(__dirname, '..');
 const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
+/**
+ * electron-builder.config.cjs as a build would see it, with `env` set and
+ * every signing, notarization and update variable cleared first - so these
+ * tests describe a plain, unsigned build unless they say otherwise.
+ */
+const CONFIG = path.join(root, 'electron-builder.config.cjs');
+const BUILD_VARS = /^(STATIC_|CSC_|WIN_CSC_|APPLE_|AZURE_)/;
+function loadConfig(env = {}) {
+  const saved = { ...process.env };
+  for (const key of Object.keys(process.env)) if (BUILD_VARS.test(key)) delete process.env[key];
+  Object.assign(process.env, env);
+  delete require.cache[require.resolve(CONFIG)];
+  try { return require(CONFIG); } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+    delete require.cache[require.resolve(CONFIG)];
+  }
+}
+const build = loadConfig();
+
 test('macOS keeps its real traffic lights', () => {
   // Every window is made in one place (AppWindow), so every window keeps them.
   const source = read('src/main/window.js');
@@ -47,17 +67,21 @@ test('macOS gets an application menu, so copy and paste work', () => {
 });
 
 test('the Mac build covers every current Mac', () => {
-  const mac = pkg.build.mac;
+  const mac = build.mac;
   assert.ok(mac, 'a mac target is declared');
   for (const target of mac.target) {
     assert.ok(target.arch.includes('universal'),
       target.target + ' is universal, so Apple Silicon and Intel both work');
   }
-  assert.equal(mac.extendInfo.LSMinimumSystemVersion, '11.0');
+  // Electron's own Info.plist states the oldest macOS it runs on (13 for
+  // Electron 44). Overriding it with an older one let Macs that cannot run
+  // static install it.
+  assert.equal(mac.extendInfo.LSMinimumSystemVersion, undefined);
+  assert.equal(mac.minimumSystemVersion, undefined);
 });
 
 test('the hardened runtime is on and has what Electron needs', () => {
-  const mac = pkg.build.mac;
+  const mac = build.mac;
   // Required for notarization on 10.15+.
   assert.equal(mac.hardenedRuntime, true);
 
@@ -75,7 +99,7 @@ test('the hardened runtime is on and has what Electron needs', () => {
 
 test('every protected resource the browser touches has a stated reason', () => {
   // macOS crashes rather than prompting when a reason is missing.
-  const info = pkg.build.mac.extendInfo;
+  const info = build.mac.extendInfo;
   for (const key of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription',
                      'NSLocationWhenInUseUsageDescription',
                      'NSDownloadsFolderUsageDescription',
@@ -86,7 +110,7 @@ test('every protected resource the browser touches has a stated reason', () => {
 });
 
 test('macOS can offer Static as the default browser', () => {
-  const types = pkg.build.mac.extendInfo.CFBundleURLTypes;
+  const types = build.mac.extendInfo.CFBundleURLTypes;
   assert.ok(Array.isArray(types) && types.length, 'URL types are declared');
   const schemes = types[0].CFBundleURLSchemes;
   assert.ok(schemes.includes('http') && schemes.includes('https'),
@@ -95,8 +119,80 @@ test('macOS can offer Static as the default browser', () => {
 
 test('an unsigned local build still produces a runnable app', () => {
   // A missing certificate must not fail the whole build.
-  assert.equal(pkg.build.mac.identity, null);
-  assert.equal(pkg.build.mac.gatekeeperAssess, false);
+  assert.equal(build.mac.identity, null);
+  assert.equal(build.mac.gatekeeperAssess, false);
+  assert.equal(build.mac.notarize, false);
+  // ...and is signed ad hoc after packaging: otherwise a downloaded copy is
+  // "damaged and can't be opened", with no way past it.
+  assert.ok(fs.existsSync(path.join(root, build.afterPack)), 'the afterPack hook exists');
+  assert.ok(read(build.afterPack).includes("'codesign', ['--force', '--deep', '--sign', '-'"), 'ad-hoc codesign call present');
+});
+
+test('the Windows installer is per-user, one-click, per-architecture, and registers a browser', () => {
+  const nsis = build.nsis;
+  assert.equal(nsis.oneClick, true);
+  assert.equal(nsis.perMachine, false, 'no administrator prompt');
+  assert.equal(nsis.buildUniversalInstaller, false, 'x64 and arm64 are separate, smaller downloads');
+  assert.deepEqual(build.win.target[0].arch, ['x64', 'arm64']);
+  assert.equal(build.win.signAndEditExecutable, true, 'static.exe carries its own name and icon');
+  const script = read(nsis.include);
+  for (const key of ['StartMenuInternet', 'RegisteredApplications', 'URLAssociations', 'customUnInstall']) {
+    assert.ok(script.includes(key), 'installer.nsh handles ' + key);
+  }
+});
+
+test('the publisher shown to everyone is a name, never an email address', () => {
+  assert.equal(build.extraMetadata.author.name, 'static');
+  assert.doesNotMatch(String(pkg.author?.name || pkg.author || ''), /@/);
+  assert.equal(loadConfig({ STATIC_PUBLISHER: 'Example Ltd' }).extraMetadata.author.name, 'Example Ltd');
+});
+
+test('updates are off without an address, and only ever over https', () => {
+  assert.equal(build.publish, null, 'no address, no update file, no checks');
+  const on = loadConfig({ STATIC_UPDATE_URL: 'https://example.com/download/' });
+  assert.deepEqual(on.publish, [{ provider: 'generic', url: 'https://example.com/download/', channel: 'latest' }]);
+  assert.equal(on.nsis.uninstallUrlInfoAbout, 'https://example.com', 'the site is linked from Apps & features');
+  assert.throws(() => loadConfig({ STATIC_UPDATE_URL: 'http://example.com/download/' }), /https/);
+  // This computer only, for testing the update path locally.
+  assert.equal(loadConfig({ STATIC_UPDATE_URL: 'http://127.0.0.1:47321/' }).publish[0].url, 'http://127.0.0.1:47321/');
+});
+
+test('Windows signing switches on from whichever credentials are present', () => {
+  assert.equal(build.win.azureSignOptions, undefined);
+  assert.equal(build.win.signtoolOptions, undefined);
+  const store = loadConfig({ STATIC_WIN_CERT_SHA1: 'AB cd:EF 12' });
+  assert.equal(store.win.signtoolOptions.certificateSha1, 'ABcdEF12', 'a pasted thumbprint is cleaned');
+  const azureVars = {
+    AZURE_TENANT_ID: 't', AZURE_CLIENT_ID: 'c', AZURE_CLIENT_SECRET: 's',
+    STATIC_AZURE_ENDPOINT: 'https://eus.codesigning.azure.net', STATIC_AZURE_ACCOUNT: 'a', STATIC_AZURE_PROFILE: 'p',
+  };
+  const azure = loadConfig({ ...azureVars, STATIC_PUBLISHER: 'Example Ltd' });
+  assert.equal(azure.win.azureSignOptions.certificateProfileName, 'p');
+  assert.equal(azure.win.signtoolOptions, undefined, 'one signing method at a time');
+});
+
+test('signed builds record the signer\'s real name, or installed copies can never update', () => {
+  // Installed copies accept an update only from the publisherName recorded
+  // at build time. For a certificate, electron-builder reads it from the
+  // certificate - so a default must NOT be filled in.
+  const store = loadConfig({ STATIC_WIN_CERT_SHA1: 'ABCDEF' });
+  assert.equal(store.win.signtoolOptions.publisherName, undefined, 'read from the certificate');
+  assert.equal(loadConfig({ STATIC_WIN_CERT_SHA1: 'ABCDEF', STATIC_PUBLISHER: 'Example Ltd' }).win.signtoolOptions.publisherName, 'Example Ltd');
+  // Azure cannot be read, so the name is required.
+  assert.throws(() => loadConfig({
+    AZURE_TENANT_ID: 't', AZURE_CLIENT_ID: 'c', AZURE_CLIENT_SECRET: 's',
+    STATIC_AZURE_ENDPOINT: 'https://eus.codesigning.azure.net', STATIC_AZURE_ACCOUNT: 'a', STATIC_AZURE_PROFILE: 'p',
+  }), /STATIC_PUBLISHER/);
+});
+
+test('the Arm64 installer refuses an x64 PC before it changes anything', () => {
+  const script = read('build/installer.nsh');
+  assert.match(script, /!macro customInit[\s\S]*!ifdef APP_ARM64[\s\S]*\$\{IfNot\} \$\{IsNativeARM64\}[\s\S]*Quit/);
+});
+
+test('the app ships only what it reads at runtime', () => {
+  assert.ok(build.files.includes('build/*.preload.cjs'));
+  assert.ok(!build.files.includes('build/**/*'), 'installer artwork and scripts stay out of the app');
 });
 
 test('the generated preloads are built before packaging', () => {

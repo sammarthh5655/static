@@ -17,3 +17,6 @@ tmp/
 shots/
 src/features/shields/brave/youtube-bundle.js
 src/shared/build-info.json
+
+# The folder npm run release assembles for the website (installers, ~500 MB).
+release/

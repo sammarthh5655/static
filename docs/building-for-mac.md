@@ -11,13 +11,15 @@ npm install
 npm run dist:mac
 ```
 
-You get `dist/static-0.1.0-mac-universal.dmg`, which runs on every Mac made
-since 2020 — Apple Silicon (M1 through M4) and Intel, from one download.
+You get `dist/static-0.1.0-mac-universal.dmg`, one download that runs natively
+on Apple Silicon and Intel Macs with macOS 13 Ventura or later (Electron 44's
+minimum).
 
 **A Mac build requires a Mac.** Apple's signing and packaging tools only run on
 macOS; electron-builder refuses on Windows with
 *"Build for macOS is supported only on macOS"*. There is no way around this
-locally. For CI, use a `macos-latest` runner.
+locally. `.github/workflows/release.yml` builds it on a `macos-latest` runner;
+see [releasing.md](releasing.md) for publishing it.
 
 ---
 
@@ -120,38 +122,45 @@ location, Downloads folder, Documents folder.
 `CFBundleURLTypes` registers `http` and `https`, without which macOS never
 offers Static in *Settings → Desktop & Dock → Default web browser*.
 
-`LSMinimumSystemVersion: 11.0` — Big Sur, the oldest release Electron 44
-supports.
+No `LSMinimumSystemVersion` is set: Electron's own Info.plist carries the right
+one (macOS 13 Ventura for Electron 44, per its breaking-changes notes). An
+older value here would let Macs that cannot run static install it.
 
 ---
 
 ## Signing and notarization
 
-The config sets `"identity": null`, so a local build succeeds without any
-certificate. The result runs, but Gatekeeper shows *"static cannot be opened
-because the developer cannot be verified"* on another Mac, and the user has to
-right-click → Open to get past it.
+Nothing in the config needs editing: `electron-builder.config.cjs` signs and
+notarizes when the credentials are present, and otherwise builds unsigned.
 
-To ship properly you need an **Apple Developer account** ($99/year):
+**Without a certificate**, electron-builder skips signing, and
+`scripts/after-pack.cjs` signs the app *ad hoc* instead. That matters: the
+build changes Electron's app after Electron signed it, and a downloaded app
+with a broken signature is reported as *damaged*, with no way to open it. Ad
+hoc, macOS instead says it *could not verify* static, and the person can allow
+it once in *System Settings > Privacy & Security > Open Anyway*. (Since macOS
+15, right-click > Open no longer gets past this.) An ad-hoc app cannot update
+itself.
 
-1. Create a *Developer ID Application* certificate and install it in the login
-   keychain.
-2. Remove `"identity": null` from `build.mac`, or set it to the certificate
-   name.
-3. Provide notarization credentials as environment variables:
+**To ship properly** you need the Apple Developer Program:
+
+1. Create a *Developer ID Application* certificate. Either install it in the
+   login keychain and set `CSC_NAME`, or export it as a `.p12` and set
+   `CSC_LINK` (path or base64) and `CSC_KEY_PASSWORD`.
+2. Provide notarization credentials. An App Store Connect API key is best:
 
 ```bash
-export APPLE_ID="you@example.com"
-export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
-export APPLE_TEAM_ID="XXXXXXXXXX"
+export APPLE_API_KEY=/path/to/AuthKey_XXXXXXXXXX.p8
+export APPLE_API_KEY_ID=XXXXXXXXXX
+export APPLE_API_ISSUER=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 npm run dist:mac
 ```
 
-electron-builder notarizes automatically when those are present. Use an
-app-specific password from appleid.apple.com, never the account password.
+   Or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` (from appleid.apple.com,
+   never the account password) and `APPLE_TEAM_ID`.
 
-Without notarization the app still works — it is just a worse first
-impression.
+The release workflow takes the same values as repository secrets; see
+[releasing.md](releasing.md).
 
 ---
 
@@ -160,7 +169,7 @@ impression.
 The probes run there unchanged:
 
 ```bash
-npm test              # 120 unit tests, no browser needed
+npm test              # the unit tests, no browser needed
 npm run test:smoke    # launches the browser and drives it
 npm run test:ads      # random YouTube videos
 ```

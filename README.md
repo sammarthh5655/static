@@ -109,23 +109,29 @@ suggestions still work. Overviews describe tab topics, not the contents of artic
 
 ## Packaging installers
 
-Packaging uses electron-builder. Build on the platform you are targeting where
-possible; cross-building macOS from Windows or Linux is not supported by Apple's
-toolchain.
+**To publish static on your own website, follow [docs/releasing.md](docs/releasing.md).**
+It covers signing, the update address, building the Mac version without a Mac,
+and what to upload.
 
 ```bash
-npm run dist:win     # Windows  -> NSIS installer (.exe)
-npm run dist:mac     # macOS    -> .dmg and .zip
+npm run release      # build for this computer and assemble release/ for the website
+npm run dist:win     # Windows  -> one-click installers, x64 and arm64 (.exe)
+npm run dist:mac     # macOS    -> universal .dmg and .zip (on a Mac)
 npm run dist:linux   # Linux    -> AppImage and .deb
-npm run dist         # current platform, all its configured targets
 npm run pack         # unpacked build in dist/ (fast, for testing)
 ```
 
-Artifacts land in `dist/`, named `static-<version>-<os>-<arch>.<ext>`.
+The configuration is `electron-builder.config.cjs`; every packaging command goes
+through `scripts/dist.cjs`, which also lets Windows builds work on a PC with
+Smart App Control. `.github/workflows/release.yml` builds Windows and Mac
+together, tests the installers, and produces the `release/` folder.
 
-The builds are unsigned. On macOS you will need to right-click → Open the first
-time (or sign it with your own Developer ID); on Windows SmartScreen will warn
-until the binary is signed.
+Signing, notarization and automatic updates switch on when their credentials
+or address are set (see the top of `electron-builder.config.cjs`). Without
+them a build still succeeds, unsigned and without updates. **Unsigned Windows
+installers are blocked outright on PCs with Smart App Control**, and macOS asks
+people to allow an unsigned app in System Settings, so sign before publishing
+widely.
 
 ---
 
@@ -140,6 +146,7 @@ src/
                          sidebar, vertical tabs, find bar) and their layout
     incognito.js         Cleans up folders left by closed incognito windows
     page-menu.js         The right-click menu for web pages
+    system-open.js       Which links and files from other apps may open in a tab
     shortcuts.js         Keyboard accelerator table and matcher, per platform
     storage.js           Atomic JSON store used by every feature
     secure/load.js       Reads the API keys, in main only
@@ -203,6 +210,7 @@ src/
     health/              Browser Health Center, every figure measured
     feedback/            Feedback reports built only from what the user allowed
     tabs/                Tab lifecycle, WebContentsView management, navigation
+    updates/             Automatic updates from the website (electron-updater)
     bookmarks/           Bookmark storage and toggling
     history/             Visit recording, search, omnibox suggestions
     downloads/           Download tracking via the session's will-download
@@ -221,6 +229,14 @@ scripts/
   check.cjs              Syntax checker
   probes.cjs             Runs every off-screen probe: npm run probes
   security.cjs           How far behind the pinned Electron is: npm run check:security
+  dist.cjs               Runs electron-builder (every npm run dist / pack goes here)
+  release.cjs            Builds and assembles release/ for the website: npm run release
+  after-pack.cjs         Electron fuses, and ad-hoc signing of an unsigned Mac build
+  make-dmg-background.cjs  Draws the Mac installer window: npm run dmg-background
+  make-icon.cjs, make-wallpapers.cjs, make-redirects.cjs, upload-wallpapers.cjs
+                         Regenerate icons, wallpaper thumbnails, filter redirects;
+                         publish wallpapers
+  shortcut.cjs           Desktop shortcut that starts the dev build without a terminal
 tests/
   *.test.cjs             Unit tests, pure Node: npm test
   *.cjs                  Probes: run inside Electron, off-screen, one profile each

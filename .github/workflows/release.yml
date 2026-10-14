@@ -1,0 +1,202 @@
+name: Release
+
+# Builds the installers people download from the static website - NOT a
+# GitHub release. GitHub only does the building (a Mac build needs a Mac);
+# the result is one "static-release" artifact holding the release/ folder to
+# upload to the website. See docs/releasing.md.
+#
+# Run it from the Actions tab (Run workflow), or push a tag like v0.2.0.
+#
+# Everything below is optional; without it the build still succeeds,
+# unsigned, with automatic updates off.
+#   Variables:  STATIC_UPDATE_URL, STATIC_WEBSITE, STATIC_PUBLISHER
+#   Secrets:    GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY      (AI and wallpapers)
+#               MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD              (Developer ID .p12, base64)
+#               APPLE_API_KEY (the .p8 contents), APPLE_API_KEY_ID, APPLE_API_ISSUER
+#                 or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   (notarization)
+#               AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+#               STATIC_AZURE_ENDPOINT, STATIC_AZURE_ACCOUNT, STATIC_AZURE_PROFILE
+#                 or WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD         (Windows signing)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  STATIC_UPDATE_URL: ${{ vars.STATIC_UPDATE_URL }}
+  STATIC_WEBSITE: ${{ vars.STATIC_WEBSITE }}
+  STATIC_PUBLISHER: ${{ vars.STATIC_PUBLISHER }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - run: npm run check
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Write keys.js from secrets
+        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: node -e "const e=process.env;require('fs').writeFileSync('src/main/secure/keys.js','module.exports = '+JSON.stringify({gemini:e.GEMINI_API_KEY||'',supabase:{url:e.SUPABASE_URL||'',key:e.SUPABASE_KEY||''}})+';\n')"
+      - name: Build (signed when signing secrets are set)
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          STATIC_AZURE_ENDPOINT: ${{ secrets.STATIC_AZURE_ENDPOINT }}
+          STATIC_AZURE_ACCOUNT: ${{ secrets.STATIC_AZURE_ACCOUNT }}
+          STATIC_AZURE_PROFILE: ${{ secrets.STATIC_AZURE_PROFILE }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: npm run dist:win -- --publish never
+
+      # Install it the way a visitor would (silently here), check everything
+      # the installer promises, open a link with it, then uninstall and check
+      # nothing is left behind.
+      - name: Install, check, launch, uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $setup = "dist/static-$version-setup-x64.exe"
+          $p = Start-Process $setup -ArgumentList '/S' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          $dir = "$env:LOCALAPPDATA\Programs\static"
+          if (-not (Test-Path "$dir\static.exe")) { throw 'static.exe not installed' }
+          $vi = (Get-Item "$dir\static.exe").VersionInfo
+          if ($vi.ProductName -ne 'static') { throw "exe product name is '$($vi.ProductName)'" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\static.lnk")) { throw 'no Start menu shortcut' }
+          $caps = 'HKCU:\Software\Clients\StartMenuInternet\StaticBrowser\Capabilities'
+          if ((Get-ItemProperty "$caps\URLAssociations").https -ne 'StaticBrowserURL') { throw 'not registered for https' }
+          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications').static -ne 'Software\Clients\StartMenuInternet\StaticBrowser\Capabilities') { throw 'not in RegisteredApplications' }
+          "signature: " + (Get-AuthenticodeSignature "$dir\static.exe").Status
+          # What the download page says depends on the real signature, not on
+          # which secrets happen to be set.
+          @{ signed = ((Get-AuthenticodeSignature $setup).Status -eq 'Valid') } | ConvertTo-Json -Compress | Set-Content dist/win-signing.json -Encoding ascii
+          $profile = Join-Path $env:RUNNER_TEMP 'static-profile'
+          $app = Start-Process "$dir\static.exe" -ArgumentList "--user-data-dir=`"$profile`"", 'https://example.com/' -PassThru
+          Start-Sleep -Seconds 20
+          if ($app.HasExited) { throw "static exited at launch with code $($app.ExitCode)" }
+          Get-Process static -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 3
+          $u = Start-Process "$dir\Uninstall static.exe" -ArgumentList '/S', '/currentuser' -PassThru -Wait
+          Start-Sleep -Seconds 10
+          if (Test-Path "$dir\static.exe") { throw 'uninstall left static.exe behind' }
+          if (Test-Path 'HKCU:\Software\Clients\StartMenuInternet\StaticBrowser') { throw 'uninstall left the browser registration' }
+          'install / launch / uninstall: ok'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-windows
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+            dist/win-signing.json
+          if-no-files-found: error
+
+  mac:
+    needs: test
+    runs-on: macos-latest
+    env:
+      # Secrets cannot be tested in a step's `if`; a yes/no can.
+      HAS_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Write keys.js from secrets
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: node -e "const e=process.env;require('fs').writeFileSync('src/main/secure/keys.js','module.exports = '+JSON.stringify({gemini:e.GEMINI_API_KEY||'',supabase:{url:e.SUPABASE_URL||'',key:e.SUPABASE_KEY||''}})+';\n')"
+      - name: Apple API key file
+        if: env.HAS_APPLE_API_KEY == 'true'
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s' "$APPLE_API_KEY_CONTENT" > ~/private_keys/AuthKey.p8
+          echo "APPLE_API_KEY=$HOME/private_keys/AuthKey.p8" >> "$GITHUB_ENV"
+      - name: Build (signed and notarized when Apple secrets are set)
+        env:
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Without a certificate, never pick up some other identity from the
+          # runner's keychain: the config then signs ad hoc on purpose.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.MAC_CSC_LINK != '' }}
+        run: npm run dist:mac -- --publish never
+      - name: Check the app (signature, fuses, launch)
+        run: |
+          set -e
+          APP="dist/mac-universal/static.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          lipo -archs "$APP/Contents/MacOS/static"
+          FORCE_COLOR=0 NO_COLOR=1 npx electron-fuses read --app "$APP" | tee fuses.txt
+          grep -q "RunAsNode is Disabled" fuses.txt
+          spctl -a -vvv -t exec "$APP" && echo "Gatekeeper: accepted (notarized)" || echo "Gatekeeper: not notarized (expected without Apple secrets)"
+          "$APP/Contents/MacOS/static" --user-data-dir="$RUNNER_TEMP/static-profile" https://example.com/ &
+          PID=$!
+          sleep 20
+          kill -0 $PID || { echo "static exited at launch"; exit 1; }
+          kill $PID || true
+          echo "launch: ok"
+      - name: Record notarization
+        run: |
+          if spctl -a -t exec dist/mac-universal/static.app 2>/dev/null; then echo '{"notarized":true}' > dist/mac-signing.json; else echo '{"notarized":false}' > dist/mac-signing.json; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.blockmap
+            dist/latest-mac.yml
+            dist/mac-signing.json
+          if-no-files-found: error
+
+  release:
+    needs: [windows, mac]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: Assemble release/
+        run: |
+          FLAGS="--skip-build"
+          if grep -q '"notarized":true' dist/mac-signing.json 2>/dev/null; then FLAGS="$FLAGS --mac-notarized"; fi
+          if grep -q '"signed":true' dist/win-signing.json 2>/dev/null; then FLAGS="$FLAGS --win-signed"; fi
+          node scripts/release.cjs $FLAGS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-release
+          path: release/
+          if-no-files-found: error

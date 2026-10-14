@@ -31,7 +31,8 @@ const MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
   svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon', apng: 'image/apng',
   pdf: 'application/pdf', txt: 'text/plain', md: 'text/plain', log: 'text/plain', csv: 'text/plain', json: 'application/json',
-  html: 'text/html', htm: 'text/html', xml: 'text/xml',
+  html: 'text/html', htm: 'text/html', shtml: 'text/html', xml: 'text/xml',
+  xhtml: 'application/xhtml+xml', xht: 'application/xhtml+xml',
   mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', mkv: 'video/x-matroska', ogv: 'video/ogg',
   mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac', opus: 'audio/ogg',
 };

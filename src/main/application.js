@@ -31,6 +31,7 @@ const { NetGuard } = require('../features/netguard');
 const { Passwords, generatePassword } = require('../features/passwords');
 const { Biometric } = require('../features/passwords/biometric');
 const { LocalFiles } = require('../features/tabs/local-files');
+const { Updates } = require('../features/updates');
 const webauthn = require('../features/passwords/webauthn');
 const { Health } = require('../features/health');
 const { Onboarding } = require('../features/onboarding');
@@ -41,6 +42,8 @@ const { scriptsFor, COSMETIC_CSS } = require('../features/shields/scriptlets');
 const { isYouTubeHost, PAGE_SCRIPT } = require('../features/shields/youtube');
 const { MODES } = require('../shared/modes');
 const pageMenu = require('./page-menu');
+const { targets: systemTargets } = require('./system-open');
+const { incognitoRunning } = require('./incognito');
 const { PageTools, WORLD: PAGE_WORLD } = require('../features/pagetools');
 const wallpapers = require('../features/wallpapers');
 const feedback = require('../features/feedback');
@@ -616,6 +619,41 @@ class BrowserApplication {
     return null;
   }
 
+  /**
+   * Links and files the operating system hands us: a link clicked in another
+   * app while static is the default browser, a page opened "with static", or
+   * a second launch with an address. Each valid one opens in a tab of the
+   * window in front, the first in front of the others. Local files go through
+   * the same token scheme as dropped files (features/tabs/local-files.js), so
+   * a tab never loads file:// directly.
+   *
+   * Returns true if anything opened. See main.js for where these come from
+   * and system-open.js for what is accepted.
+   */
+  openFromSystem(argv, cwd) {
+    const found = systemTargets(argv, cwd);
+    if (!found.length) return false;
+    const w = this.focusWindow();
+    if (!w?.tabs) return false;
+    // A link that LAUNCHED static arrives before the first window has opened
+    // its startup tabs (the last session, or the homepage), which it only
+    // does into an empty window. Open them first, then the link beside them -
+    // otherwise the session is skipped and overwritten at the next save.
+    if (w.startup && !this.startedUp && !w.tabs.order.length) this.openStartupTabs(w);
+    let opened = 0;
+    for (const item of found) {
+      let url = item.url;
+      if (item.kind === 'file') {
+        const result = this.localFiles.add(item.path);
+        if (!result.url) { this.notify(result.error, w); continue; }
+        url = result.url;
+      }
+      w.tabs.create({ url, background: opened > 0 });
+      opened++;
+    }
+    return opened > 0;
+  }
+
   /** A file dropped onto a page: it opens in a new tab beside it, by token. */
   openDroppedFile(tab, url) {
     let file = '';
@@ -731,6 +769,18 @@ class BrowserApplication {
     setTimeout(() => { wallpapers.refresh(); }, 6000);
     // Files dragged into Static: served by token, only the ones dropped.
     this.localFiles = new LocalFiles(this.dir);
+    // Updates from the website the installers come from (features/updates).
+    // Only one process updates: never an incognito window's own process.
+    this.updates = new Updates({
+      notify: (message) => this.notify(message),
+      onChange: () => this.push(),
+      // "Restart to update" closes the windows itself: keep them all in the
+      // session, exactly as an ordinary quit does (see main.js before-quit).
+      beforeInstall: () => { this.quitting = true; try { this.flush(); } catch { /* still update */ } },
+      holdInstall: () => incognitoRunning(),
+    });
+    if (this.incognito) this.updates.status = 'incognito';
+    else this.updates.start();
     this.session.protocol.handle('static-file', async (request) => {
       const file = this.localFiles.lookup(request.url);
       if (!file) return new Response('This file is no longer available. Drag it in again.', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } });
@@ -1665,7 +1715,8 @@ class BrowserApplication {
         theme: this.settings.value.theme,
         assistant: gemini.hasKey(),
       },
-      updates: app.isPackaged ? 'Automatic updates are not set up in this build yet.' : 'Developer build: updates come from the source code.',
+      updates: this.updates.describe().text,
+      updateState: this.updates.describe(),
     };
   }
 
@@ -1753,7 +1804,15 @@ class BrowserApplication {
     // Without this the relaunched browser would show the picker again and the
     // user could never get past it. The flag says "a profile was chosen for
     // this launch" and lasts exactly one run.
-    app.relaunch({ args: process.argv.slice(1).concat(['--profile-chosen']) });
+    // Switches only: a link or file that launched this run was opened in the
+    // old profile already, and is not to be opened again in the new one.
+    app.relaunch({
+      args: [
+        ...(app.isPackaged ? [] : [app.getAppPath()]),
+        ...process.argv.slice(1).filter((arg) => arg.startsWith('-') && arg !== '--profile-chosen'),
+        '--profile-chosen',
+      ],
+    });
     app.exit(0);
   }
 
@@ -2506,6 +2565,9 @@ class BrowserApplication {
       'find:close': (_sender, _payload, w) => { w.closeFind(); return true; },
       'wallpapers:catalog': () => wallpapers.catalog(),
       'help:system': async () => (this.lastSystemInfo = await this.#systemInfo()),
+      'updates:state': () => this.updates.describe(),
+      'updates:check': () => this.updates.check(),
+      'updates:install': () => this.updates.installNow(),
       'help:reveal': (_sender, payload) => {
         const target = payload?.which === 'install' ? app.getPath('exe') : this.dir;
         shell.showItemInFolder(target);

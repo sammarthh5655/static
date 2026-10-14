@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "static - a modular desktop browser with real Chromium tabs and Chrome extensions",
   "main": "src/main/main.js",
-  "author": "sammarth025@gmail.com",
+  "author": "static",
   "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
@@ -24,11 +24,11 @@
     "test:lists": "npm run build && node scripts/start.cjs --lists",
     "test:stalecache": "npm run build && node scripts/start.cjs --stalecache",
     "test:menu": "npm run build && node scripts/start.cjs --menu",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
-    "dist:mac": "npm run build && electron-builder --mac",
-    "dist:linux": "npm run build && electron-builder --linux",
+    "pack": "npm run build && node scripts/dist.cjs --dir",
+    "dist": "npm run build && node scripts/dist.cjs",
+    "dist:win": "npm run build && node scripts/dist.cjs --win",
+    "dist:mac": "npm run build && node scripts/dist.cjs --mac",
+    "dist:linux": "npm run build && node scripts/dist.cjs --linux",
     "test:shot": "npm run build && node scripts/start.cjs --shot",
     "test:probe": "npm run build && node scripts/start.cjs --probe",
     "shortcut": "node scripts/shortcut.cjs",
@@ -42,114 +42,22 @@
     "test:privacy": "npm run build && node scripts/start.cjs --privacy",
     "test:productivity": "npm run build && node scripts/start.cjs --productivity",
     "prepack": "npm run build",
-    "dist:mac:arm": "npm run build && electron-builder --mac --arm64",
-    "dist:mac:intel": "npm run build && electron-builder --mac --x64",
+    "dist:mac:arm": "npm run build && node scripts/dist.cjs --mac --arm64",
+    "dist:mac:intel": "npm run build && node scripts/dist.cjs --mac --x64",
     "icon": "node -e \"const{spawn}=require('child_process');const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;spawn(require('electron'),['scripts/make-icon.cjs'],{stdio:'inherit',env})\"",
-    "probes": "npm run build && node scripts/probes.cjs"
+    "probes": "npm run build && node scripts/probes.cjs",
+    "dmg-background": "node -e \"const{spawn}=require('child_process');const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;spawn(require('electron'),['scripts/make-dmg-background.cjs'],{stdio:'inherit',env})\"",
+    "release": "node scripts/release.cjs"
   },
   "dependencies": {
     "electron-chrome-extensions": "4.9.0",
-    "electron-chrome-web-store": "0.13.0"
+    "electron-chrome-web-store": "0.13.0",
+    "electron-updater": "6.8.9"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "electron": "^44.7.0",
     "electron-builder": "26.15.3",
     "esbuild": "^0.25.12"
-  },
-  "build": {
-    "appId": "dev.staticbrowser.desktop",
-    "productName": "static",
-    "asar": true,
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "src/**/*",
-      "build/**/*",
-      "package.json",
-      "README.md",
-      "CHANGELOG.md",
-      "LICENSE"
-    ],
-    "win": {
-      "target": [
-        "nsis"
-      ],
-      "signAndEditExecutable": false,
-      "icon": "build/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    },
-    "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "universal"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "universal"
-          ]
-        }
-      ],
-      "category": "public.app-category.productivity",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "extendInfo": {
-        "NSCameraUsageDescription": "A website you visit may ask to use the camera. Static only allows it when you agree.",
-        "NSMicrophoneUsageDescription": "A website you visit may ask to use the microphone. Static only allows it when you agree.",
-        "NSLocationWhenInUseUsageDescription": "A website you visit may ask for your location. Static only shares it when you agree.",
-        "NSDownloadsFolderUsageDescription": "Static saves files you download to your Downloads folder.",
-        "NSDocumentsFolderUsageDescription": "Static can save pages and notes to a folder you choose.",
-        "CFBundleURLTypes": [
-          {
-            "CFBundleURLName": "Web site URL",
-            "CFBundleURLSchemes": [
-              "http",
-              "https"
-            ]
-          }
-        ],
-        "LSMinimumSystemVersion": "11.0"
-      },
-      "identity": null,
-      "icon": "build/icon-mac.png"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Network",
-      "maintainer": "static contributors",
-      "icon": "build/icon.png"
-    },
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "dmg": {
-      "contents": [
-        {
-          "x": 140,
-          "y": 190,
-          "type": "file"
-        },
-        {
-          "x": 400,
-          "y": 190,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ],
-      "window": {
-        "width": 540,
-        "height": 380
-      }
-    }
   }
 }

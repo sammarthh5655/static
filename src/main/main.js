@@ -153,10 +153,26 @@ protocol.registerSchemesAsPrivileged([
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
+  // Links and files the system asks us to open (static as the default
+  // browser, "Open with static"). On macOS they arrive as events, and the
+  // one that launched the app arrives before the browser exists, so they
+  // wait here until it does. See system-open.js for what is accepted.
+  const pending = [];
+  const openFromSystem = (items, cwd) => {
+    if (browser?.ready) return browser.openFromSystem(items, cwd);
+    pending.push(...items);
+    return true;
+  };
+  app.on('open-url', (event, url) => { event.preventDefault(); openFromSystem([url]); });
+  app.on('open-file', (event, file) => { event.preventDefault(); openFromSystem([file]); });
+
   app.whenReady().then(async () => {
     const { BrowserApplication } = require('./application');
     browser = new BrowserApplication();
     await browser.start();
+    browser.ready = true;
+    // Probes are launched with flags only; a real launch may carry links.
+    if (!testFlag) browser.openFromSystem([...pending.splice(0), ...process.argv.slice(1)], process.cwd());
     if (testFlag) await require(probeFile(testFlag)).run(browser);
   }).catch(error => { console.error(error); app.exit(1); });
   /**
@@ -181,7 +197,11 @@ else {
     });
   }
 
-  app.on('second-instance', () => browser?.focusWindow());
+  // A second launch - a link clicked elsewhere while static is running, on
+  // Windows and Linux - hands over its arguments and quits; open them here.
+  app.on('second-instance', (_event, argv, workingDirectory) => {
+    if (!openFromSystem(argv.slice(1), workingDirectory)) browser?.focusWindow();
+  });
   app.on('activate', () => browser?.focusWindow());
   // Closing the last window quits, except on a Mac, where the app stays in
   // the dock until it is quit, as every Mac app does.

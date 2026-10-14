@@ -25,4 +25,23 @@ function sweepIncognito() {
   }
 }
 
-module.exports = { sweepIncognito };
+/**
+ * Whether an incognito window of static is open right now, in a process of
+ * its own. Installing an update closes every static process, so it must wait
+ * rather than throw away someone's private window without warning.
+ */
+function incognitoRunning() {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  let entries = [];
+  try { entries = fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('static-incognito-')); } catch { return false; }
+  for (const name of entries) {
+    let pid = 0;
+    try { pid = Number(fs.readFileSync(path.join(os.tmpdir(), name, 'owner.pid'), 'utf8')); } catch { continue; }
+    if (!(pid > 0) || pid === process.pid) continue;
+    try { process.kill(pid, 0); return true; } catch (error) { if (error.code === 'EPERM') return true; }
+  }
+  return false;
+}
+
+module.exports = { sweepIncognito, incognitoRunning };

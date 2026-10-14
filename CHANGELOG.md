@@ -8,6 +8,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Installers for your own website
+
+- **Windows installer like Chrome's:** one click, no administrator prompt,
+  installed per user, Start menu and desktop shortcuts, opens when done.
+  Separate x64 and Arm64 installers. static.exe carries its own name, icon and
+  version. It registers static as a browser, so it appears in Windows' Default
+  apps and "Open with", and uninstalling removes all of it.
+- **Mac disk image:** one universal app for Apple Silicon and Intel, a
+  drag-to-Applications window with its own artwork, listed by macOS as a
+  browser. Without a Developer ID it is signed ad hoc, so macOS offers
+  "Open Anyway" instead of calling it damaged; with one it is signed and
+  notarized.
+- **Links and files from other apps open in a tab**, on first launch and
+  when static is already running (src/main/system-open.js). Only http(s)
+  addresses and real local pages, images and documents are accepted.
+- **Automatic updates from your website**, switched on by building with
+  `STATIC_UPDATE_URL`: checked in the background, verified by SHA-512,
+  installed on the next close. About shows the status, with Check for
+  updates and Restart to update. Tested end to end against a local feed: the
+  packaged app found, downloaded and verified an update.
+- **`npm run release`** builds and assembles `release/` for the website:
+  installers under stable and versioned names, update files, checksums, and
+  a self-contained download page that picks Windows, Windows on Arm or Mac.
+- **Release workflow** (.github/workflows/release.yml) builds Windows and Mac
+  together, installs and launches the Windows build, checks the Mac build's
+  signature, fuses and launch, and produces the release folder.
+- **Hardened app binary** (Electron fuses): no running as plain Node, no
+  `NODE_OPTIONS` or debugger flags, and the app refuses to start if its
+  packaged code was changed.
+- Signing switches on from environment variables: Azure Trusted Signing, a
+  certificate on a token or cloud service, or a .pfx for Windows; Developer
+  ID and notarization for macOS. See docs/releasing.md.
+
+### Fixed — packaging
+
+- The installed app showed a personal email address as its publisher in
+  Windows. It now shows the publisher name (`STATIC_PUBLISHER`, default
+  "static").
+- Windows builds failed on PCs with Smart App Control, which refuses to run
+  the unsigned helper electron-builder executes to make the uninstaller.
+  `scripts/dist.cjs` reads the uninstaller out of it instead.
+- Installers no longer carry the installer artwork, entitlements and build
+  scripts inside the app.
+
+### Fixed — from an adversarial review of the installers
+
+Seventeen defects reported by independent reviewers, each confirmed by a
+second reviewer trying to disprove it, all fixed:
+
+- **A link that launched static lost the saved session.** It arrived before
+  the window restored the last tabs, so they were skipped and then
+  overwritten. Startup tabs now open first (tests/linklaunch.cjs fails
+  without the fix).
+- **A failed update download showed Electron's "A JavaScript error occurred"
+  box.** The download's promise is now handled.
+- **Signed Windows builds could never update** when the recorded publisher
+  name differed from the certificate's. The name is read from the
+  certificate, Azure signing requires it to be given, and `npm run release`
+  stops on a mismatch.
+- **The Arm64 installer run on an ordinary PC** removed the working static and
+  installed nothing. It now refuses before changing anything (tested here).
+- **The Mac app claimed macOS 11**, but Electron 44 needs macOS 13 Ventura.
+  Electron's own minimum now applies, and the page and docs say macOS 13.
+- "Restart to update" on a Mac kept only the last window in the session, and
+  installing an update closed open incognito windows unasked; it now waits
+  for them.
+- Switching profile after a link launch relaunched with the link and opened
+  it again; .xhtml, .xht and .shtml files downloaded instead of showing.
+- The download page claimed Mac support when a release had none, hid help
+  for signed builds that SmartScreen can still question, and only worked in
+  the same folder as the installers; it now links to the update folder in
+  full when one is set. The release workflow decides "signed" from the built
+  installer, not from which secrets exist. The docs say to keep earlier
+  `.blockmap` files so updates stay small, and that signing does not
+  instantly remove every SmartScreen warning.
+
 ### Security
 
 - **Electron 44.4.3 → 44.7.0**, the six 44.x releases it was behind, each

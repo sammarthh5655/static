@@ -292,6 +292,33 @@ async function diagnostics() {
   ];
 }
 
+/**
+ * The update line in About: what is happening, and the one thing to press.
+ * It refreshes itself while About is open, so a download shows its progress
+ * and "ready" appears without reloading the page.
+ */
+let updateTimer = 0;
+function updateBlock(initial) {
+  const text = element('p', { class: 'help-update', role: 'status', 'aria-live': 'polite' });
+  const check = element('button', { type: 'button', text: 'Check for updates' });
+  const install = element('button', { type: 'button', class: 'primary', text: 'Restart to update' });
+  const paint = (state) => {
+    text.textContent = state?.text || '';
+    check.hidden = !state?.canCheck || state.canInstall;
+    check.disabled = state?.status === 'checking' || state?.status === 'downloading';
+    install.hidden = !state?.canInstall;
+  };
+  check.onclick = async () => { check.disabled = true; paint(await invoke('updates:check').catch(() => null)); };
+  install.onclick = () => invoke('updates:install');
+  paint(initial);
+  clearInterval(updateTimer);
+  updateTimer = setInterval(async () => {
+    if (!text.isConnected) { clearInterval(updateTimer); return; }
+    paint(await invoke('updates:state').catch(() => null));
+  }, 1500);
+  return element('div', { class: 'help-update-row' }, [text, element('div', { class: 'fb-actions' }, [check, install])]);
+}
+
 async function about() {
   system = await invoke('help:system');
   return [
@@ -299,7 +326,7 @@ async function about() {
       element('img', { src: '../assets/static-mark.svg', alt: '' }),
       element('h1', { text: 'Static' }),
       element('p', { class: 'lede', text: 'Version ' + system.version + ' · ' + system.channel + ' · build ' + system.build }),
-      element('p', { class: 'help-update', text: system.updates }),
+      updateBlock(system.updateState || { text: system.updates }),
     ]),
     table([
       ['Chromium', system.chromium], ['Electron', system.electron], ['Operating system', system.os + ' (' + system.arch + ')'],
