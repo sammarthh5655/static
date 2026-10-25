@@ -50,7 +50,8 @@ test('local pages open, by path, by file:// address, or relative to where static
   }
 });
 
-test('a Windows drive path is a path, not a scheme', () => {
+// Drive paths only exist on Windows; elsewhere "C:\x" is just a file name.
+test('a Windows drive path is a path, not a scheme', { skip: process.platform !== 'win32' }, () => {
   const yes = () => true;
   assert.deepEqual(target('C:\\Users\\me\\page.html', 'C:\\', yes), { kind: 'file', path: path.normalize('C:\\Users\\me\\page.html') });
   assert.deepEqual(target('d:/docs/report.pdf', 'C:\\', yes), { kind: 'file', path: path.normalize('d:/docs/report.pdf') });

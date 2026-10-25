@@ -19,7 +19,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
+      # Job logs need admin rights to read; annotations do not. So each failing
+      # test is also reported as an annotation on the run.
+      - name: Unit tests
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee test-output.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^✖|AssertionError|Error:" test-output.txt | head -10 | while IFS= read -r line; do echo "::error::$line"; done
+          fi
+          exit "$status"
 
   package:
     needs: test
