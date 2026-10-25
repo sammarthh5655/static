@@ -55,3 +55,15 @@
 .import-secondary:hover { border-color: var(--accent); }
 .import-secondary:disabled { opacity: 0.5; cursor: default; }
 [hidden].import-switch { display: none; }
+
+/* ---- passwords step (import-panel.js) ----------------------------------- */
+.import-passwords { margin-top: 2px; border: 1px solid var(--border-soft, var(--border)); border-radius: 12px; background: color-mix(in srgb, var(--surface) 45%, transparent); overflow: hidden; }
+.import-passwords[hidden] { display: none; }
+.import-passwords > summary { display: flex; align-items: center; gap: 8px; padding: 12px 14px; cursor: pointer; list-style: none; font-size: 13px; }
+.import-passwords > summary::-webkit-details-marker { display: none; }
+.import-passwords > summary strong { flex: 1; }
+.import-pw-caret { width: 8px; height: 8px; border-right: 1.6px solid var(--text-dim); border-bottom: 1.6px solid var(--text-dim); transform: rotate(45deg); transition: transform var(--motion-fast) var(--ease); }
+.import-passwords[open] .import-pw-caret { transform: rotate(-135deg); }
+.import-passwords > *:not(summary) { margin-left: 14px; margin-right: 14px; }
+.import-passwords > *:last-child { margin-bottom: 12px; }
+.import-pw-steps { display: block; margin: 0 14px 10px; color: var(--text-dim); line-height: 1.5; }

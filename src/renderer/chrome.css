@@ -53,7 +53,7 @@ html, body {
 .icon-btn:active:not(:disabled) { background: var(--surface-active); }
 .icon-btn:disabled { color: var(--text-faint); }
 
-/* ---- title bar (36px) ---------------------------------------------------- */
+/* ---- title bar (36px; 40px with the tabs in it) ------------------------- */
 
 .titlebar {
   display: flex;
@@ -67,6 +67,7 @@ html, body {
 
 .titlebar-left,
 .window-controls { display: flex; align-items: center; -webkit-app-region: no-drag; }
+.window-controls { align-self: stretch; }
 
 .titlebar-drag { flex: 1; height: 100%; display: flex; align-items: center; justify-content: center; }
 
@@ -93,7 +94,7 @@ html, body {
 /* Window buttons. Themed to the app, not native - square hit areas like
    Windows, but using our own palette and a red close affordance. */
 .window-btn {
-  width: 44px; height: 36px;
+  width: 44px; height: 100%;
   display: flex; align-items: center; justify-content: center;
   border: 0;
   background: transparent;
@@ -112,6 +113,20 @@ html, body {
 body.mac .titlebar { padding-left: 78px; }
 body.mac .window-controls { display: none; }
 
+/* Tabs on top: the strip IS the title bar's middle, so the tabs reach the
+   top of the window. The bar takes the strip's height (window.js
+   TABSTRIP_HEIGHT) and the strip's empty end is what drags the window. */
+body:not(.vertical-tabs) .titlebar { height: 40px; align-items: stretch; }
+body:not(.vertical-tabs) .titlebar-drag { display: none; }
+body:not(.vertical-tabs) .titlebar-left { align-self: center; }
+.titlebar .strip { flex: 1 1 auto; min-width: 0; }
+/* The bar drags the window, so everything in the strip you can click opts
+   out; the space above and beside the tabs still drags, as in Chrome. */
+.titlebar .strip .tab,
+.titlebar .strip .tab-group-chip,
+.titlebar .strip button { -webkit-app-region: no-drag; }
+body.tab-dragging .titlebar { -webkit-app-region: no-drag; }
+
 /* ---- tab strip (40px) ---------------------------------------------------- */
 
 .strip {
@@ -121,7 +136,7 @@ body.mac .window-controls { display: none; }
   display: flex;
   align-items: flex-end;
   height: 40px;
-  padding: 6px 6px 0;
+  padding: 6px 6px 0 4px;
   background: var(--bg-strip);
   gap: 2px;
 }
@@ -891,4 +906,48 @@ body.vertical-tabs .strip { display: none; }
   .strip-search:hover .icon-svg { transform: none; }
   .tab-group-chip, .menu-swatch-btn, .menu-swatch-btn .icon-svg { transition: none; }
   .tab-group-chip.chip-target, .menu-swatch-btn:hover { transform: none; }
+}
+
+/* ---- downloads button (chrome.js#renderDownloads) ------------------------ */
+
+.downloads-btn { position: relative; overflow: visible; }
+.downloads-btn[hidden] { display: none; }
+.downloads-btn .icon-svg { transition: transform var(--motion-base) var(--ease), color var(--motion-base) var(--ease); }
+/* The ring: a conic sweep, masked to a thin circle, filled to --progress. */
+.dl-ring {
+  position: absolute; inset: 3px; border-radius: 50%; pointer-events: none; opacity: 0;
+  background: conic-gradient(var(--accent) calc(var(--progress, 0) * 1turn), color-mix(in srgb, var(--text-faint) 40%, transparent) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  transition: opacity var(--motion-base) var(--ease);
+}
+.downloads-btn.is-active .dl-ring { opacity: 1; }
+.downloads-btn.is-active .icon-svg { transform: scale(.74); color: var(--accent); }
+.downloads-btn.is-unknown .dl-ring {
+  background: conic-gradient(var(--accent) .3turn, color-mix(in srgb, var(--text-faint) 40%, transparent) 0);
+  animation: dl-spin calc(var(--motion-base) * 6) linear infinite;
+}
+@keyframes dl-spin { to { transform: rotate(1turn); } }
+/* A download starting: an arrow falls into the button, which gives a bump. */
+.dl-drop {
+  position: absolute; left: 50%; top: 50%; width: 17px; height: 17px; margin: -8.5px 0 0 -8.5px;
+  display: grid; place-items: center; color: var(--accent); pointer-events: none;
+  animation: dl-drop calc(var(--motion-base) * 4) cubic-bezier(.3, .7, .4, 1) both;
+}
+@keyframes dl-drop {
+  0% { transform: translateY(-30px) scale(1.6); opacity: 0; }
+  25% { opacity: 1; }
+  70% { transform: translateY(3px) scale(1); opacity: 1; }
+  100% { transform: translateY(0) scale(.6); opacity: 0; }
+}
+.downloads-btn.is-arriving { animation: dl-bump calc(var(--motion-base) * 3) calc(var(--motion-base) * 2) cubic-bezier(.3, 1.6, .5, 1) both; }
+@keyframes dl-bump { 40% { transform: scale(1.2); } }
+/* Finished: a ripple spreads from the button. */
+.downloads-btn.is-finished::after {
+  content: ''; position: absolute; inset: 2px; border-radius: 50%; border: 2px solid var(--accent); pointer-events: none;
+  animation: dl-done calc(var(--motion-base) * 5) ease-out both;
+}
+@keyframes dl-done { from { transform: scale(.6); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .dl-drop, .downloads-btn.is-arriving, .downloads-btn.is-finished::after, .downloads-btn.is-unknown .dl-ring { animation: none; }
+  .dl-drop { display: none; }
 }

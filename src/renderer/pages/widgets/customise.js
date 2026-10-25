@@ -31,6 +31,21 @@ const PRESETS = {
 const PICKER = window.wallpaperPicker;
 const MODES = PICKER.MODES.map((mode) => ({ id: mode.id, label: mode.short, hint: mode.hint }));
 
+const SHORTCUT_MODES = [
+  { id: 'frequent', label: 'Most visited' },
+  { id: 'custom', label: 'My shortcuts' },
+  { id: 'off', label: 'Off' },
+];
+
+/** The quick buttons under the search box (newtab.js#renderActions). */
+const QUICK = [
+  { id: 'ask', name: 'Ask AI', icon: 'sparkle' },
+  { id: 'summarise', name: 'Summarise', icon: 'bookmark' },
+  { id: 'research', name: 'Research', icon: 'search' },
+  { id: 'focus', name: 'Focus', icon: 'clock' },
+  { id: 'game', name: 'Game Mode', icon: 'gear' },
+];
+
 const SIZES = [
   { id: 'compact', label: 'Compact' },
   { id: 'comfortable', label: 'Comfortable' },
@@ -207,10 +222,67 @@ function build(ctx, { getLayout, setLayout, onExit }) {
   const list = ctx.element('div', { class: 'studio-widgets' });
   const tidy = ctx.element('button', { class: 'studio-action', text: 'Tidy up: put every widget back at the sides' });
   tidy.addEventListener('click', () => update({ positions: {} }));
+  // Shortcuts: the most visited sites or your own; right-click one to edit it.
+  const shortcutMode = segmented(ctx, SHORTCUT_MODES, 'frequent', (id) => {
+    const current = settingsOf().shortcuts || { mode: 'frequent', custom: [], hidden: [] };
+    if (id === 'off') update({ showMostVisited: false });
+    else update({ showMostVisited: true, shortcuts: { ...current, mode: id } });
+  });
+  const shortcutHint = ctx.element('p', { class: 'studio-hint' });
+  const shortcutTools = ctx.element('div', { class: 'studio-row-actions' });
+  const quickList = ctx.element('div', { class: 'studio-widgets' });
   widgetsPane.append(
     ctx.element('p', { class: 'studio-hint is-lead', text: 'Drag any widget anywhere on the page: top, bottom, either side or the middle. Outside this panel, grab a widget by the dots in its corner.' }),
+    ctx.element('div', { class: 'studio-label', text: 'Shortcuts' }), shortcutMode, shortcutHint, shortcutTools,
+    ctx.element('div', { class: 'studio-label', text: 'Quick buttons' }), quickList,
     ctx.element('div', { class: 'studio-label', text: 'Size' }), size,
     ctx.element('div', { class: 'studio-label', text: 'On the page' }), list, tidy);
+
+  const switchRow = (on, glyph, name, description, onToggle) => {
+    const row = ctx.element('button', { class: 'studio-widget' + (on ? ' is-on' : ''), role: 'switch', 'aria-checked': String(on) }, [
+      ctx.element('span', { class: 'studio-widget-icon' }, [ctx.icon(glyph, { size: 16 })]),
+      ctx.element('span', { class: 'studio-widget-text' }, [
+        ctx.element('strong', { text: name }),
+        ...(description ? [ctx.element('span', { text: description })] : []),
+      ]),
+      ctx.element('span', { class: 'studio-switch', 'aria-hidden': 'true' }),
+    ]);
+    row.addEventListener('click', onToggle);
+    return row;
+  };
+
+  const paintShortcuts = () => {
+    const tab = settingsOf();
+    const shortcuts = tab.shortcuts || { mode: 'frequent', custom: [], hidden: [] };
+    const modeNow = tab.showMostVisited === false ? 'off' : shortcuts.mode;
+    shortcutMode.select(modeNow);
+    shortcutHint.textContent = modeNow === 'off' ? 'No shortcuts on the page.'
+      : modeNow === 'custom' ? 'Your own list. Use + on the page to add one; right-click one to edit or remove it.'
+        : 'The sites you visit most. Right-click one to edit or remove it.';
+    const tools = [];
+    if (modeNow === 'custom') {
+      const add = ctx.element('button', { class: 'studio-action', text: 'Add a shortcut' });
+      add.addEventListener('click', () => { onExit(); window.newtabShortcuts?.openDialog(); });
+      tools.push(add);
+    }
+    if (modeNow === 'frequent' && shortcuts.hidden?.length) {
+      const restore = ctx.element('button', { class: 'studio-action', text: 'Bring back ' + shortcuts.hidden.length + (shortcuts.hidden.length === 1 ? ' removed site' : ' removed sites') });
+      restore.addEventListener('click', () => update({ shortcuts: { ...shortcuts, hidden: [] } }));
+      tools.push(restore);
+    }
+    shortcutTools.replaceChildren(...tools);
+
+    const hidden = new Set(tab.hiddenActions || []);
+    const rowOn = tab.showActions !== false;
+    quickList.replaceChildren(
+      switchRow(rowOn, 'grid', 'Show quick buttons', 'The row under the search box', () => update({ showActions: !rowOn })),
+      ...(rowOn ? QUICK.map((q) => switchRow(!hidden.has(q.id), q.icon, q.name, '', () => {
+        const next = new Set(settingsOf().hiddenActions || []);
+        if (next.has(q.id)) next.delete(q.id); else next.add(q.id);
+        update({ hiddenActions: [...next] });
+      })) : []),
+    );
+  };
 
   const paintWidgets = () => {
     const layout = getLayout();
@@ -225,8 +297,12 @@ function build(ctx, { getLayout, setLayout, onExit }) {
         ctx.element('span', { class: 'studio-switch', 'aria-hidden': 'true' }),
       ]);
       row.addEventListener('click', () => {
+        // Whether it is on NOW, not when this list was drawn.
         const next = getLayout();
-        setLayout(on ? next.filter((id) => id !== widget.id) : [...next, widget.id]);
+        const isOn = next.includes(widget.id);
+        setLayout(isOn ? next.filter((id) => id !== widget.id) : [...next, widget.id]);
+        row.classList.toggle('is-on', !isOn);
+        row.setAttribute('aria-checked', String(!isOn));
       });
       return row;
     }));
@@ -261,6 +337,7 @@ function build(ctx, { getLayout, setLayout, onExit }) {
 
   /** Reflect the current settings without rebuilding anything. */
   function refresh() {
+    paintShortcuts();
     const tab = settingsOf();
     mode.select(tab.wallpaperMode || 'fixed');
     size.select(tab.widgetSize || 'comfortable');

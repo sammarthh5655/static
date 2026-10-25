@@ -21,7 +21,7 @@ const el = {
   address: $('address'), security: $('security'), star: $('star'), key: $('key'),
   reader: $('reader'), qr: $('qr'),
   suggestions: $('suggestions'), bookmarks: $('bookmarks'),
-  overflow: $('overflow'), notice: $('notice'),
+  overflow: $('overflow'), notice: $('notice'), downloads: $('downloads'),
 };
 
 let state = { tabs: [], active: {}, bookmarks: [], settings: {}, downloads: [], window: {} };
@@ -92,6 +92,10 @@ function buildChrome() {
   setIcon(el.newtab, 'plus');
   setIcon(el.overflow, 'menu');
   el.tabSearch.append(icon('tab_search', { size: 17 }));
+  // The downloads button: its arrow, and a ring for the progress.
+  const ring = document.createElement('span');
+  ring.className = 'dl-ring';
+  el.downloads.append(icon('download', { size: 17 }), ring);
   el.appMenu.append(icon('menu', { size: 16 }));
 
   // Window controls: our own glyphs, themed to the app.
@@ -364,6 +368,7 @@ function render() {
   renderWindowControls();
   renderTabs();
   renderToolbar();
+  renderDownloads();
   renderBookmarks();
   renderNotice();
   if (!drawnOnce && state.window?.arriving) arrive();
@@ -1686,6 +1691,60 @@ document.addEventListener('contextmenu', (event) => {
 
 // Ctrl+L and friends are handled in main via before-input-event, so the only
 // key work left here is menu dismissal, which ui.js already owns.
+
+/* ---- downloads button ------------------------------------------------------
+ * As in Chrome: it appears once something has been downloaded in the last
+ * day, its ring fills with the progress of whatever is still downloading,
+ * and a download starting in this window drops an arrow into it and opens
+ * the downloads bubble for a moment (main says which window it started in).
+ */
+const DOWNLOADS_RECENT_MS = 24 * 60 * 60 * 1000;
+let downloadsFinished = null;
+
+/** Play a one-off animation class again, even if it is already set. */
+function replay(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+}
+
+function renderDownloads() {
+  const list = Array.isArray(state.downloads) ? state.downloads : [];
+  const now = Date.now();
+  const going = list.filter((d) => d.state === 'progressing');
+  if (going.length || list.some((d) => now - (d.startedAt || 0) < DOWNLOADS_RECENT_MS)) el.downloads.hidden = false;
+  else if (!el.downloads.classList.contains('is-arriving')) el.downloads.hidden = true;
+  const sized = going.filter((d) => d.total > 0);
+  const total = sized.reduce((sum, d) => sum + d.total, 0);
+  const received = sized.reduce((sum, d) => sum + Math.min(d.received, d.total), 0);
+  el.downloads.classList.toggle('is-active', going.length > 0);
+  el.downloads.classList.toggle('is-unknown', going.length > 0 && !total);
+  el.downloads.style.setProperty('--progress', total ? (received / total).toFixed(3) : '0.3');
+  el.downloads.title = going.length
+    ? 'Downloading ' + (going.length === 1 ? going[0].name : going.length + ' files') + (total ? ' (' + Math.floor(received / total * 100) + '%)' : '')
+    : 'Downloads';
+  // A download finishing gives the button a ripple.
+  const finished = new Set(list.filter((d) => d.state === 'completed').map((d) => d.id));
+  if (downloadsFinished && [...finished].some((id) => !downloadsFinished.has(id))) replay(el.downloads, 'is-finished');
+  downloadsFinished = finished;
+}
+
+window.browser.on('ui:download-started', () => {
+  // Shown at once, before the state that lists the download arrives.
+  el.downloads.hidden = false;
+  const arrow = document.createElement('span');
+  arrow.className = 'dl-drop';
+  arrow.append(window.ui.icon('download', { size: 17 }));
+  el.downloads.append(arrow);
+  arrow.addEventListener('animationend', () => arrow.remove());
+  setTimeout(() => arrow.remove(), 2000);
+  replay(el.downloads, 'is-arriving');
+  invoke('downloads:bubble', { anchor: anchorRect(el.downloads), auto: true });
+});
+el.downloads.addEventListener('animationend', (event) => {
+  if (event.target === el.downloads) el.downloads.classList.remove('is-arriving');
+});
+el.downloads.addEventListener('click', () => invoke('downloads:bubble', { anchor: anchorRect(el.downloads) }));
 
 window.browser.on('app:state', (payload) => { state = payload; render(); });
 window.browser.on('ui:focus-address', () => { el.address.focus(); el.address.select(); });

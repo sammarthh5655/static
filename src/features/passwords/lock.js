@@ -93,6 +93,48 @@ async function unlockLock(record, password) {
   }
 }
 
+/**
+ * A recovery key: the same vault private key, wrapped a second time under a
+ * random code the person keeps. It is the only honest answer to "I forgot my
+ * master password" - the vault key cannot otherwise be recovered - and needs
+ * no server. The code is shown once; only its wrapped blob is stored.
+ *
+ * Returns { code, recovery } - `code` to show the person, `recovery` to store
+ * in the lock record beside `wrapped`.
+ */
+async function makeRecovery(record, privateKey) {
+  // 20 letters/digits in five groups: enough entropy that guessing is
+  // hopeless, grouped so it can be written down and read back.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.randomBytes(20);
+  const code = [...bytes].map((b) => alphabet[b % alphabet.length]).join('')
+    .replace(/(.{4})/g, '$1-').replace(/-$/, '');
+  const salt = crypto.randomBytes(16);
+  const kek = await deriveKek(code.replace(/-/g, ''), salt);
+  const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' });
+  return {
+    code,
+    recovery: {
+      kdf: { name: 'scrypt', ...KDF, salt: salt.toString('base64') },
+      wrapped: aesSeal(kek, pkcs8, Buffer.from(record.publicKey, 'base64')).toString('base64'),
+      createdAt: Date.now(),
+    },
+  };
+}
+
+/** The private key from a recovery code, or null if the code is wrong. */
+async function unlockRecovery(record, code) {
+  const recovery = record.recovery;
+  if (!recovery) return null;
+  const kek = await deriveKek(String(code || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase(), Buffer.from(recovery.kdf.salt, 'base64'), recovery.kdf);
+  try {
+    const pkcs8 = aesOpen(kek, Buffer.from(recovery.wrapped, 'base64'), Buffer.from(record.publicKey, 'base64'));
+    return crypto.createPrivateKey({ key: pkcs8, format: 'der', type: 'pkcs8' });
+  } catch {
+    return null;
+  }
+}
+
 /** Re-wrap the same private key under a new master password. */
 async function rewrapLock(record, privateKey, password) {
   const salt = crypto.randomBytes(16);
@@ -146,4 +188,4 @@ function penaltyMs(failures) {
   return Math.min(60_000, 2000 * 2 ** (failures - 5));
 }
 
-module.exports = { createLock, unlockLock, rewrapLock, exportPrivate, importPrivate, seal, open, isSealed, penaltyMs, KDF };
+module.exports = { createLock, unlockLock, rewrapLock, makeRecovery, unlockRecovery, exportPrivate, importPrivate, seal, open, isSealed, penaltyMs, KDF };

@@ -7,6 +7,30 @@ const { MODES } = require('../../shared/modes');
 const wallpapers = require('../wallpapers');
 const { PROVIDERS: DNS_PROVIDERS, MODES: DNS_MODES, normaliseTemplate } = require('../netguard/dns');
 
+/** The new tab's quick buttons, by id (pages/newtab.js#renderActions). */
+const QUICK_ACTIONS = ['ask', 'summarise', 'research', 'focus', 'game'];
+
+/** A shortcut's address: http(s) only, as typed into its edit box. */
+function shortcutUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim());
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href.slice(0, 2048) : '';
+  } catch { return ''; }
+}
+
+/** The new tab's shortcuts: the mode, the user's own (at most 12), and sites removed from the most visited. */
+function normaliseShortcuts(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const custom = (Array.isArray(source.custom) ? source.custom : [])
+    .map((item) => ({ title: String(item?.title || '').trim().slice(0, 60), url: shortcutUrl(item?.url) }))
+    .filter((item) => item.url)
+    .slice(0, 12);
+  const hidden = [...new Set((Array.isArray(source.hidden) ? source.hidden : [])
+    .filter((host) => typeof host === 'string' && host && host.length < 254)
+    .map((host) => host.toLowerCase()))].slice(0, 200);
+  return { mode: source.mode === 'custom' ? 'custom' : 'frequent', custom, hidden };
+}
+
 const DEFAULTS = {
   searchEngine: 'google',
   // Ask the search engine what might come next while typing. On by default,
@@ -88,6 +112,12 @@ const DEFAULTS = {
   newTab: {
     widgets: [...DEFAULT_LAYOUT],
     showMostVisited: true,
+    // The row of site shortcuts: the most visited sites (less any removed),
+    // or the user's own list, as Chrome offers.
+    shortcuts: { mode: 'frequent', custom: [], hidden: [] },
+    // The quick buttons under the search box, and which of them are hidden.
+    showActions: true,
+    hiddenActions: [],
     background: 'plain',
     backgroundValue: '',
     // '12', '24', or 'system' to follow the OS locale.
@@ -245,6 +275,11 @@ class Settings {
       widgets,
       showMostVisited: typeof source.showMostVisited === 'boolean'
         ? source.showMostVisited : DEFAULTS.newTab.showMostVisited,
+      shortcuts: normaliseShortcuts(source.shortcuts),
+      showActions: typeof source.showActions === 'boolean' ? source.showActions : true,
+      hiddenActions: Array.isArray(source.hiddenActions)
+        ? [...new Set(source.hiddenActions.filter((id) => QUICK_ACTIONS.includes(id)))]
+        : [],
       background: BACKGROUNDS[source.background] ? source.background : DEFAULTS.newTab.background,
       backgroundValue: typeof source.backgroundValue === 'string'
         ? source.backgroundValue.slice(0, 2048) : '',

@@ -151,6 +151,13 @@ function menu(items, { anchor, align = 'left', onClose, passive = false, onOutsi
       root.append(window.tabSearchPanel(item, { close: closeMenu }));
       continue;
     }
+    // Recent downloads and their progress (renderer/downloads-panel.js).
+    if (item?.downloads && window.downloadsPanel) {
+      root.classList.add('menu-downloads');
+      root.setAttribute('aria-label', 'Downloads');
+      root.append(window.downloadsPanel(item, { close: closeMenu }));
+      continue;
+    }
     // A page tool's card (renderer/pagetools-panel.js): a QR code, a
     // screenshot to copy or save, or the area picker over the whole page.
     const tool = item && window.pageToolPanels ? ['qr', 'shot', 'region'].find((kind) => item[kind]) : null;

@@ -222,7 +222,7 @@ html, body.overlay {
   transition: transform calc(var(--motion-base) * 1.2) cubic-bezier(.2, .8, .2, 1);
 }
 .tab-card {
-  position: relative; width: 280px; height: 238px; display: flex; flex-direction: column; overflow: hidden;
+  position: relative; width: 280px; height: 264px; display: flex; flex-direction: column; overflow: hidden;
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   background-image: var(--ambient, none);
   background-color: var(--menu-bg-solid, var(--bg-raised));
@@ -271,6 +271,13 @@ html, body.overlay {
 .tc-bars i:nth-child(3) { animation-delay: -560ms; }
 @keyframes tc-bar { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
 
+/* Memory usage, under the picture, as in Chrome's hover cards. */
+.tc-foot {
+  order: 2; flex: none; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 13px;
+  border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums;
+}
+.tc-foot b { font-weight: 650; color: var(--text); }
+.tc-foot .tc-shared { margin-left: auto; color: var(--text-faint); }
 .tc-shot { position: relative; flex: 1; overflow: hidden; border-top: 1px solid var(--border-soft); background: color-mix(in srgb, var(--bg) 82%, transparent); }
 .tc-img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center;
@@ -306,3 +313,54 @@ html, body.overlay {
   .ts-list.is-entering .ts-row, .tab-card, .tab-card.is-switch .tc-text, .tc-bars i, .tc-shot.is-pending::after { animation: none; }
   .tab-card-pos, .tc-img, .ts-row { transition: none; }
 }
+
+/* ---- downloads bubble (renderer/downloads-panel.js) ---------------------- */
+
+.menu-downloads {
+  width: 340px; max-width: calc(100vw - 24px); padding: 0;
+  background-image: var(--ambient, none);
+  background-color: var(--menu-bg-solid, var(--bg-raised));
+}
+.dl-card { display: flex; flex-direction: column; }
+.dl-head { display: flex; align-items: center; justify-content: space-between; padding: 11px 12px 7px 14px; }
+.dl-title { font-size: 13px; font-weight: 650; color: var(--text); }
+.dl-all {
+  border: 0; border-radius: 8px; padding: 4px 9px; font: inherit; font-size: 12px; font-weight: 600;
+  color: var(--accent); background: transparent; cursor: pointer;
+}
+.dl-all:hover { background: var(--surface-hover); }
+.dl-list { display: flex; flex-direction: column; padding: 0 6px 6px; max-height: 360px; overflow-y: auto; }
+.dl-row {
+  display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px; border: 0; border-radius: 10px;
+  font: inherit; text-align: left; color: var(--text); background: transparent;
+  animation: dl-row-in calc(var(--motion-base) * 1.6) var(--ease) both;
+}
+button.dl-row { cursor: pointer; }
+.dl-row:hover { background: var(--surface-hover); }
+@keyframes dl-row-in { from { transform: translateY(-4px); } }
+.dl-file {
+  width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 9px;
+  color: var(--text); background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+.dl-file.is-done { background: color-mix(in srgb, var(--accent) 34%, var(--surface)); }
+.dl-ext { font-size: 9.5px; font-weight: 750; letter-spacing: .3px; }
+.dl-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dl-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-status { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.dl-row.is-cancelled .dl-name, .dl-row.is-interrupted .dl-name { color: var(--text-dim); text-decoration: line-through; }
+.dl-row.is-interrupted .dl-status { color: var(--danger); }
+.dl-bar { position: relative; height: 4px; margin-top: 4px; border-radius: 999px; overflow: hidden; background: var(--surface-active); }
+.dl-fill {
+  position: absolute; inset: 0 auto 0 0; width: 0; border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent-alt) 80%, var(--accent)));
+  transition: width var(--motion-base) linear;
+}
+.dl-bar.is-unknown .dl-fill { width: 35%; animation: dl-sweep calc(var(--motion-base) * 7) ease-in-out infinite; }
+@keyframes dl-sweep { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.dl-actions { flex: none; display: flex; gap: 2px; }
+.dl-act {
+  width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px;
+  color: var(--text-dim); background: transparent; cursor: pointer;
+}
+.dl-act:hover { color: var(--text); background: var(--surface-active); }
+.dl-empty { margin: 4px 8px 10px; font-size: 12px; color: var(--text-dim); }

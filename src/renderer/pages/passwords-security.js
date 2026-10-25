@@ -80,6 +80,12 @@ function lockScreen(counts, onUnlocked) {
     lock.lockAfter ? 'locks after ' + LOCK_NAMES[lock.lockAfter] + ' unused' : 'locks when Static closes',
   ].filter(Boolean);
 
+  const forgot = element('button', { type: 'button', class: 'pv-lock-forgot', text: 'Forgot your master password?' });
+  forgot.addEventListener('click', () => {
+    const view = forgotScreen(onUnlocked, () => { view.replaceWith(root); setTimeout(() => input.focus(), 40); });
+    root.replaceWith(view);
+  });
+
   root.append(...[
     element('div', { class: 'pv-lock-aura', 'aria-hidden': 'true' }),
     emblem,
@@ -88,6 +94,7 @@ function lockScreen(counts, onUnlocked) {
     form,
     error,
     device,
+    forgot,
     element('p', { class: 'pv-lock-meta', text: bits.join(' · ') }),
   ].filter(Boolean));
   setTimeout(() => input.focus(), 60);
@@ -123,7 +130,7 @@ function passwordForm(kind, redraw) {
   const form = element('form', { class: 'pv-form' }, [
     kind === 'remove'
       ? element('p', { class: 'muted', text: 'Your saved passwords and passkeys stay; they go back to being protected by your computer’s own encryption only.' })
-      : element('p', { class: 'muted', text: 'Pick something you will remember: there is no way to recover it. If you forget it, the only way back is to remove every saved password and start again.' }),
+      : element('p', { class: 'muted', text: 'Pick something you will remember. After it is set, make a recovery key below and keep it somewhere safe - that is your way back in if you ever forget this password.' }),
     grid,
     inputs.next ? element('div', { class: 'pv-meter-row' }, [meter, meterText]) : null,
     error,
@@ -219,6 +226,7 @@ function securityCard(redraw) {
     ]),
     open ? passwordForm(open, redraw) : null,
     notice ? element('p', { class: 'pw-ok', text: notice }) : null,
+    lock.hasMaster ? recoveryControl(redraw) : null,
     deviceSwitch,
     deviceError,
     element('div', { class: 'pv-lockafter' + (lock.hasMaster ? '' : ' is-off') }, [
@@ -229,6 +237,131 @@ function securityCard(redraw) {
       choices,
     ]),
   ].filter(Boolean));
+}
+
+/**
+ * The recovery-key control inside the Security card: make or replace the key
+ * (shown once, to copy and save), or forget it. It is the honest answer to a
+ * forgotten master password - the vault key is wrapped under it too - and
+ * needs no account or server.
+ */
+function recoveryControl(redraw) {
+  const shown = element('div', { class: 'pv-recovery-code', hidden: true });
+  const error = element('p', { class: 'pw-error' });
+
+  const makeButton = element('button', {
+    type: 'button', class: 'pill' + (lock.hasRecovery ? '' : ' selected'),
+    text: lock.hasRecovery ? 'Make a new one' : 'Make a recovery key',
+  });
+  makeButton.addEventListener('click', async () => {
+    error.textContent = '';
+    makeButton.disabled = true;
+    const result = await invoke('passwords:make-recovery').catch((e) => ({ ok: false, error: errorText(e) }));
+    makeButton.disabled = false;
+    if (!result?.ok) { error.textContent = result?.error || 'That did not work.'; return; }
+    const copy = element('button', { type: 'button', class: 'pill', text: 'Copy' });
+    copy.addEventListener('click', () => {
+      navigator.clipboard.writeText(result.code).then(() => { copy.textContent = 'Copied'; }, () => { copy.textContent = 'Copy failed'; });
+      setTimeout(() => { copy.textContent = 'Copy'; }, 1400);
+    });
+    shown.hidden = false;
+    shown.replaceChildren(
+      element('p', { class: 'muted', text: 'Write this down and keep it safe. It is shown only once, and anyone who has it can reset your master password.' }),
+      element('div', { class: 'pv-recovery-row' }, [element('code', { text: result.code }), copy]),
+    );
+    await load();
+    // Redraw the chip/buttons, but keep the code on screen until the user leaves.
+    const refreshed = recoveryControl(redraw);
+    refreshed.querySelector('.pv-recovery-code').replaceWith(shown);
+    control.replaceWith(refreshed);
+  });
+
+  const buttons = [makeButton];
+  if (lock.hasRecovery) {
+    const forget = element('button', { type: 'button', class: 'pill', text: 'Forget it' });
+    forget.addEventListener('click', async () => {
+      await invoke('passwords:remove-recovery').catch(() => {});
+      await load();
+      redraw();
+    });
+    buttons.push(forget);
+  }
+
+  const control = element('div', { class: 'pv-recovery' }, [
+    element('div', { class: 'pv-recovery-head' }, [
+      element('div', {}, [
+        element('strong', { text: 'Recovery key' }),
+        element('p', { class: 'muted', text: lock.hasRecovery
+          ? 'A recovery key is set. Keep your copy safe - it resets your master password if you forget it.'
+          : 'A one-time code that resets your master password if you forget it. Make one and keep it somewhere safe.' }),
+      ]),
+      element('div', { class: 'pw-row' }, buttons),
+    ]),
+    shown,
+    error,
+  ]);
+  return control;
+}
+
+/**
+ * The "I forgot my master password" flow, opened from the lock screen. With a
+ * recovery key: enter it and a new master password. Without one: the only way
+ * on is to clear the vault, which is spelled out and confirmed.
+ */
+function forgotScreen(onDone, onCancel) {
+  const root = element('section', { class: 'pv-forgot' });
+  const error = element('p', { class: 'pw-error', role: 'alert' });
+  const back = element('button', { type: 'button', class: 'pill', text: 'Back' });
+  back.addEventListener('click', onCancel);
+
+  if (lock.hasRecovery) {
+    const code = element('input', { type: 'text', placeholder: 'XXXX-XXXX-XXXX-XXXX-XXXX', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Recovery key' });
+    const next = element('input', { type: 'password', placeholder: 'New master password', autocomplete: 'new-password', 'aria-label': 'New master password' });
+    const confirm = element('input', { type: 'password', placeholder: 'Type it again', autocomplete: 'new-password', 'aria-label': 'Confirm new master password' });
+    const go = element('button', { type: 'submit', class: 'pv-lock-go', text: 'Reset master password' });
+    const form = element('form', { class: 'pv-forgot-form' }, [
+      element('label', { class: 'pw-field' }, [element('span', { text: 'Recovery key' }), code]),
+      element('label', { class: 'pw-field' }, [element('span', { text: 'New master password' }), next]),
+      element('label', { class: 'pw-field' }, [element('span', { text: 'Type it again' }), confirm]),
+      error,
+      element('div', { class: 'pw-row' }, [go, back]),
+    ]);
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      error.textContent = '';
+      if (next.value !== confirm.value) { error.textContent = 'The two new passwords are not the same.'; return; }
+      if (strength(next.value) < 2) { error.textContent = 'Make the new password at least 8 characters.'; return; }
+      go.disabled = true;
+      const result = await invoke('passwords:reset-recovery', { code: code.value, next: next.value }).catch((e) => ({ ok: false, error: errorText(e) }));
+      go.disabled = false;
+      if (!result?.ok) { error.textContent = result?.error || 'That did not work.'; code.select(); return; }
+      await load();
+      onDone();
+    });
+    root.append(
+      element('h2', { class: 'pv-lock-title', text: 'Reset your master password' }),
+      element('p', { class: 'pv-lock-sub', text: 'Enter the recovery key you saved, and choose a new master password. Your logins and passkeys are kept.' }),
+      form,
+    );
+    setTimeout(() => code.focus(), 40);
+  } else {
+    const go = element('button', { type: 'button', class: 'pv-lock-go danger-fill', text: 'Clear the vault and start over' });
+    let armed = false;
+    go.addEventListener('click', async () => {
+      if (!armed) { armed = true; go.textContent = 'Click again to erase everything'; return; }
+      await invoke('passwords:reset-vault').catch(() => {});
+      await load();
+      onDone();
+    });
+    root.append(
+      element('h2', { class: 'pv-lock-title', text: 'No recovery key was set' }),
+      element('p', { class: 'pv-lock-sub', text: 'Your saved passwords are sealed with a key only your master password opens. Without it, and without a recovery key, they genuinely cannot be read - not by Static, not by anyone.' }),
+      element('p', { class: 'pv-lock-sub', text: 'The only way forward is to clear the vault and start again. Everything saved will be lost. Next time, make a recovery key in Security so this cannot happen.' }),
+      element('div', { class: 'pw-row' }, [go, back]),
+      error,
+    );
+  }
+  return root;
 }
 
 /* ---- passkeys ----------------------------------------------------------------- */

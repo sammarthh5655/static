@@ -511,70 +511,73 @@ $('#answer-open').addEventListener('click', async () => {
 
 /**
  * Five, and only five. A homepage that offers everything offers nothing;
- * anything beyond these lives in the menu or the command bar.
+ * anything beyond these lives in the menu or the command bar. Each can be
+ * hidden (right-click it, or Customise > Widgets), and so can the whole row.
  */
 function renderActions() {
   const gameOn = !!state.modes?.resources?.active;
   const focusOn = !!state.modes?.focus?.active;
+  const tab = state.settings?.newTab || {};
+  const hidden = new Set(tab.hiddenActions || []);
 
   const actions = [
     {
-      name: 'Ask AI', icon: 'sparkle',
+      id: 'ask', name: 'Ask AI', icon: 'sparkle',
       run: () => { queryInput.focus(); if (!aiMode) setMode(true); },
     },
     {
-      name: 'Summarise', icon: 'bookmark',
+      id: 'summarise', name: 'Summarise', icon: 'bookmark',
       run: () => invoke('tabs:navigate', { input: 'browser://student' }),
     },
     {
-      name: 'Research', icon: 'search',
+      id: 'research', name: 'Research', icon: 'search',
       run: () => invoke('tabs:navigate', { input: 'browser://ai' }),
     },
     {
-      name: 'Focus', icon: 'clock', on: focusOn,
+      id: 'focus', name: 'Focus', icon: 'clock', on: focusOn,
       run: () => invoke('tabs:navigate', { input: 'browser://focus' }),
     },
     {
-      name: 'Game Mode', icon: 'gear', on: gameOn,
+      id: 'game', name: 'Game Mode', icon: 'gear', on: gameOn,
       run: () => invoke('resources:game-mode', { on: !gameOn }),
     },
   ];
 
-  $('#actions').replaceChildren(...actions.map((action) => element('button', {
-    class: 'action' + (action.on ? ' on' : ''),
-    onclick: action.run,
-  }, [
-    icon(action.icon, { size: 14 }),
-    element('span', { text: action.name }),
-  ])));
+  const shown = tab.showActions === false ? [] : actions.filter((action) => !hidden.has(action.id));
+  $('#actions').hidden = !shown.length;
+  $('#actions').replaceChildren(...shown.map((action) => {
+    const button = element('button', {
+      class: 'action' + (action.on ? ' on' : ''),
+      onclick: action.run,
+    }, [
+      icon(action.icon, { size: 14 }),
+      element('span', { text: action.name }),
+    ]);
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      window.newtabShortcuts.popup(event.clientX, event.clientY, action.name, [
+        { label: 'Hide "' + action.name + '"', icon: 'close', run: () => saveNewTab({ hiddenActions: [...hidden, action.id] }) },
+        { label: 'Hide all these buttons', icon: 'trash', run: () => saveNewTab({ showActions: false }) },
+        null,
+        { label: 'Customise this page…', icon: 'palette', run: () => setCustomising(true) },
+      ]);
+    });
+    return button;
+  }));
+}
+
+/** Save part of the new tab's settings, kept here at once as well. */
+function saveNewTab(patch) {
+  if (state.settings) state.settings.newTab = { ...(state.settings.newTab || {}), ...patch };
+  renderActions();
+  invoke('settings:update', { newTab: patch }).catch((error) => console.error('new tab:', error.message));
 }
 
 /* ---- frequent sites -------------------------------------------------------- */
 
 function renderFrequent() {
-  const byHost = new Map();
-  for (const entry of state.history || []) {
-    let host;
-    try { host = new URL(entry.url).hostname.replace(/^www\./, ''); } catch { continue; }
-    const current = byHost.get(host);
-    if (current) current.visits += 1;
-    else byHost.set(host, { url: entry.url, title: entry.title, host, visits: 1 });
-  }
-  const top = [...byHost.values()].sort((a, b) => b.visits - a.visits).slice(0, 6);
-
-  // Hidden entirely on a fresh profile rather than showing empty placeholders:
-  // a row of grey circles is worse than no row.
-  $('#frequent').hidden = top.length === 0;
-  if (!top.length) return;
-
-  $('#frequent-row').replaceChildren(...top.map((entry) => element('button', {
-    class: 'frequent-item',
-    title: entry.url,
-    onclick: (event) => openUrl(entry.url, event),
-  }, [
-    favicon(entry.url, 20),
-    element('span', { class: 'frequent-name', text: entry.host.split('.')[0] }),
-  ])));
+  // Most visited, or your own shortcuts, with their menu (newtab-shortcuts.js).
+  window.newtabShortcuts.render({ state: () => state, element, favicon, icon, invoke, openUrl });
 }
 
 /* ---- widgets --------------------------------------------------------------- */
@@ -590,10 +593,14 @@ function renderFrequent() {
 let mounted = [];
 let customising = false;
 
-/** The layout the user has chosen, or the default for a fresh profile. */
+/**
+ * The layout the user has chosen, or the default for a fresh profile. An
+ * empty list is a choice too - every widget switched off. Read as "use the
+ * defaults", it brought them all back the moment one was switched on again.
+ */
 function currentLayout() {
   const chosen = state.settings?.newTab?.widgets;
-  return Array.isArray(chosen) && chosen.length
+  return Array.isArray(chosen)
     ? [...chosen]
     : [...((window.widgets && window.widgets.DEFAULT_LAYOUT) || [])];
 }
@@ -606,6 +613,9 @@ function currentLayout() {
  * updates the DOM directly, so what is on screen is always what was saved.
  */
 function saveLayout(next) {
+  // Kept here at once as well, so a second switch flipped before main's
+  // answer arrives builds on the first instead of undoing it.
+  if (state.settings) state.settings.newTab = { ...(state.settings.newTab || {}), widgets: [...next] };
   invoke('settings:update', { newTab: { widgets: next } }).catch((error) => {
     console.error('could not save layout:', error.message);
   });

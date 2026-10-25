@@ -20,6 +20,7 @@ const prices = require('../features/shopping/prices');
 const retailers = require('../features/shopping/retailers');
 const pagecontext = require('../features/ai/pagecontext');
 const { Chats } = require('../features/ai/chats');
+const knowledge = require('../features/ai/knowledge');
 const { Resources } = require('../features/resources');
 const { Productivity } = require('../features/productivity');
 const { groupPicker, tabMenu, chipMenu, windowPicker, splitPicker } = require('../features/organizer/menu');
@@ -680,7 +681,12 @@ class BrowserApplication {
       engine: () => this.settings.value.searchEngine,
       incognito: this.incognito,
     });
-    this.downloads = new Downloads(this.dir, this.session, () => this.push());
+    // A new download drops into the downloads button of the window it came
+    // from (or the one in front), which opens its bubble for a moment.
+    this.downloads = new Downloads(this.dir, this.session, () => this.push(), (record, contents) => {
+      const w = this.windowOf(contents) || this.front;
+      if (w?.chrome && !w.chrome.webContents.isDestroyed()) w.chrome.webContents.send('ui:download-started', { id: record.id });
+    });
     // The new-tab scratchpad widget. Distinct from the Notes feature below.
     this.scratchpad = new JsonStore(this.dir, 'scratchpad', { text: '' });
     // The tabs that were open when the browser last closed.
@@ -3089,6 +3095,8 @@ class BrowserApplication {
       'downloads:reveal': (_sender, payload) => this.downloads.reveal(payload?.id),
       'downloads:cancel': (_sender, payload) => { this.downloads.cancel(payload?.id); this.push(); },
       'downloads:clear': () => { this.downloads.clear(); this.push(); },
+      'downloads:open': (_sender, payload) => this.downloads.open(payload?.id),
+      'downloads:bubble': (sender, payload, w) => w.openDownloads(sender, payload?.anchor, { auto: payload?.auto === true }),
 
       'settings:update': (_sender, payload, w) => {
         const next = this.settings.update(payload);
@@ -3255,11 +3263,14 @@ class BrowserApplication {
           prompt: question,
           // The sidebar shows the answer as text, never as markup, so
           // markdown would arrive as literal asterisks and hashes.
-          system: (usedPage
+          // A question about static itself also carries the guide to static,
+          // so it is answered with this browser's real menus.
+          system: knowledge.withGuide((usedPage
             ? 'You are a browser sidebar assistant. Answer the question using the page ' +
               'provided as context. Be brief and concrete. If the page does not contain ' +
               'the answer, say so plainly rather than guessing.'
             : 'You are a browser sidebar assistant. Answer briefly and concretely.') + PLAIN_TEXT,
+            question, payload?.history),
           context,
           history: payload?.history,
           retries: 1,
@@ -3624,7 +3635,10 @@ class BrowserApplication {
         try {
           const result = await gemini.generate({
             prompt,
-            system: payload?.system,
+            // A caller with its own instruction is a person asking (the new
+            // tab); one without is a widget, whose prompt is not a question
+            // about static and gets no guide.
+            system: payload?.system ? knowledge.withGuide(String(payload.system), prompt, payload?.history) : payload?.system,
             context: payload?.context,
             // Conversation history was accepted from the caller and then
             // dropped, so every follow-up question was answered as if it were
@@ -3714,7 +3728,7 @@ class BrowserApplication {
           const result = await gemini.generate({
             prompt,
             history,
-            system: payload?.system,
+            system: knowledge.withGuide(payload?.system, prompt, history),
             context: payload?.context,
             model: payload?.model,
             signal: this.aiController.signal,
@@ -4225,6 +4239,10 @@ class BrowserApplication {
       'passwords:set-master': (_sender, payload) => this.passwords.setMaster(String(payload?.password || '')),
       'passwords:change-master': (_sender, payload) => this.passwords.changeMaster(String(payload?.current || ''), String(payload?.next || '')),
       'passwords:remove-master': (_sender, payload) => this.passwords.removeMaster(String(payload?.current || '')),
+      'passwords:make-recovery': () => this.passwords.makeRecoveryKey(),
+      'passwords:remove-recovery': () => this.passwords.removeRecoveryKey(),
+      'passwords:reset-recovery': (_sender, payload) => this.passwords.resetWithRecovery(String(payload?.code || ''), String(payload?.next || '')),
+      'passwords:reset-vault': () => this.passwords.resetVault(),
       'passwords:unlock': (_sender, payload) => this.passwords.unlock(String(payload?.password || '')),
       'passwords:unlock-device': async (_sender, _payload, w) => {
         if (!this.passwords.deviceUnlock) return { ok: false, error: 'Unlocking with ' + this.biometric.label + ' is not turned on.' };
@@ -4308,6 +4326,15 @@ class BrowserApplication {
         return { ok: true, value };
       },
 
+      // A new tab shortcut's menu: open it in a new window or an incognito one.
+      'newtab:open': (_sender, payload, w) => {
+        let url;
+        try { url = new URL(String(payload?.url || '')); } catch { return false; }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+        if (payload?.where === 'incognito') this.openIncognito?.(url.href, w);
+        else this.openWindow({ from: w, url: url.href });
+        return true;
+      },
       'newtab:notes': (_sender, payload) => {
         if (typeof payload?.text === 'string') {
           this.scratchpad.save({ text: payload.text.slice(0, 20000) });

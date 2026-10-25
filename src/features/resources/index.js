@@ -161,6 +161,35 @@ class Resources {
     return this.latest;
   }
 
+  /**
+   * The memory a tab's process uses, for the tab's hover card: from the
+   * latest sample while sampling is running, otherwise read now (memory only;
+   * nothing else changes). Same-site tabs can share one process, so
+   `shared` counts the other tabs whose memory the figure includes.
+   */
+  memoryOf(tabId) {
+    const fresh = this.latest && Date.now() - this.latest.sampledAt < SAMPLE_MS * 2;
+    const tabs = fresh ? this.latest.tabs : this.measure();
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab?.pid || !tab.memoryMb) return null;
+    return { mb: tab.memoryMb, shared: tabs.filter((t) => t.pid === tab.pid && t.id !== tabId).length };
+  }
+
+  /** Each tab's process and its memory, as sample() counts them. */
+  measure() {
+    const byPid = new Map(app.getAppMetrics().map((metric) => [metric.pid, metric]));
+    const out = [];
+    for (const tab of this.getTabs()) {
+      const wc = tab.view?.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      let pid = null;
+      try { pid = wc.getOSProcessId(); } catch { pid = null; }
+      const metric = pid ? byPid.get(pid) : null;
+      out.push({ id: tab.id, pid, memoryMb: metric ? Math.round((metric.memory?.workingSetSize || 0) / 1024) : 0 });
+    }
+    return out;
+  }
+
   /** Start sampling. Idempotent, so several pages can watch at once. */
   start() {
     if (this.timer) return;

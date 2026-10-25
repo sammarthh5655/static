@@ -84,6 +84,11 @@ function hydrate(item) {
       settle: () => { if (!window.ui.menuIsOpen()) setInteractive(false); },
     };
   }
+  // The downloads bubble asks main to open, show or cancel a file, and
+  // redraws from the browser state as downloads move along.
+  if (item && item.downloads) {
+    return { ...item, run: (channel, payload) => window.browser.invoke(channel, payload).catch(() => null), state: () => state };
+  }
   if (!item || item.separator || item.heading || item.brand) return item;
   // "Add tab to group": its menu opens the next one in the same place. The
   // overlay stays up for it; if no menu follows, it steps aside after all.
@@ -173,6 +178,7 @@ window.browser.on('ui:menu-focus', () => window.ui.focusMenu());
 window.browser.on('app:state', (next) => {
   state = next;
   applyTheme(state.settings || {});
+  window.downloadsPanel?.refresh();
 });
 
 invoke('app:state').then((next) => {

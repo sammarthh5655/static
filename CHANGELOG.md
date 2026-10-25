@@ -8,6 +8,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — The assistant knows static
+
+- A **browser guide** (`src/features/ai/knowledge.js`) joins the AI's system
+  instruction whenever a question is about this browser, so "how do I import
+  everything from Brave?" is answered with static's real menus and exact
+  steps instead of a guess about some other browser. It covers importing,
+  passwords, Shields, extensions, tabs, profiles, settings and the rest, with
+  keyboard shortcuts and built-in pages generated from the live code, and the
+  version read at runtime. Follow-up questions ("and my passwords?") keep the
+  guide. Ordinary questions ("what is the history of Rome?") and page
+  questions do not carry it. Wired into the sidebar ask, `ai:ask` and chat.
+  7 unit tests, including that every label the guide quotes exists in the app.
+
+### Added — Tabs on top, and memory on tab hover cards
+
+- With tabs across the top they now sit in the title bar's own row, flush
+  with the top of the window as in Chrome, rather than a strip below it.
+  Vertical tabs are unchanged. macOS window buttons line up either way.
+- A tab's hover card now shows how much memory its process is using, from the
+  same figures as `browser://resources`, and notes when that memory is shared
+  with other same-site tabs, or freed while the tab sleeps.
+
+### Added — A download indicator and animation
+
+- A downloads button appears in the toolbar as in Chrome: a ring fills with
+  the progress of whatever is downloading, an arrow drops into it when a
+  download starts, and a ripple marks one finishing. A **downloads bubble**
+  opens under it - the last day's downloads with their progress, speed and
+  time left - and pops up for a moment on its own when a download begins.
+  Finished files open from there; running ones can be cancelled.
+
+### Added — Editable new-tab shortcuts, and tidier quick buttons
+
+- The row of site shortcuts can be **Most visited** (the sites you visit most,
+  with any you remove staying removed) or **My shortcuts** (your own list, up
+  to twelve). Right-click a shortcut - or press its ⋮ - to open it in a new
+  tab, window or incognito window, edit it, copy its link or remove it. A +
+  tile and an edit dialog add and change them. All in Customise too.
+- The quick buttons under the search box (Ask AI, Summarise, …) can each be
+  hidden, or the whole row turned off, from a right-click or Customise.
+
+### Fixed — New tab customise and Quick links
+
+- Turning one widget on in Customise no longer switched others on with it: an
+  empty layout is now read as a real choice, not "use the defaults".
+- The **Quick links** widget had no styles of its own and fell back to the
+  browser's defaults; it now lays its bookmarks out as even pills.
+
+### Added — Master password recovery, and easier password import
+
+- A **recovery key** can be made in Passwords > Security: a one-time code that
+  wraps the same vault key, so a forgotten master password can be reset
+  without losing a single login. The lock screen has a "Forgot your master
+  password?" link that takes the recovery key (or, with none set, spells out
+  and confirms the only alternative - clearing the vault). No account or
+  server; it works entirely on this device. 2 unit tests cover the crypto.
+- Importing from another browser now has a guided **"Also bring your
+  passwords"** step: that browser's exact export steps, a button to open its
+  export page, and a button to import the CSV - two clicks instead of hunting
+  through two settings pages. Passwords are still never read from another
+  browser's encrypted store, only from its own export.
+
 ## [0.2.1] - 2026-10-25
 
 The first public release: installers for Windows and Mac, published as a

@@ -306,11 +306,80 @@ class Passwords {
     return { ok: true };
   }
 
+  /**
+   * Make (or replace) the recovery key, for when the master password is
+   * forgotten. Needs the vault unlocked. The code is returned once, to show
+   * and let the person save; only its wrapped blob is stored.
+   */
+  async makeRecoveryKey() {
+    if (!this.data.lock) return { ok: false, error: 'Set a master password first.' };
+    if (!this.key) return { ok: false, error: 'Unlock the vault first.' };
+    const { code, recovery } = await lock.makeRecovery(this.data.lock, this.key);
+    this.data.lock.recovery = recovery;
+    this.save();
+    this.onChange();
+    return { ok: true, code };
+  }
+
+  /** Forget the recovery key. The master password still works. */
+  removeRecoveryKey() {
+    if (!this.data.lock?.recovery) return { ok: true };
+    delete this.data.lock.recovery;
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  get hasRecovery() { return !!this.data.lock?.recovery; }
+
+  /**
+   * Forgot the master password: unlock with the recovery code and set a new
+   * master password in one step. Fewer, slower tries than the unlock box.
+   */
+  async resetWithRecovery(code, newPassword) {
+    if (!this.data.lock?.recovery) return { ok: false, error: 'No recovery key was set up for this vault.' };
+    const blocked = this.#waiting();
+    if (blocked) return blocked;
+    if (String(newPassword || '').length < 8) return { ok: false, error: 'Use at least 8 characters for the new master password.' };
+    const key = await lock.unlockRecovery(this.data.lock, code);
+    if (!key) {
+      this.failures++;
+      this.waitUntil = Date.now() + lock.penaltyMs(this.failures);
+      return { ok: false, error: 'That recovery key is not correct.' };
+    }
+    this.failures = 0;
+    this.waitUntil = 0;
+    this.data.lock = await lock.rewrapLock(this.data.lock, key, String(newPassword));
+    this.key = key;
+    this.touch();
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
+  /**
+   * The last resort: no master password and no recovery key. Everything the
+   * master password protected is unreadable for good, so it is thrown away and
+   * the vault starts empty. The caller must confirm this destroys the data.
+   */
+  resetVault() {
+    this.data.entries = [];
+    this.data.passkeys = [];
+    this.data.lock = null;
+    this.key = null;
+    this.failures = 0;
+    this.waitUntil = 0;
+    this.save();
+    this.onChange();
+    return { ok: true };
+  }
+
   lockState() {
     return {
       hasMaster: this.hasMaster,
       locked: this.locked,
       deviceUnlock: this.deviceUnlock,
+      hasRecovery: this.hasRecovery,
       lockAfter: this.hasMaster ? this.lockAfter() : null,
       lockAfterChoices: LOCK_AFTER,
       waitMs: Math.max(0, this.waitUntil - Date.now()),

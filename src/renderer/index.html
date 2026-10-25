@@ -15,26 +15,30 @@
 </head>
 <body>
   <!-- Custom title bar. The whole bar is a drag region except the buttons,
-       which opt out with -webkit-app-region: no-drag (see chrome.css). -->
+       which opt out with -webkit-app-region: no-drag (see chrome.css).
+       With tabs on top the tab strip is part of it, as in Chrome: the tabs
+       sit at the very top of the window, beside the menu and the window
+       buttons. With tabs down the side the strip is hidden and the bar
+       shows the window's title instead. -->
   <div class="titlebar" id="titlebar">
     <div class="titlebar-left" id="titlebar-left">
       <button class="menu-trigger" id="app-menu" title="Menu (F10)"></button>
+      <span class="incognito-pill" id="incognito-pill" hidden>Incognito</span>
     </div>
     <div class="titlebar-drag" id="titlebar-drag">
-      <span class="incognito-pill" id="incognito-pill" hidden>Incognito</span>
       <span class="titlebar-title" id="window-title">static</span>
     </div>
-    <div class="window-controls" id="window-controls"></div>
-  </div>
 
-  <!-- Tab strip -->
-  <div class="strip">
-    <button class="strip-tool" id="workspace-switch" title="Switch workspace">Main</button>
-    <div class="tabs" id="tabs"></div>
-    <button class="icon-btn newtab" id="newtab" title="New tab"></button>
-    <div class="strip-drag"></div>
-    <button class="strip-tool" id="organise-tabs" title="Organise tabs (Ctrl+Shift+O)">Organise Tabs</button>
-    <button class="icon-btn strip-search" id="tab-search" title="Search tabs"></button>
+    <!-- Tab strip -->
+    <div class="strip">
+      <button class="strip-tool" id="workspace-switch" title="Switch workspace">Main</button>
+      <div class="tabs" id="tabs"></div>
+      <button class="icon-btn newtab" id="newtab" title="New tab"></button>
+      <div class="strip-drag"></div>
+      <button class="strip-tool" id="organise-tabs" title="Organise tabs (Ctrl+Shift+O)">Organise Tabs</button>
+      <button class="icon-btn strip-search" id="tab-search" title="Search tabs"></button>
+    </div>
+    <div class="window-controls" id="window-controls"></div>
   </div>
 
   <!-- Toolbar: navigation, omnibox, extension actions -->
@@ -61,6 +65,8 @@
 
     <!-- Populated by electron-chrome-extensions with real extension icons -->
     <browser-action-list id="actions"></browser-action-list>
+    <!-- Appears with a download, as Chrome's does (chrome.js#renderDownloads). -->
+    <button class="icon-btn downloads-btn" id="downloads" title="Downloads" hidden></button>
     <button class="icon-btn" id="overflow" title="Menu"></button>
   </div>
 

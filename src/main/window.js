@@ -13,8 +13,8 @@ const pageMenu = require('./page-menu');
  * because main positions the tab view directly below the chrome and the two
  * have no other way to agree on where that boundary is.
  */
-const TITLEBAR_HEIGHT = 36;   // custom title bar (drag region + window buttons)
-const TABSTRIP_HEIGHT = 40;
+const TITLEBAR_HEIGHT = 36;   // the title bar on its own, with tabs down the side
+const TABSTRIP_HEIGHT = 40;   // the title bar with the tabs in it
 const TOOLBAR_HEIGHT = 48;
 const BOOKMARKS_BAR_HEIGHT = 34;
 
@@ -23,8 +23,9 @@ const SUGGESTIONS_HEIGHT = 340;
 
 /** Total chrome height for a given settings snapshot. */
 function chromeHeight(settings) {
-  // Vertical tabs take the strip out of the top bar entirely.
-  return TITLEBAR_HEIGHT + (settings.tabLayout === 'vertical' ? 0 : TABSTRIP_HEIGHT) + TOOLBAR_HEIGHT +
+  // Tabs on top share the title bar's row, as in Chrome, so the bar is the
+  // strip's height; with tabs down the side it is a plain title bar.
+  return (settings.tabLayout === 'vertical' ? TITLEBAR_HEIGHT : TABSTRIP_HEIGHT) + TOOLBAR_HEIGHT +
     (settings.bookmarksBar ? BOOKMARKS_BAR_HEIGHT : 0);
 }
 
@@ -39,7 +40,7 @@ const VERTICAL_TABS_FOLDED = 56;
  * width so it stays sharp on a high-density screen, and is reused for a few
  * seconds rather than taken again on every hover.
  */
-const PREVIEW_CARD = { width: 280, height: 238 };
+const PREVIEW_CARD = { width: 280, height: 264 };
 const PREVIEW_SHOT_WIDTH = 560;
 const PREVIEW_FRESH_MS = 3000;
 const PREVIEW_KEEP = 40;
@@ -877,6 +878,9 @@ class AppWindow {
     if (!this.window || this.window.isDestroyed()) return;
     const settings = this.browser.settings.value;
     const want = settings.tabLayout === 'vertical';
+    // macOS's own window buttons line up with the tabs when the tabs share
+    // the title bar (40px), and with the shorter bar (36px) otherwise.
+    if (process.platform === 'darwin') this.window.setWindowButtonPosition?.({ x: 13, y: want ? 13 : 15 });
     if (!want) {
       if (this.vtabs) {
         try { this.window.contentView.removeChildView(this.vtabs); } catch { /* already gone */ }
@@ -1090,6 +1094,23 @@ class AppWindow {
    */
 
   /** Open the list under the button that asked, or under its button when a key did. Pressed again, it closes. */
+  /**
+   * The downloads bubble under the toolbar's downloads button: recent
+   * downloads with their progress. Opened by the button, and - `auto` - by
+   * a download starting, when it is passive (typing carries on, a click
+   * elsewhere goes through) and closes itself after a few seconds.
+   */
+  openDownloads(sender, anchor, { auto = false } = {}) {
+    if (!this.overlay || this.overlay.webContents.isDestroyed() || !anchor) return false;
+    const open = this.overlayInteractive && this.lastMenu?.items?.some((item) => item?.downloads);
+    // The button toggles it; a download arriving never takes over another menu.
+    if (open && !auto) { this.closeMenu(); return false; }
+    if (auto && this.overlayInteractive) return false;
+    this.hidePreview();
+    this.showMenu([{ downloads: { auto } }], this.windowAnchor(sender, anchor), 'right', { passive: auto });
+    return true;
+  }
+
   openTabSearch(sender = null, anchor = null) {
     if (!this.overlay || this.overlay.webContents.isDestroyed() || !this.tabs) return false;
     if (this.overlayInteractive && this.lastMenu?.items?.some((item) => item?.tabsearch)) {
@@ -1125,7 +1146,7 @@ class AppWindow {
       const side = this.vtabs.getBounds();
       return { anchor: at(side.x + 8, side.y + 46), align: 'left' };
     }
-    return { anchor: at(width - 8, TITLEBAR_HEIGHT + TABSTRIP_HEIGHT - 2), align: 'right' };
+    return { anchor: at(width - 8, TABSTRIP_HEIGHT - 2), align: 'right' };
   }
 
   /**
@@ -1250,6 +1271,8 @@ class AppWindow {
       group: group ? { name: group.name, color: group.color } : null,
       thumb: sleeping ? null : usable?.data || null,
       pending: live && !fresh,
+      // What the tab's process uses, as browser://resources counts it.
+      memory: sleeping ? null : this.browser.resources?.memoryOf(tab.id) || null,
     };
   }
 

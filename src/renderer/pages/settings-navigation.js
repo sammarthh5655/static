@@ -92,6 +92,7 @@ const TOPICS = [
   { terms: ['theme', 'planet', 'dark', 'dark mode', 'light', 'light mode', 'colour', 'color', 'look', 'style', 'appearance', 'font', 'typeface', 'text size', 'zoom', 'density', 'accent', 'wallpaper', 'background'], sections: ['appearance'] },
   { terms: ['new tab', 'homepage', 'home page', 'widget', 'widgets', 'clock', 'shortcuts row', 'most visited', 'wallpaper', 'status strip'], sections: ['content', 'start'] },
   { terms: ['startup', 'start up', 'launch', 'on startup', 'restore', 'session', 'reopen', 'continue where'], sections: ['start', 'profiles'] },
+  { terms: ['import', 'importing', 'export', 'transfer', 'migrate', 'move from', 'switch from', 'bring', 'chrome', 'brave', 'edge', 'firefox', 'safari', 'opera', 'vivaldi'], sections: ['start'] },
   { terms: ['privacy', 'security', 'tracking', 'tracker', 'trackers', 'cookie', 'cookies', 'fingerprint', 'https', 'shield', 'shields', 'ad', 'ads', 'adblock', 'ad blocker', 'block', 'safe browsing', 'safety', 'malware', 'phishing', 'clear', 'clear data', 'cache', 'history', 'permissions'], sections: ['privacy'] },
   { terms: ['password', 'passwords', 'login', 'logins', 'credential', 'autofill', 'auto fill', 'fill', 'address', 'card', 'credit card', 'payment', 'upi', 'passkey'], sections: ['passwords'] },
   { terms: ['download', 'downloads', 'file', 'files', 'save location', 'folder'], sections: ['downloads'] },
@@ -168,7 +169,9 @@ $('#settings-search').addEventListener('input', () => {
     for (const child of section.children) {
       const fields = [...child.querySelectorAll('.field')];
       for (const field of fields) {
-        field.hidden = !wholeSection && !matches(field.textContent + ' ' + (field.dataset.keywords || ''));
+        // A card's own keywords count for every row in it: the import card
+        // says "import" only there, so searching it found nothing.
+        field.hidden = !wholeSection && !matches(field.textContent + ' ' + (field.dataset.keywords || '') + ' ' + (child.dataset?.keywords || ''));
       }
       const visible = wholeSection || (fields.length ? fields.some(field => !field.hidden) : matches(child.textContent));
       child.hidden = !visible;

@@ -16,6 +16,17 @@
  * route is right there as the alternative.
  */
 
+// How to export passwords from each browser, and the page that does it.
+// Opening that page in static lands the person one click from Export.
+const PASSWORD_EXPORTS = {
+  chrome: { page: 'https://passwords.google.com/options', steps: 'In Chrome, open Settings > Autofill and passwords > Google Password Manager > Settings > Export passwords, and save the CSV file.' },
+  edge: { page: null, steps: 'In Edge, open Settings > Profiles > Passwords > the “…” menu > Export passwords, and save the CSV file.' },
+  brave: { page: null, steps: 'In Brave, open brave://password-manager/settings, choose Export passwords, and save the CSV file.' },
+  opera: { page: null, steps: 'In Opera, open Settings > Advanced > Privacy & security > Passwords, use the “…” menu > Export passwords, and save the CSV file.' },
+  vivaldi: { page: null, steps: 'In Vivaldi, open Settings > Passwords, use Export, and save the CSV file.' },
+  firefox: { page: null, steps: 'In Firefox, open about:logins, use the “…” menu > Export Logins, and save the CSV file.' },
+};
+
 function build({ element, invoke, onDone }) {
   const box = element('div', { class: 'import-panel' });
   const choice = { browser: null, profile: null, bookmarks: true, history: true, homepage: false };
@@ -90,6 +101,36 @@ function build({ element, invoke, onDone }) {
     }
     const profileSelect = element('select', { class: 'import-profile', 'aria-label': 'Profile' });
     const homepageSwitch = toggle(choice, 'homepage', 'Homepage', 'If you set one there');
+
+    /* ---- passwords: a guided, two-click export-then-import ---- */
+    const pwSteps = element('small', { class: 'import-pw-steps' });
+    const pwStatus = element('p', { class: 'import-status', role: 'status' });
+    const pwOpen = element('button', { type: 'button', class: 'import-secondary', text: 'Open the export page' });
+    const pwImport = element('button', { type: 'button', class: 'import-secondary', text: 'Import the CSV file…' });
+    pwOpen.addEventListener('click', () => {
+      const info = PASSWORD_EXPORTS[choice.browser];
+      if (info?.page) invoke('tabs:new', { url: info.page });
+    });
+    pwImport.addEventListener('click', async () => {
+      pwImport.disabled = true;
+      pwStatus.textContent = 'Choose the CSV file you exported…';
+      try {
+        const result = await invoke('passwords:import');
+        if (result?.canceled) { pwStatus.textContent = ''; return; }
+        pwStatus.textContent = result?.ok
+          ? 'Imported ' + result.added + ' password' + (result.added === 1 ? '' : 's') + (result.skipped ? ', skipped ' + result.skipped : '') + '. Delete the CSV file now - it is not encrypted.'
+          : (clean(result?.error) || 'That file could not be imported.');
+      } catch (error) { pwStatus.textContent = clean(error); }
+      finally { pwImport.disabled = false; }
+    });
+    const passwordsStep = element('details', { class: 'import-passwords' }, [
+      element('summary', {}, [element('strong', { text: 'Also bring your passwords' }), element('span', { class: 'import-pw-caret', 'aria-hidden': 'true' })]),
+      element('p', { class: 'import-note', text: 'Passwords are locked to the browser that saved them, so static cannot read them directly. Export them once, then import that file - it takes two clicks:' }),
+      pwSteps,
+      element('div', { class: 'import-actions' }, [pwOpen, pwImport]),
+      pwStatus,
+    ]);
+
     const pickBrowser = (browser, tile) => {
       choice.browser = browser.id;
       pickedName = browser.name;
@@ -103,6 +144,16 @@ function build({ element, invoke, onDone }) {
       go.disabled = !!browser.needsAccess;
       go.textContent = 'Import from ' + browser.name;
       status.textContent = '';
+      // Safari's passwords come in its export zip (the file route), so the
+      // step is for the Chromium browsers and Firefox only.
+      const info = PASSWORD_EXPORTS[browser.id];
+      passwordsStep.hidden = !info;
+      if (info) {
+        pwSteps.textContent = info.steps;
+        pwOpen.hidden = !info.page;
+        pwStatus.textContent = '';
+        passwordsStep.open = false;
+      }
     };
     const tiles = element('div', { class: 'import-browsers', role: 'radiogroup' }, browsers.map((browser) => {
       const tile = element('button', { type: 'button', role: 'radio', class: 'import-browser', 'data-id': browser.id, 'aria-checked': 'false' }, [
@@ -121,7 +172,7 @@ function build({ element, invoke, onDone }) {
         toggle(choice, 'history', 'History', 'The last 5,000 pages you visited'),
         homepageSwitch,
       ]),
-      element('p', { class: 'import-note', text: 'Passwords are locked to the browser that saved them. To bring them too, export them to a file from that browser, then use Passwords → Import - or import Safari’s export file below, which includes them.' }),
+      passwordsStep,
       element('div', { class: 'import-actions' }, [go]),
       status,
       fromFile,

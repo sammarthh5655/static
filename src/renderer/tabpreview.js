@@ -131,6 +131,26 @@ function fill(data) {
   const tag = stateTag(data);
   if (tag) site.append(tag);
   fillShot(card.querySelector('.tc-shot'), data);
+  fillMemory(card.querySelector('.tc-foot'), data);
+}
+
+/** "Memory usage: 184 MB", or what a sleeping tab uses: nothing. */
+function fillMemory(foot, data) {
+  const parts = [];
+  if (data.sleeping) parts.push(document.createTextNode('Memory usage: freed while asleep'));
+  else if (data.memory?.mb) {
+    const amount = document.createElement('b');
+    amount.textContent = data.memory.mb >= 1024 ? (data.memory.mb / 1024).toFixed(1) + ' GB' : data.memory.mb + ' MB';
+    parts.push(document.createTextNode('Memory usage: '), amount);
+    if (data.memory.shared) {
+      // Same-site tabs share one process; the figure is all of theirs.
+      const shared = document.createElement('span');
+      shared.className = 'tc-shared';
+      shared.textContent = 'shared with ' + data.memory.shared + (data.memory.shared === 1 ? ' tab' : ' tabs');
+      parts.push(shared);
+    }
+  } else parts.push(document.createTextNode('Memory usage: not known yet'));
+  foot.replaceChildren(...parts);
 }
 
 function show(data) {
@@ -162,7 +182,9 @@ function show(data) {
     text.append(title, site);
     const shot = document.createElement('div');
     shot.className = 'tc-shot';
-    card.append(text, shot);
+    const foot = document.createElement('div');
+    foot.className = 'tc-foot';
+    card.append(text, shot, foot);
     outer.append(card);
     document.body.append(outer);
     current = { outer, card };
