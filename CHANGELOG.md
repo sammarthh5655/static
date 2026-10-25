@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added — Import from Safari, and from exported files
+
+- **Safari** joins Chrome, Edge, Brave, Opera, Vivaldi and Firefox in Bring
+  your stuff: bookmarks (with their folders, the Favorites bar as the main
+  ones, the Reading List as a folder) and history, read on a Mac from
+  Safari's own files. macOS guards that folder, so until static has Full Disk
+  Access the Safari tile explains this and opens the right settings page.
+- **Import from a file**, on any computer and with no permissions: Safari's
+  export zip (bookmarks, history and passwords - the way to bring Safari data
+  to a PC), or the bookmarks .html file every browser exports. Passwords from
+  a Safari export go into the vault.
+- A small, defensive reader for Apple's binary property lists (Safari's
+  bookmarks format), and a parser for the bookmarks file format every
+  browser exports. Zips are unpacked with the same strict reader as
+  extension packages. 23 new unit tests, including damaged and hostile
+  files; not yet tried against a real Safari, which needs a Mac.
+
 ### Added — Installers for your own website
 
 - **Windows installer like Chrome's:** one click, no administrator prompt,

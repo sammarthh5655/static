@@ -38,3 +38,20 @@
 .import-go:disabled { opacity: 0.5; cursor: default; }
 .import-status { margin: 0; font-size: 12.5px; color: var(--accent); min-height: 16px; }
 .import-empty { color: var(--text-dim); font-size: 13px; }
+/* Safari: a compass-blue badge, like its icon. */
+.import-badge.safari { background: radial-gradient(circle at 40% 35%, #8fd3ff, #1a8cff 55%, #0a4fd6); }
+/* What to do when macOS has not yet let static read Safari. */
+.import-access { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.import-access[hidden] { display: none; }
+/* Importing from an exported file: set apart from the browser list. */
+.import-file { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+.import-file strong { display: block; font-size: 13px; color: var(--text); }
+.import-file small { display: block; font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-top: 2px; }
+.import-secondary {
+  padding: 8px 16px; border-radius: 12px; cursor: pointer; font: inherit; font-weight: 600; color: var(--text);
+  border: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.import-secondary:hover { border-color: var(--accent); }
+.import-secondary:disabled { opacity: 0.5; cursor: default; }
+[hidden].import-switch { display: none; }

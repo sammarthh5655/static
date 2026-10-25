@@ -2608,6 +2608,38 @@ class BrowserApplication {
         this.push();
         return result;
       },
+      // A file another browser exported (features/importer/files.js): Safari's
+      // export zip, any bookmarks .html, or a History.json. The person picks
+      // it, so no folder is read that they did not choose.
+      'import:file': async (_sender, payload, w) => {
+        const picked = await dialog.showOpenDialog(w.window, {
+          title: 'Import from a file another browser exported',
+          properties: ['openFile'],
+          filters: [{ name: 'Browser exports', extensions: ['zip', 'html', 'htm', 'json'] }],
+        });
+        if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
+        const data = importer.readExport(picked.filePaths[0]);
+        const source = data.kind === 'export' ? 'Safari' : 'Imported file';
+        const result = { bookmarks: 0, history: 0, passwords: 0, from: path.basename(picked.filePaths[0]) };
+        if (payload?.bookmarks !== false) result.bookmarks = this.bookmarks.importMany(data.bookmarks, source);
+        if (payload?.history !== false && !this.incognito) result.history = this.history.importMany(data.history);
+        // A Safari export carries its passwords as a CSV; they go into the
+        // vault exactly as Passwords > Import would put them.
+        if (payload?.passwords !== false && data.passwordsCsv && !this.incognito) {
+          const saved = this.passwords.importCsv(data.passwordsCsv);
+          if (saved?.ok) result.passwords = saved.added;
+          else result.passwordsError = saved?.error || 'The passwords could not be imported.';
+        }
+        this.push();
+        return result;
+      },
+      // macOS only lets static read Safari once Full Disk Access is on: open
+      // that page of System Settings for the person to switch it on.
+      'import:privacy-settings': () => {
+        if (process.platform !== 'darwin') return false;
+        shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles');
+        return true;
+      },
       'passwords:health': () => this.passwords.health(),
       'passwords:breach-check': () => this.passwords.breachCheck((url, options) => require('electron').net.fetch(url, options)),
       'passwords:export': async (_sender, _payload, w) => {

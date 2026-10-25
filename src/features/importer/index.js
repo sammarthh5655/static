@@ -9,15 +9,23 @@
  * from the copy - the other browser may be running and holding a lock, and
  * its own files must never be modified.
  *
+ * Safari (on a Mac) is in ./safari.js: a binary plist and its own SQLite
+ * layout, behind macOS's Full Disk Access permission. Files another browser
+ * exported - Safari's export zip, any bookmarks .html - are in ./files.js.
+ *
  * Passwords are NOT read from these folders: current browsers encrypt them
  * with keys tied to that browser (Chrome's app-bound encryption, Firefox's
- * key4.db). The supported route is that browser's own CSV export, which
- * browser://passwords imports.
+ * key4.db, Safari's Keychain). The supported route is that browser's own
+ * export, which browser://passwords imports - and which a Safari export zip
+ * carries, so importing that file brings its passwords too.
  */
 
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { readJson, withCopy } = require('./util');
+const safari = require('./safari');
+const { readExport } = require('./files');
 
 const home = os.homedir();
 // Windows' standard per-user folders; only consulted when running on Windows.
@@ -39,9 +47,6 @@ const FIREFOX = { id: 'firefox', name: 'Mozilla Firefox', win: [roaming, 'Mozill
 const platformKey = process.platform === 'win32' ? 'win' : process.platform === 'darwin' ? 'mac' : 'linux';
 const MAX_HISTORY = 5000;
 
-function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-}
 
 /** Chromium profiles: Default, Profile 1, ... named as the user named them. */
 function chromiumProfiles(browser, root) {
@@ -72,21 +77,12 @@ function detect(roots = null) {
   const ffRoot = roots?.firefox || path.join(...FIREFOX[platformKey]);
   const ff = firefoxProfiles(ffRoot);
   if (ff.length) found.push({ id: 'firefox', name: FIREFOX.name, kind: 'firefox', profiles: ff });
+  // On a Mac. needsAccess: macOS has not let static read it yet.
+  const sf = safari.detectSafari(roots);
+  if (sf) found.push(sf);
   return found;
 }
 
-/** Open a copy of an SQLite file, read it, and throw the copy away. */
-function withCopy(file, read) {
-  const copy = path.join(os.tmpdir(), 'static-import-' + process.pid + '-' + Date.now() + '.sqlite');
-  fs.copyFileSync(file, copy);
-  try {
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(copy, { readOnly: true });
-    try { return read(db); } finally { db.close(); }
-  } finally {
-    for (const suffix of ['', '-wal', '-shm', '-journal']) { try { fs.rmSync(copy + suffix, { force: true }); } catch { /* gone */ } }
-  }
-}
 
 // Chromium stores times as microseconds since 1601-01-01.
 // They exceed a JavaScript number's exact range, so they arrive as BigInt.
@@ -145,6 +141,10 @@ function firefoxData(dir) {
  * @returns {{ bookmarks: object[], history: object[], homepage: string }}
  */
 function read(browserId, profileId, roots = null) {
+  if (browserId === 'safari') {
+    if (profileId !== '.') throw new Error('That profile was not found.');
+    return safari.readSafari(roots);
+  }
   const browser = [...CHROMIUM, FIREFOX].find((b) => b.id === browserId);
   if (!browser) throw new Error('Unknown browser.');
   const root = roots?.[browserId] || path.join(...browser[platformKey]);
@@ -176,6 +176,10 @@ function hasData(roots = null) {
     try { return withCopy(file, (db) => !!db.prepare(sql).get()); } catch { return true; }
   };
   for (const browser of detect(roots)) {
+    if (browser.kind === 'safari') {
+      if (safari.safariHasData(roots)) return true;
+      continue;
+    }
     const spec = [...CHROMIUM, FIREFOX].find((item) => item.id === browser.id);
     const root = roots?.[browser.id] || path.join(...spec[platformKey]);
     for (const profile of browser.profiles) {
@@ -193,4 +197,4 @@ function hasData(roots = null) {
   return false;
 }
 
-module.exports = { detect, read, hasData, chromiumTime };
+module.exports = { detect, read, hasData, readExport, chromiumTime };

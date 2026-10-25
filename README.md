@@ -200,7 +200,9 @@ src/
     passwords/           OS-encrypted credential vault, passkeys, lock
     autofill/            Addresses, payment cards, UPI IDs and documents
     profiles/            Separate browsing identities, each with its own folder
-    importer/            Bookmarks and history from Chrome, Edge, Brave, Firefox...
+    importer/            Bookmarks and history from Chrome, Edge, Brave, Opera,
+                         Vivaldi, Firefox and Safari; or from an exported file
+                         (safari.js, plist.js, files.js)
     onboarding/          First-launch questions, written through Settings
     pagetools/           Reading view, screenshots and QR codes
     shopping/            Price comparison across shops
@@ -417,6 +419,30 @@ A disabled extension is genuinely not running, which is stricter than Chrome.
   `Extensions/<id>/<version>_0` installs.
 
 ---
+
+## Bringing your stuff from another browser
+
+Settings > Bring your stuff (and the first-run setup) imports bookmarks,
+history and homepage from Chrome, Edge, Brave, Opera, Vivaldi, Firefox, and
+Safari on a Mac. Databases are copied and the copy is read, so the other
+browser can stay open and its files are never changed.
+
+**Safari** keeps its data in a folder macOS guards. static can read it only
+after the person turns on static in *System Settings > Privacy & Security >
+Full Disk Access*; until then the Safari tile says so and opens that page.
+
+**From a file**, with no permissions, on any computer:
+
+- Safari's export (Safari 18 and later, *File > Export Browsing Data to File*):
+  a zip with bookmarks, history and passwords. This is how Safari data gets to
+  a PC.
+- Any browser's bookmarks file (.html), which Chrome, Edge, Brave, Firefox and
+  Safari all export.
+
+Zips are unpacked by the same strict reader as extension packages. Passwords
+from a Safari export go into the vault as *Passwords > Import* would put them;
+other browsers' passwords are locked to that browser and come in through
+their own CSV export.
 
 ## Data storage
 
