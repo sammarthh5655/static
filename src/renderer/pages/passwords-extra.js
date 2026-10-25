@@ -126,6 +126,12 @@ function siteList(title, origins, channel) {
 }
 
 function draw() {
+  // These cards are placed into the Passwords page's Checkup and Settings
+  // tabs (passwords.js), so a change here (a toggle, a finished leak check)
+  // redraws through that page, which re-reads the cards below. The hidden
+  // host stays as the mounting point. `redraw` only repaints - it never
+  // refetches - so there is no loop back into load().
+  if (window.passwordPage?.redraw) { window.passwordPage.redraw(); return; }
   host.replaceChildren(...[
     health?.locked ? null : healthCard(),
     signInCard(),
@@ -135,16 +141,36 @@ function draw() {
   ].filter(Boolean));
 }
 
-async function load() {
+/** Fetch the autofill prefs and health, without drawing. */
+async function loadData() {
   try {
     const [s, h] = await Promise.all([invoke('autofill:state'), invoke('passwords:health')]);
     state = s;
     health = h;
   } catch (error) { message = error.message; }
+}
+
+async function load() {
+  await loadData();
   draw();
 }
 
-window.passwordExtras = { host, reload: load };
+/** The health/leak card on its own, for the Checkup tab. Null while locked. */
+function checkupCard() {
+  return health?.locked ? null : healthCard();
+}
+
+/** The sign-in, import/export and never-save cards, for the Settings tab. */
+function settingsCards() {
+  return [
+    signInCard(),
+    transferCard(),
+    siteList('Never save passwords for', state.never, 'autofill:never-remove'),
+    siteList('Never sign in automatically on', state.noAuto, 'autofill:no-auto-remove'),
+  ].filter(Boolean);
+}
+
+window.passwordExtras = { host, reload: load, loadData, checkupCard, settingsCards, draw };
 onState(() => {});
 load();
 })();

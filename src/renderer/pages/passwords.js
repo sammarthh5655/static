@@ -334,12 +334,43 @@ function limitsCard() {
 
 let lockNode = null;
 
+/**
+ * Three tabs instead of one long scroll:
+ *   - Passwords: the vault list, add, and the generator;
+ *   - Checkup:   password health and the leak check;
+ *   - Settings:  the master password and recovery, passkeys, how sign-in
+ *                works, import and export, and the never-save lists.
+ * The choice is remembered for the visit only.
+ */
+const TABS = [
+  ['vault', 'Passwords', 'key'],
+  ['checkup', 'Checkup', 'shield'],
+  ['settings', 'Settings', 'gear'],
+];
+let tab = 'vault';
+try { const saved = sessionStorage.getItem('pw-tab'); if (saved && TABS.some(([id]) => id === saved)) tab = saved; } catch { /* storage off */ }
+
+function tabBar() {
+  return element('div', { class: 'pw-tabs', role: 'tablist', 'aria-label': 'Passwords' }, TABS.map(([id, label, glyph]) => {
+    const button = element('button', {
+      type: 'button', role: 'tab', class: 'pw-tab' + (id === tab ? ' is-active' : ''), 'aria-selected': String(id === tab),
+    }, [icon(glyph, { size: 15 }), element('span', { text: label })]);
+    button.addEventListener('click', () => {
+      if (tab === id) return;
+      tab = id;
+      try { sessionStorage.setItem('pw-tab', id); } catch { /* storage off */ }
+      render();
+    });
+    return button;
+  }));
+}
+
 function render() {
   // Locked: only the lock screen. Kept across refreshes so a half-typed
   // master password is not wiped by an unrelated change.
   if (security.state.locked) {
     if (!lockNode || !content.contains(lockNode)) {
-      lockNode = security.lockScreen(state, () => { lockNode = null; refresh(); window.passwordExtras?.reload(); });
+      lockNode = security.lockScreen(state, () => { lockNode = null; refresh(); });
       content.replaceChildren(lockNode);
     }
     return;
@@ -348,17 +379,36 @@ function render() {
   // Moving a focused box to a new card drops its focus; put it back, caret and all.
   const active = content.contains(document.activeElement) ? document.activeElement : null;
   const caret = active && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
+
+  const available = state.encryption?.available;
+  let cards;
+  if (!available) {
+    // No encryption: just the plain explanation, no tabs to offer.
+    cards = [statusCard(), limitsCard()];
+  } else if (tab === 'checkup') {
+    const checkup = window.passwordExtras?.checkupCard();
+    cards = [checkup || element('div', { class: 'panel-card' }, [element('p', { class: 'muted', text: 'Password health will show here once there are saved logins to check.' })])];
+  } else if (tab === 'settings') {
+    cards = [
+      security.securityCard(render),
+      security.passkeysCard(render),
+      ...(window.passwordExtras?.settingsCards() || []),
+      limitsCard(),
+    ];
+  } else {
+    cards = [statusCard(), vaultCard(), generatorCard()];
+  }
+
   content.replaceChildren(...[
-    statusCard(),
-    state.encryption?.available ? security.securityCard(render) : null,
-    state.encryption?.available ? generatorCard() : null,
-    vaultCard(),
-    security.passkeysCard(render),
-    limitsCard(),
-    // Health, import/export and autofill: drawn by passwords-extra.js, kept
-    // across re-renders so an open form is not lost.
+    available ? tabBar() : null,
+    ...cards,
+    // The extras host stays in the tree (hidden when not on a tab that uses
+    // it) so an open form there is never lost to a refresh.
     window.passwordExtras?.host,
   ].filter(Boolean));
+  // The host is only the mounting point now; its own cards are placed above.
+  if (window.passwordExtras?.host) window.passwordExtras.host.hidden = true;
+
   if (active && active.isConnected && document.activeElement !== active) {
     active.focus({ preventScroll: true });
     if (caret) try { active.setSelectionRange(caret[0], caret[1]); } catch { /* not a text box */ }
@@ -376,6 +426,9 @@ async function refresh() {
   state = (await invoke('passwords:state')) || state;
   await security.load();
   entries = security.state.locked ? [] : (await invoke('passwords:list', { query })) || [];
+  // Checkup and Settings read the extras module's data, so keep it current -
+  // loadData fetches without drawing, so this does not loop back here.
+  if (!security.state.locked) await window.passwordExtras?.loadData();
   render();
 }
 
@@ -388,10 +441,12 @@ window.browser.on('passwords:changed', async () => {
   // to finish typing.
   if (typing && wasLocked === security.state.locked) return;
   refresh();
-  if (wasLocked !== security.state.locked) window.passwordExtras?.reload();
 });
 
-window.passwordPage = { refresh };
+// `redraw` repaints from the data already loaded (a toggle, a finished leak
+// check); `refresh` refetches first. The extras module uses `redraw` so it
+// never loops back through a fetch.
+window.passwordPage = { refresh, redraw: render };
 
 // browser://passwords#add=https%3A%2F%2Fgithub.com - from the key in the address bar.
 function addFromLink() {

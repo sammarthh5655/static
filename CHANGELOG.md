@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The **Quick links** widget had no styles of its own and fell back to the
   browser's defaults; it now lays its bookmarks out as even pills.
 
+### Changed — A simpler Passwords page
+
+- `browser://passwords` is now three tabs instead of one long scroll:
+  **Passwords** (your logins, add, and the generator), **Checkup** (health
+  and the leak check) and **Settings** (master password and recovery,
+  passkeys, how sign-in works, import and export, and the never-save lists).
+  The tab is remembered for the visit.
+
 ### Added — Master password recovery, and easier password import
 
 - A **recovery key** can be made in Passwords > Security: a one-time code that
