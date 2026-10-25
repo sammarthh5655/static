@@ -1,556 +1,94 @@
 # static
 
-A desktop web browser built on Electron, with real Chromium tabs, a real
-omnibox, and real Chrome Web Store extensions.
+A fast, private desktop web browser built on Chromium, with real Chrome extensions, built-in ad and tracker blocking, and a password manager.
 
-This is not a webview wrapper around a single page. Every tab is a genuine
-Chromium `WebContentsView` running sandboxed, and extensions are the actual
-`.crx` packages from the Chrome Web Store, running through a reimplementation
-of the Chrome extension APIs.
+**[Download for Windows](https://github.com/sammarthh5655/static/releases/latest/download/static-setup.exe)** · **[Download for Mac](https://github.com/sammarthh5655/static/releases/latest/download/static.dmg)** · [All downloads](https://github.com/sammarthh5655/static/releases/latest)
 
----
+## Install
 
-## Running it in dev mode
+### Windows 10 and 11
 
-Requires Node.js 22+ and npm.
+**Method 1: the installer (easiest)**
 
-```bash
-npm install
-npm start
-```
+1. Download **[static-setup.exe](https://github.com/sammarthh5655/static/releases/latest/download/static-setup.exe)**.
+   On a Windows on Arm laptop (Snapdragon), use [static-setup-arm64.exe](https://github.com/sammarthh5655/static/releases/latest/download/static-setup-arm64.exe) instead.
+2. Open the downloaded file. static installs itself in a few seconds and opens. There are no questions and no administrator password.
+3. If your browser warns that the file isn't commonly downloaded, choose **Keep**.
+   If Windows shows **"Windows protected your PC"**, choose **More info**, then **Run anyway**.
+   Both happen because the installer isn't code-signed yet.
 
-`npm start` runs the preload bundler first (`npm run build`) and then launches
-Electron. Use `npm run dev` for the same thing with `--dev` passed through.
+If Windows blocks it completely with no **Run anyway** button, Smart App Control is on. Use Method 2, which works on those PCs.
 
-### Launching without a terminal
+**Method 2: from the source code (works with Smart App Control)**
 
-`npm run shortcut` puts a **static** shortcut on the Desktop that launches the
-browser with no console window. It rebuilds the preloads first if they are
-stale, so the shortcut always runs current code — edit something in `src/` and
-just double-click it again.
+1. Install [Node.js](https://nodejs.org) (the LTS version) and [Git](https://git-scm.com/download/win), accepting the default options.
+2. Open **PowerShell** and run:
 
-This runs the dev build (Electron plus `src/`), so the project folder has to
-stay where it is. For something you can move or install, package it properly
-with `npm run dist:win` — see below.
+   ```powershell
+   git clone https://github.com/sammarthh5655/static.git
+   cd static
+   npm install
+   npm start
+   ```
 
-Other scripts:
+   `npm install` takes a few minutes the first time.
+3. To open static later without PowerShell, run `npm run shortcut` once in the same folder. It adds static to your desktop and Start menu.
 
-| Command | What it does |
-| --- | --- |
-| `npm start` | Build preloads, then launch the browser |
-| `npm run build` | Bundle the preload scripts into `build/` |
-| `npm test` | URL/settings tests plus screen-time schedules, quotas, accounting and organizer metadata |
-| `npm run test:productivity` | Real Electron organizer, session, sleep/wake, Screen Time and Focus integration checks |
-| `npm run test:smoke` | Boots the real app in Electron and drives it end-to-end |
-| `npm run test:probe` | Loads the chrome, menu overlay and every `browser://` page; fails on console errors |
-| `npm run test:appearance` | Theme, menu keyboard controls, searchable Settings, sidebar, reset and responsive-layout checks |
-| `npm run test:ai` | AI mode switching and a real Gemini call |
-| `npm run test:aipage` | The AI page: transcript, history, multi-turn memory |
-| `npm run test:modes` | Focus blocking, safety scoring, notes and resource metrics |
-| `npm run test:homepage` | New tab page: restraint, AI mode, tools panel |
-| `npm run test:shields` | Ad/tracker blocking, HTTPS upgrade, real-site check |
-| `npm run test:privacy` | Password vault encryption and non-leakage |
-| `npm run check:security` | Whether the pinned Electron is behind upstream |
-| `npm run test:shot` | Screenshots the chrome and key pages into `.test-output/` |
-| `npm run check` | Syntax-checks every JS file in `src/`, `scripts/`, `tests/` |
+To update, open PowerShell in the `static` folder and run `git pull`, then `npm install`.
 
-After changing main-process code, run `test:smoke`: it launches the browser,
-opens and reorders tabs, exercises bookmarks/history/settings, confirms the
-extension subsystem started, and loads a live HTTPS page.
+### Mac (macOS 13 Ventura or later)
 
-After changing anything in `renderer/`, run `test:probe`. Internal pages fail
-quietly — a CSP violation or a script error leaves a page that still looks
-plausible but never applies its state — so the probe asserts each page renders
-*and* logs no console errors. `test:shot` is the visual check; the PNGs it
-writes can be opened directly.
+**Method 1: the disk image (easiest)**
 
-All test modes run against a throwaway profile under `.test-profile/`, so they
-never touch real browsing data.
+1. Download **[static.dmg](https://github.com/sammarthh5655/static/releases/latest/download/static.dmg)**. It works on Apple Silicon and Intel Macs.
+2. Open it and drag **static** onto the **Applications** folder.
+3. Open static from Applications. macOS says it can't verify the app: choose **Done**.
+4. Open **System Settings > Privacy & Security**, scroll down, and choose **Open Anyway** next to static. Enter your Mac password if asked.
 
----
+From then on, static opens normally. macOS asks this once because the app isn't notarized by Apple yet.
 
-## Organizer and Screen Time
+**Method 2: from the source code (no security prompt)**
 
-Use **Organise Tabs** in the tab strip (Ctrl/Cmd+Shift+O), or open
-`browser://organizer`. Preview local topic groups, optionally refine them with
-Gemini, review the proposed membership, and apply. Drag cards between groups;
-use the selection controls to pin, sleep or move tabs to another workspace.
-The workspace selector sits at the start of the tab strip. Group labels collapse
-and expand, and Organizer keeps an undo stack for tab actions.
+1. Install [Node.js](https://nodejs.org) (the LTS version).
+2. Open **Terminal**. If `git --version` says Git is missing, run `xcode-select --install` and follow the prompt.
+3. Run:
 
-**Save as Session** stores web URLs, pins, groups and workspaces locally in
-`organizer.json`. Restoring adds tabs alongside your current ones. Closed-tab
-undo restores URLs, not form contents or navigation history. Active, pinned,
-audible, loading or edited tabs are protected during automatic cleanup. Tab sleep
-freezes Chromium page work and wakes on selection; it is not a hard RAM limit.
+   ```bash
+   git clone https://github.com/sammarthh5655/static.git
+   cd static
+   npm install
+   npm start
+   ```
 
-Open **Screen Time** from the menu/sidebar (Ctrl/Cmd+Shift+U), or
-`browser://screentime`. Add any domain, a daily allowance, and optional pause
-schedules. Schedules use local time and support overnight ranges. Allowances
-combine a domain and its subdomains and reset at local midnight. YouTube has no
-default limit. Presets add social-site limits while preserving your custom rules.
+4. To open static later without Terminal, run `npm run shortcut` once in the same folder. It adds a launcher to your Desktop.
 
-The reports count foreground web browsing while the window is focused and the
-computer is active (less than five minutes idle). Background tabs, internal pages,
-locked time and sleep are excluded. Counts are sampled once per second and saved
-periodically; an abrupt termination can lose up to fifteen seconds. Domain totals
-and seven-day reports stay in `screen-time.json`, retained for ninety days.
+To update, run `git pull`, then `npm install`, in the `static` folder.
 
-Focus and Screen Time share one request-blocking path. Allowlist entries and
-five-minute emergency exceptions override both; stopping a focus timer does not
-remove daily allowances. Tracking/limits can be switched off and reports cleared
-separately. This is a self-management tool, not a tamper-proof parental-control system.
+## Updating and uninstalling
 
-Local organizer analysis sends nothing to an AI service. **Refine with Gemini**
-and **Create overview with Gemini** send at most 200 titles and domains through
-the main-process Gemini client, pinned to `gemini-3-flash-preview`. Page contents,
-cookies and full URLs are excluded. If the service/model is unavailable, local
-suggestions still work. Overviews describe tab topics, not the contents of articles.
+- **Windows installer:** static updates itself. New versions download in the background and install the next time you close static. **About Static**, at the bottom of the main menu, shows the status.
+- **Mac disk image:** download the new `static.dmg` and drag it into Applications again. Automatic updates on a Mac need an Apple-signed app.
+- **Uninstall on Windows:** *Settings > Apps > Installed apps > static > Uninstall*.
+- **Uninstall on a Mac:** drag static from Applications to the Bin.
 
-## Packaging installers
+Uninstalling keeps your bookmarks, history and passwords, so reinstalling brings them back.
 
-**To publish static on your own website, follow [docs/releasing.md](docs/releasing.md).**
-It covers signing, the update address, building the Mac version without a Mac,
-and what to upload.
+## What's inside
 
-```bash
-npm run release      # build for this computer and assemble release/ for the website
-npm run dist:win     # Windows  -> one-click installers, x64 and arm64 (.exe)
-npm run dist:mac     # macOS    -> universal .dmg and .zip (on a Mac)
-npm run dist:linux   # Linux    -> AppImage and .deb
-npm run pack         # unpacked build in dist/ (fast, for testing)
-```
+- **Tabs that behave like Chrome's:** drag to reorder, tab groups, vertical tabs, split view and sleeping tabs.
+- **Real Chrome extensions:** installed straight from the Chrome Web Store.
+- **Shields:** blocks ads and trackers, upgrades connections to HTTPS and checks for unsafe sites.
+- **Password manager:** passwords and passkeys in an encrypted vault, with autofill.
+- **Bring your stuff:** imports bookmarks, history and passwords from Chrome, Edge, Brave, Firefox and Safari.
+- **AI assistant:** asks Gemini about the page you're on, when a Gemini key is set.
+- **Reading view, screenshots, QR codes, notes, Focus mode and Screen Time.**
 
-The configuration is `electron-builder.config.cjs`; every packaging command goes
-through `scripts/dist.cjs`, which also lets Windows builds work on a PC with
-Smart App Control. `.github/workflows/release.yml` builds Windows and Mac
-together, tests the installers, and produces the `release/` folder.
+## For developers
 
-Signing, notarization and automatic updates switch on when their credentials
-or address are set (see the top of `electron-builder.config.cjs`). Without
-them a build still succeeds, unsigned and without updates. **Unsigned Windows
-installers are blocked outright on PCs with Smart App Control**, and macOS asks
-people to allow an unsigned app in System Settings, so sign before publishing
-widely.
-
----
-
-## Project structure
-
-```
-src/
-  main/                  Main process (Node side)
-    main.js              Entry point: app lifecycle, single-instance lock, probe flags
-    application.js       Owns the windows, wires features, registers all IPC
-    window.js            One browser window: its views (chrome, tabs, overlay,
-                         sidebar, vertical tabs, find bar) and their layout
-    incognito.js         Cleans up folders left by closed incognito windows
-    page-menu.js         The right-click menu for web pages
-    system-open.js       Which links and files from other apps may open in a tab
-    shortcuts.js         Keyboard accelerator table and matcher, per platform
-    storage.js           Atomic JSON store used by every feature
-    secure/load.js       Reads the API keys, in main only
-    secure/keys.js       Baked-in API keys - GITIGNORED, see keys.example.js
-  preload/               Context-isolated bridges (bundled into build/)
-    chrome.js            For the browser UI - exposes the IPC whitelist
-    tab.js               For tab content - exposes IPC ONLY on browser:// pages;
-                         on web pages, privacy signals and ad-blocking rules
-    autofill.js          Password and address autofill, isolated world, top frame
-    callout.js           The "saved login for this site" callout under sign-in boxes
-    credentials.js       Passkeys: carries navigator.credentials calls to main
-    procedural.js        Ad hiding that no stylesheet rule can express
-  renderer/              The browser UI itself
-    index.html/.css/.js  Title bar, tab strip, toolbar, omnibox, bookmarks bar
-    ui.js                Icon builder and the custom menu system
-    overlay.html/.css/.js  Transparent full-window view that draws menus
-    pages/               Built-in browser:// pages
-      newtab.*           New tab page: mark, search, five actions, tools panel
-      history.*          Searchable history with per-entry delete
-      bookmarks.*        Bookmark manager
-      downloads.*        Download manager
-      extensions.*       Extension manager (enable/disable/remove/load)
-      settings.*         Settings, including clear-browsing-data
-      ai.*               AI page: chat sidebar, transcript, composer
-      dashboard.*        Control centre: live cards for every mode
-      focus.*            Focus sessions, blocklist, block interstitial
-      notes.*            Captured text, links, screenshots
-      resources.*        Memory, CPU and Game Mode
-      organizer.*        Grouping board, workspaces, session saving and undo
-      screentime.*       Daily allowances, schedules, reports and block page
-      productivity.*     Shared controls and themed dialogs for these pages
-      safety.*           Fake-site warnings and trust list
-      student/legal.*    AI workspaces (share workspace.js)
-      shopping.*         Product comparison
-      shell.js/.css      Sidebar, header and command bar shared by mode pages
-      common.js          Shared helpers for every internal page
-      widgets/           New tab widget implementations
-  features/              One folder per feature, each a self-contained module
-    ai/                  Gemini client + chat history - main process only
-    focus/               Site blocking, sessions, presets
-    organizer/           Tab classification, group metadata, sessions and sleep
-    screen-time/         Local time accounting, quota and schedule policy
-    productivity/        Integration with tabs, Focus, request blocking and IPC
-    notes/               Captured notes and workspaces
-    resources/           Per-tab metrics, suspension, Game Mode
-    safety/              Phishing and lookalike-domain heuristics
-    workspaces/          Prompt definitions for Student, Legal and Shopping
-    shields/             Ad/tracker filter engine, HTTPS upgrade, URL cleaning
-    netguard/            Safe Browsing, HTTPS-only, certificates, Secure DNS,
-                         WebRTC, bounce tracking and AMP, GPC, Do Not Track
-    passwords/           OS-encrypted credential vault, passkeys, lock
-    autofill/            Addresses, payment cards, UPI IDs and documents
-    profiles/            Separate browsing identities, each with its own folder
-    importer/            Bookmarks and history from Chrome, Edge, Brave, Opera,
-                         Vivaldi, Firefox and Safari; or from an exported file
-                         (safari.js, plist.js, files.js)
-    onboarding/          First-launch questions, written through Settings
-    pagetools/           Reading view, screenshots and QR codes
-    shopping/            Price comparison across shops
-    sense/               Local suggestions for the next step, from open tabs
-    suggest/             Remote search suggestions, fetched in main
-    wallpapers/          New tab wallpapers: built-in set plus a remote catalogue
-    health/              Browser Health Center, every figure measured
-    feedback/            Feedback reports built only from what the user allowed
-    tabs/                Tab lifecycle, WebContentsView management, navigation
-    updates/             Automatic updates from the website (electron-updater)
-    bookmarks/           Bookmark storage and toggling
-    history/             Visit recording, search, omnibox suggestions
-    downloads/           Download tracking via the session's will-download
-    extensions/          Chrome extension loading, enable/disable, web store;
-                         crx.js verifies and unpacks .crx files from disk
-    settings/            Validated preferences
-  shared/                Code used by both main and renderer
-    channels.js          The complete IPC contract - the security allowlist
-    urls.js              URL vs search detection, scheme allowlist, security state
-    theme.js             Colours, radius, blur, motion, fonts, icon set - one source
-    modes.js             Mode registry: sidebar, cards and command bar build from it
-    widgets.js           New tab widget registry
-scripts/
-  build.cjs              esbuild preload bundler, plus generated files
-  start.cjs              Launcher (strips ELECTRON_RUN_AS_NODE)
-  check.cjs              Syntax checker
-  probes.cjs             Runs every off-screen probe: npm run probes
-  security.cjs           How far behind the pinned Electron is: npm run check:security
-  dist.cjs               Runs electron-builder (every npm run dist / pack goes here)
-  release.cjs            Builds and assembles release/ for the website: npm run release
-  after-pack.cjs         Electron fuses, and ad-hoc signing of an unsigned Mac build
-  make-dmg-background.cjs  Draws the Mac installer window: npm run dmg-background
-  make-icon.cjs, make-wallpapers.cjs, make-redirects.cjs, upload-wallpapers.cjs
-                         Regenerate icons, wallpaper thumbnails, filter redirects;
-                         publish wallpapers
-  shortcut.cjs           Desktop shortcut that starts the dev build without a terminal
-tests/
-  *.test.cjs             Unit tests, pure Node: npm test
-  *.cjs                  Probes: run inside Electron, off-screen, one profile each
-                         (`node scripts/start.cjs --<name>`); e.g. smoke.cjs,
-                         extlocal.cjs (extensions from disk, across a restart)
-  fixtures/              Shared test builders, such as signed .crx packages
-  screenshot.cjs         Writes PNGs of the UI to .test-output/ (shows the window)
-```
-
-### Where to make changes
-
-Organizer and Screen Time handlers live in the productivity module and are spread
-into the guarded IPC handler map. Keep every new channel in shared/channels.js.
-The classifier and screen-time policy are independent of Electron for clock-based
-unit tests; the runtime owns window/idle measurements and the single request filter.
-
-- **Adding a feature** → new folder under `src/features/`, constructed in
-  `application.js#start`.
-- **Adding an IPC call** → declare the channel in `src/shared/channels.js`,
-  then add a handler in `application.js#registerIpc`. The handler map is
-  checked against the declared list at startup, so a declared channel with no
-  handler throws immediately rather than failing silently later.
-- **Changing the UI chrome** → `src/renderer/`. The renderer is a pure render
-  of the state object pushed from main on `app:state`; it holds no browser
-  state of its own.
-- **Changing chrome height** → `TITLEBAR_HEIGHT` / `TABSTRIP_HEIGHT` /
-  `TOOLBAR_HEIGHT` / `BOOKMARKS_BAR_HEIGHT` in `application.js` must stay in
-  sync with the heights in `renderer/chrome.css`, because main positions the
-  tab view directly below the chrome.
-- **Adding a keyboard shortcut** → add it to `ACCELERATORS` in
-  `main/shortcuts.js` and handle its id in `application.js#dispatch`. Menus
-  read their accelerator labels from the same table, so the two cannot drift.
-- **Adding a new tab widget** → declare it in `shared/widgets.js`, implement it
-  in `renderer/pages/widgets/index.js`. It appears in the customiser
-  automatically.
-- **Changing colours, radius, blur or motion** → `shared/theme.js` only. Every
-  surface builds its CSS variables from it; a hardcoded value in a stylesheet
-  will survive theme switching and look wrong.
-
-### Window composition
-
-```
-BaseWindow.contentView
-  +- chrome view    the title bar, tab strip, toolbar and bookmarks bar
-  +- active tab     positioned directly below the chrome
-  +- menu overlay   transparent, spans the window, always the topmost child
-```
-
-The menu overlay exists because menus are taller than the chrome strip and
-would be clipped if drawn inside it. It stays attached permanently — a view
-that is detached is not composited, and a view that is not composited does not
-run CSS animations, which left menus frozen and invisible. It is shrunk to a
-1×1 corner while idle so clicks pass through to whatever is underneath.
-
-### Menus and keyboard shortcuts
-
-There is no native `Menu` anywhere in this app, and `main.js` explicitly clears
-the default one Electron installs. That also removes Electron's accelerator
-system, so shortcuts are intercepted in main via `before-input-event`, which
-fires before a key reaches page content. This is why `Ctrl+T` still works while
-focus is inside a web page, and why a page cannot swallow a browser shortcut.
-
-Menu descriptions cross an IPC boundary to reach the overlay, so items carry a
-`{ channel, payload }` action rather than a callback — functions do not
-survive that trip.
-
----
-
-## Security model
-
-All web content runs with `contextIsolation: true`, `sandbox: true`,
-`nodeIntegration: false`, and `webSecurity: true`. There are no exceptions.
-
-The IPC surface is locked down in three independent layers:
-
-1. **Declared channels.** `src/shared/channels.js` is the complete contract.
-   Preloads only forward channels on that list; anything else is rejected in
-   the renderer before it reaches main.
-2. **Sender validation.** Every handler for the declared channels validates
-   the sender against the known chrome WebContents or a trusted `browser://`
-   page, *and* checks its current top-level URL. Checking identity alone would
-   let a tab that navigated to a web page keep privileges it should have lost.
-3. **Preload scoping.** The `browser` bridge, the only thing that reaches the
-   declared channels, is exposed only to built-in `browser://` pages, in their
-   top frame. Web pages never get it.
-
-Web pages are not entirely silent, though, and this is a deliberate departure
-from "only the browser UI talks to main". Features that have to work inside a
-page run in the tab preload's isolated world, out of the page's reach, and
-send a small fixed set of messages that are not in the declared list:
-
-| Messages | Why | What main trusts |
-| --- | --- | --- |
-| `netguard:signals`, `netguard:amp` | Global Privacy Control, Do Not Track, AMP skipping | Only an http(s) address for the same tab to go to, from its top frame: nothing the page could not do with `location.href` |
-| `shields:page-rules`, `shields:video-ads-for-host` | Ad-blocking rules that must be in place before the page's first script | Only real tabs, top frame; answers are yes/no or filter rules |
-| `autofill:*` | Password and address autofill | The tab and origin come from main's own record of the sending frame |
-| `webauthn:enabled`, `webauthn:request` | Passkeys | Same; the origin is the frame's, never one the page names |
-
-Passkeys are the one case where something enters the page's own world. When
-they are on, `navigator.credentials.create()` and `get()` are replaced with
-functions that carry the request to main. The page can reach them only through
-that standard API, and main decides which origin is asking and what it may do.
-
-Beyond IPC: permissions default to denied (only fullscreen, pointer lock and
-sanitized clipboard writes are even considered), `webview` tag attachment is
-blocked, navigation is restricted to an allowlist of schemes (`javascript:`
-and `file:` are rejected by the omnibox), and every internal page carries a
-restrictive CSP.
-
----
-
-## Known extension API gaps vs real Chrome
-
-Extensions run through `electron-chrome-extensions`, which reimplements the
-Chrome extension platform on top of Electron rather than shipping Chromium's
-own extension system. Most real-world extensions work — content scripts,
-browser action popups, context menus, options pages, storage, alarms, and the
-tabs/windows APIs are all supported — but some things differ:
-
-- **`declarativeNetRequest` is incomplete.** This is the big one: MV3 content
-  blockers depend on it, and rule matching is only partially implemented.
-  Blockers that still offer an MV2 build, or that use `webRequest`, work much
-  better than MV3-only ones.
-- **`webRequest` blocking is limited.** Electron's own `webRequest` is used
-  underneath, which does not expose everything Chrome's blocking variant does.
-- **Service worker background scripts** are supported but have lifecycle
-  differences from Chrome — they may not suspend and revive on exactly the
-  same schedule, which can surface bugs in extensions that rely on that timing.
-- **Enterprise/managed APIs** (`enterprise.*`, `managedStorage` policies) are
-  not implemented.
-- **Sync APIs** (`chrome.storage.sync`, `identity`, anything backed by a Google
-  account) have no backing service. `storage.sync` falls back to local storage
-  semantics and does not sync anywhere.
-- **`chrome.tabs` covers the common surface**, but less-used members such as
-  tab groups, `chrome.tabCapture`, and `chrome.debugger` are absent.
-- **Chrome Web Store install flow** works, but the store page itself sometimes
-  renders differently than in Chrome since it detects the browser.
-- **No extension sync, no Chrome profile import.** Extensions installed here
-  are local to this browser's profile.
-
-"Disable" is also emulated: Electron can only load or unload an extension, so
-disabling unloads it and records the id, and enabling loads it back from disk.
-A disabled extension is genuinely not running, which is stricter than Chrome.
-
-### Extensions from your own disk
-
-- **Load unpacked** runs the extension from the folder you pick, as Chrome's
-  developer mode does, so edits show after loading it again. The folder's
-  location is remembered in `extensions.json` and loaded at every startup.
-  **Remove** forgets it and never deletes the folder. If the folder goes
-  missing, the extension stays listed as "Folder not found" until it comes
-  back or is removed.
-- **Install .crx file** accepts CRX3 packages only; Chrome itself stopped
-  installing CRX2. Every signature in the package must verify, and the
-  extension ID must belong to a key that signed it, so a package cannot claim
-  another extension's ID and replace it. The library's own CRX reader checks
-  neither, which is acceptable for files it downloads from Google over HTTPS
-  but not for a file from disk.
-- The package is unpacked by `src/features/extensions/crx.js`, not adm-zip.
-  It refuses entries that would write outside the extension's folder,
-  symbolic links, duplicate names, encrypted entries, ZIP64, and anything
-  whose real size differs from what it declares. Size limits are enforced
-  while decompressing, so a decompression bomb stops at the limit.
-  Every file's data must also be its own: entries that share bytes are
-  refused, so unpacking can never cost more than one pass over the file.
-- An installed `.crx` goes into the same `Extensions/<id>/<version>_0` layout
-  as a Web Store install, so it loads at startup and Remove deletes it.
-  Installing a newer package with the same ID replaces the old one, but the
-  old one is only deleted once the new one has loaded; if it does not load,
-  the old one is put back as it was.
-- Loading a folder whose manifest `key` gives it the ID of an installed
-  extension replaces that install, as in Chrome. If the folder later loads
-  under a different ID, because a key was added, the record follows it.
-- **Web Store updates only ever touch the app's own copies.** The library's
-  updater looks at every loaded extension and deletes the old version's
-  folder, which for an unpacked extension would be yours. It is switched off;
-  the same update checks run through a view that shows only
-  `Extensions/<id>/<version>_0` installs.
-
----
-
-## Bringing your stuff from another browser
-
-Settings > Bring your stuff (and the first-run setup) imports bookmarks,
-history and homepage from Chrome, Edge, Brave, Opera, Vivaldi, Firefox, and
-Safari on a Mac. Databases are copied and the copy is read, so the other
-browser can stay open and its files are never changed.
-
-**Safari** keeps its data in a folder macOS guards. static can read it only
-after the person turns on static in *System Settings > Privacy & Security >
-Full Disk Access*; until then the Safari tile says so and opens that page.
-
-**From a file**, with no permissions, on any computer:
-
-- Safari's export (Safari 18 and later, *File > Export Browsing Data to File*):
-  a zip with bookmarks, history and passwords. This is how Safari data gets to
-  a PC.
-- Any browser's bookmarks file (.html), which Chrome, Edge, Brave, Firefox and
-  Safari all export.
-
-Zips are unpacked by the same strict reader as extension packages. Passwords
-from a Safari export go into the vault as *Passwords > Import* would put them;
-other browsers' passwords are locked to that browser and come in through
-their own CSV export.
-
-## Data storage
-
-Everything is stored as JSON under Electron's `userData` directory
-(`%APPDATA%/static` on Windows, `~/Library/Application Support/static` on
-macOS, `~/.config/static` on Linux):
-
-| File | Contents |
-| --- | --- |
-| `settings.json` | Preferences |
-| `bookmarks.json` | Bookmarks |
-| `history.json` | Visit history (capped at 50,000 entries) |
-| `downloads.json` | Download history |
-| `extensions.json` | Which extensions are disabled, and the folders of unpacked ones |
-| `Extensions/` | Installed extension packages, from the Web Store or a `.crx` file |
-
-**Why JSON and not SQLite:** the data volumes here are small and read entirely
-into memory at startup, so SQLite's query engine buys nothing — while a native
-module would have to be rebuilt against Electron's ABI for every platform we
-package, which is the single most common source of Electron build breakage.
-Writes are atomic (temp file + rename) and history writes are debounced so
-logging every visit doesn't hammer the disk. If history ever needs to grow past
-a few hundred thousand rows, that is the point to revisit this.
-
----
-
-## What the resource controls can and cannot do
-
-Electron reports real per-process CPU and memory through `app.getAppMetrics()`,
-so the numbers in Resources are genuine. But there is **no API to cap a
-renderer's memory or throttle its CPU to a percentage** — Chromium does not
-expose one.
-
-So the memory modes and CPU profiles are *policies*, not enforcement: they
-decide when to warn, mute, throttle or suspend. The real levers are
-`setBackgroundThrottling`, `setAudioMuted` and discarding a tab. Game Mode is
-those same levers applied at once, with a measured before/after.
-
-A slider claiming to cap RAM at 2 GB would be a lie the user only discovers
-when it fails, so the UI says this on the page itself.
-
----
-
-## AI and the Gemini key
-
-All AI features use Gemini. The key is baked into the build rather than being a
-user setting, and it lives in `src/main/secure/keys.js`, which is gitignored —
-copy `keys.example.js` to `keys.js` and fill it in to build. `GEMINI_API_KEY` in
-the environment overrides it for development.
-
-Every Gemini call is made from the main process. A renderer sends a prompt over
-IPC and receives text back; the key is never in renderer or page context, never
-in a URL, and is scrubbed from any error message before it is shown.
-
-**A key embedded in a desktop app is not secret.** The app ships to the user's
-disk, so anyone can extract it from the bundle or watch the network call —
-obfuscation only raises the effort. The protection that actually works is on
-Google's side: restrict the key and cap its quota in Google AI Studio so a leak
-is bounded rather than open-ended.
-
-**Tests never spend the allowance unless asked.** Off-screen probes cannot
-reach Gemini. The AI probes answer through a stand-in that replaces only the
-HTTP transport (`tests/fixtures/gemini.cjs`), so the request body, the model
-chain, parsing and the UI are all real. Its answers are worked out from the
-request it receives, so the checks still catch an app that stops sending
-earlier turns or stops asking for plain text. To check the real key and model
-ids, ask for it by name:
-
-```bash
-node scripts/start.cjs --aipage --live-gemini   # one probe, against the real API
-npm run probes -- --live-gemini                 # every probe, and aispeed too
-```
-
-`aispeed` times the real API, so it only runs with `--live-gemini`; without
-it, `npm run probes` reports it as skipped rather than passed.
-
-Plain-text answers rely on the model following the instruction to write
-without markdown. Nothing strips markdown afterwards, so a model that ignores
-the instruction would show stray asterisks.
-
----
+- [docs/development.md](docs/development.md): running and testing, project structure, security model, extension API gaps.
+- [docs/releasing.md](docs/releasing.md): building, signing and publishing the installers.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
 
 ## License
 
-GPL-3.0-or-later.
-
-This is not incidental: `electron-chrome-extensions` is dual-licensed, and the
-free option is GPL-3.0. The alternative is a paid patron license from its
-author. Using it under GPL-3.0 requires this project to be GPL-3.0 as well —
-so if you plan to distribute this commercially as closed source, you need to
-buy that license first.
-
-## Menu and Settings design
-
-The browser menu and Settings share the Static mark, theme tokens and outline
-icons. Eclipse uses the midnight/cyan look; light and other themes remain available.
-Open Settings from the browser menu, then choose a category in the sidebar.
-Ctrl+K (Cmd+K on macOS) searches settings across categories. Section links such as
-`browser://settings#appearance` and `browser://settings#about` open directly.
-
-Appearance includes font, size, density, accent, menu surface and corner controls.
-The menu's Sidebar selector controls navigation on workspace pages: On keeps it
-visible, Autohide reveals it from the left edge or keyboard focus, and Off hides it.
-The workspace header button restores a hidden sidebar. Reset settings requires a
-confirmation and affects preferences only; saved browsing data and extensions stay.
-
-The implementation lives in `src/renderer/ui.js`, `overlay.css`, and
-`pages/settings-navigation.js` / `settings.css`. Settings validation and reset
-scopes live in `src/features/settings`; colors and icons stay in `src/shared/theme.js`.
-The redesign exposes existing browser capabilities; private/multiple windows,
-full autofill and language management are not added by this visual update.
+GPL-3.0-or-later. static uses `electron-chrome-extensions` under its free GPL-3.0 licence, so static is GPL-3.0 too. Closed-source distribution needs that library's paid licence.

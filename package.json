@@ -1,7 +1,7 @@
 {
   "name": "static",
   "productName": "static",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "static - a modular desktop browser with real Chromium tabs and Chrome extensions",
   "main": "src/main/main.js",
   "author": "static",

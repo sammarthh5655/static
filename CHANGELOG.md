@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
+The first public release: installers for Windows and Mac, published as a
+GitHub Release, with everything below since the initial build.
+
 ### Added — Import from Safari, and from exported files
 
 - **Safari** joins Chrome, Edge, Brave, Opera, Vivaldi and Firefox in Bring

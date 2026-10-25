@@ -1,14 +1,19 @@
 name: Release
 
-# Builds the installers people download from the static website - NOT a
-# GitHub release. GitHub only does the building (a Mac build needs a Mac);
-# the result is one "static-release" artifact holding the release/ folder to
-# upload to the website. See docs/releasing.md.
+# Builds the Windows and Mac installers (a Mac build needs a Mac, which
+# GitHub provides), tests them, and puts them in one "static-release"
+# artifact: the release/ folder, ready for a website. See docs/releasing.md.
 #
-# Run it from the Actions tab (Run workflow), or push a tag like v0.2.0.
+# Push a tag like v0.2.0 (matching package.json's version) and it also
+# publishes a GitHub Release with those files under fixed names, which the
+# README's download links point at:
+#   .../releases/latest/download/static-setup.exe, static.dmg, ...
+# Run it from the Actions tab (Run workflow) to build without publishing.
 #
-# Everything below is optional; without it the build still succeeds,
-# unsigned, with automatic updates off.
+# Installed copies update from STATIC_UPDATE_URL: this repository's latest
+# release unless the variable names a website folder instead.
+#
+# Everything below is optional; without it the build still succeeds, unsigned.
 #   Variables:  STATIC_UPDATE_URL, STATIC_WEBSITE, STATIC_PUBLISHER
 #   Secrets:    GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY      (AI and wallpapers)
 #               MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD              (Developer ID .p12, base64)
@@ -27,8 +32,10 @@ permissions:
   contents: read
 
 env:
-  STATIC_UPDATE_URL: ${{ vars.STATIC_UPDATE_URL }}
-  STATIC_WEBSITE: ${{ vars.STATIC_WEBSITE }}
+  # The latest GitHub Release, unless a website folder is set: the update
+  # files (latest.yml, latest-mac.yml) are published there with each release.
+  STATIC_UPDATE_URL: ${{ vars.STATIC_UPDATE_URL || format('https://github.com/{0}/releases/latest/download/', github.repository) }}
+  STATIC_WEBSITE: ${{ vars.STATIC_WEBSITE || format('https://github.com/{0}', github.repository) }}
   STATIC_PUBLISHER: ${{ vars.STATIC_PUBLISHER }}
 
 jobs:
@@ -41,6 +48,13 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run check
+      # A release tag must match the version inside the app, or installed
+      # copies would never see it as newer.
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then echo "Tag $GITHUB_REF_NAME does not match package.json version $VERSION"; exit 1; fi
 
   windows:
     needs: test
@@ -200,3 +214,34 @@ jobs:
           name: static-release
           path: release/
           if-no-files-found: error
+
+  # Only for a version tag: a GitHub Release with every file in release/.
+  publish:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: static-release, path: release }
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "## Install static ${VERSION}"
+            echo
+            echo "**Windows 10 and 11:** download static-setup.exe (static-setup-arm64.exe for a Snapdragon laptop) and open it. If Windows says \"Windows protected your PC\", choose More info, then Run anyway."
+            echo
+            echo "**Mac (macOS 13 or later):** download static.dmg, drag static into Applications and open it. The first time, choose Done, then System Settings > Privacy & Security > Open Anyway."
+            echo
+            echo "Other ways to install: [README](https://github.com/${GITHUB_REPOSITORY}#install). What changed: [CHANGELOG](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md)."
+          } > notes.md
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/* --repo "$GITHUB_REPOSITORY" --title "static ${VERSION}" --notes-file notes.md --latest
+          fi
