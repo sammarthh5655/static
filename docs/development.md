@@ -118,7 +118,8 @@ npm run pack         # unpacked build in dist/ (fast, for testing)
 The configuration is `electron-builder.config.cjs`; every packaging command goes
 through `scripts/dist.cjs`, which also lets Windows builds work on a PC with
 Smart App Control. `.github/workflows/release.yml` builds Windows and Mac
-together, tests the installers, and produces the `release/` folder.
+together, tests the installers, and produces the `release/` folder; a
+`vX.Y.Z` tag also publishes it as a GitHub Release (see releasing.md).
 
 Signing, notarization and automatic updates switch on when their credentials
 or address are set (see the top of `electron-builder.config.cjs`). Without

@@ -11,9 +11,20 @@ const { spawnSync } = require('node:child_process');
  * (`npm run dist:win` and friends).
  */
 const root = path.resolve(__dirname, '..');
-const desktop = path.join(os.homedir(), 'Desktop');
+/**
+ * The desktop folder Windows actually shows. With OneDrive folder backup on
+ * (common on Windows 11) it is OneDriveDesktop, not the home folder's.
+ */
+function windowsDesktop() {
+  const result = spawnSync('powershell', ['-NoProfile', '-Command', "[Environment]::GetFolderPath('Desktop')"], { encoding: 'utf8' });
+  const found = (result.stdout || '').trim();
+  return found && fs.existsSync(found) ? found : path.join(os.homedir(), 'Desktop');
+}
+const desktop = process.platform === 'win32' ? windowsDesktop() : path.join(os.homedir(), 'Desktop');
+const hasDesktop = fs.existsSync(desktop);
 
-if (!fs.existsSync(desktop)) {
+// Windows still gets its Start menu shortcut without a desktop folder.
+if (!hasDesktop && process.platform !== 'win32') {
   console.error('No Desktop folder found at ' + desktop);
   process.exit(1);
 }
@@ -26,7 +37,8 @@ if (process.platform === 'win32') {
     'Microsoft', 'Windows', 'Start Menu', 'Programs');
   const ico = path.join(root, 'build', 'icon.ico');
   const icon = fs.existsSync(ico) ? ico : path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
-  for (const lnk of [path.join(desktop, 'Static.lnk'), path.join(startMenu, 'Static.lnk')]) {
+  const links = [...(hasDesktop ? [path.join(desktop, 'Static.lnk')] : []), path.join(startMenu, 'Static.lnk')];
+  for (const lnk of links) {
     const ps = `
       $s = (New-Object -ComObject WScript.Shell).CreateShortcut(${quote(lnk)})
       $s.TargetPath = 'wscript.exe'
@@ -67,7 +79,10 @@ if (process.platform === 'win32') {
     `cd "${root}" || exit 1`,
     'node scripts/build.cjs',
     'unset ELECTRON_RUN_AS_NODE',
-    'exec "$(node -p "require(\'electron\')")" "${PWD}"',
+    // Started apart from Terminal, so closing the Terminal window that
+    // opened it does not quit static.
+    'nohup "$(node -p "require(\'electron\')")" "${PWD}" >/dev/null 2>&1 &',
+    'echo "static is starting. You can close this window."',
     '',
   ].join('\n'));
   fs.chmodSync(file, 0o755);

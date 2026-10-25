@@ -1,12 +1,23 @@
-# Releasing static from your own website
+# Releasing static
 
 Written for whoever publishes static. It covers building the Windows and Mac
-installers, signing them, and putting them on a website so people download
-static directly, with automatic updates from the same place.
+installers, signing them, and publishing them.
+
+**The default: GitHub Releases.** Push a version tag and
+`.github/workflows/release.yml` builds both installers, tests them, and
+publishes a GitHub Release. The README's download links
+(`releases/latest/download/static-setup.exe` and so on) always point at the
+newest one, and installed copies update from it. Nothing has to be uploaded
+by hand.
+
+**Optional: your own website.** The same files can be hosted on a website
+instead (below). Decide before many people install static, because installed
+copies only ever check the address they were built with.
 
 ## What a release is
 
-One folder, `release/`, that you upload as-is to a folder on your website:
+One folder, `release/`, published as the GitHub Release's files (or uploaded
+as-is to a folder on your website):
 
 | File | What it is |
 | --- | --- |
@@ -25,7 +36,8 @@ buttons elsewhere on your site keep working from one release to the next.
 
 ### 1. Choose where the files will live
 
-Pick one https folder, for example `https://yoursite.com/download/`. Installers
+With GitHub Releases there is nothing to choose: leave the `STATIC_UPDATE_URL`
+variable unset. To use your own website instead, pick one https folder, for example `https://yoursite.com/download/`. Installers
 are about 120 to 130 MB each. Many website hosts cap single files below that:
 GitHub Pages at 100 MB and Cloudflare Pages at 25 MB, for example. Object
 storage behind your domain (Cloudflare R2, Backblaze B2, Amazon S3, or a paid
@@ -87,20 +99,29 @@ Connect API key for notarization. The release workflow takes them as secrets:
 
 ## Making a release
 
-1. Raise `version` in `package.json` (for example `0.1.0` to `0.2.0`). Updates
-   only go to a higher version.
-2. Add the release to `CHANGELOG.md`.
-3. Build:
+1. Raise `version` in `package.json` (for example `0.2.0` to `0.3.0`) with
+   `npm version 0.3.0 --no-git-tag-version`. Updates only go to a higher
+   version.
+2. Add the release to `CHANGELOG.md`, and commit.
+3. Push the commit, then a tag with the same version:
 
-   **Everything at once, on GitHub** (the only way to build the Mac version
-   without a Mac): in the repository's *Settings > Secrets and variables >
-   Actions*, add the variable `STATIC_UPDATE_URL` and any signing secrets
-   above. Then run the **Release** workflow from the *Actions* tab, or push a
-   tag such as `v0.2.0`. Download the `static-release` artifact when it
-   finishes: that zip is the `release/` folder. GitHub only builds; nobody
-   downloads static from GitHub.
+   ```bash
+   git push origin main
+   git tag v0.3.0
+   git push origin v0.3.0
+   ```
 
-   **Windows only, on this PC:**
+   The **Release** workflow (*Actions* tab) builds Windows and Mac, installs
+   and launches the Windows build, checks the Mac build, and publishes the
+   GitHub Release. It refuses a tag that does not match `package.json`. Add
+   `GEMINI_API_KEY` (and `SUPABASE_URL`, `SUPABASE_KEY`) under *Settings >
+   Secrets and variables > Actions* first, or the AI assistant is off in that
+   release. That is all for GitHub Releases; steps 4 and 5 are for a website.
+
+   Running the workflow from the *Actions* tab instead builds without
+   publishing; its `static-release` artifact is the `release/` folder.
+
+   **Windows only, on this PC, for a website:**
 
    ```bash
    STATIC_UPDATE_URL=https://yoursite.com/download/ npm run release
@@ -108,30 +129,33 @@ Connect API key for notarization. The release workflow takes them as secrets:
 
    (In PowerShell: `$env:STATIC_UPDATE_URL='https://yoursite.com/download/'; npm run release`.)
 
-4. Upload everything in `release/` to the folder in `STATIC_UPDATE_URL`,
+4. Website only: upload everything in `release/` to the folder in `STATIC_UPDATE_URL`,
    overwriting files with the same names. Upload the installers first and
    `latest.yml` / `latest-mac.yml` last. Installed copies then never see a
    new version before its file is there. **Keep the earlier versions'
    `.blockmap` files in the folder.** Installed copies use their own version's
    block map to download only what changed; without it every update is a full
    download. Old versioned installers can be deleted.
-5. Point your site's "Download" link at `index.html` in that folder, or link
+5. Website only: point your site's "Download" link at `index.html` in that folder, or link
    straight to `static-setup.exe` and `static.dmg`.
 
 ### Keep the update address the same
 
-Every installed copy remembers the `STATIC_UPDATE_URL` it was built with. If
-you change it, copies installed before the change never hear about new
-versions. Choose it once and keep it, or keep the old address working with a
-redirect.
+Every installed copy remembers the update address it was built with: the
+latest GitHub Release, unless `STATIC_UPDATE_URL` was set. If you change it,
+copies installed before the change never hear about new versions. So with
+GitHub Releases, keep publishing releases there; to move to a website, keep
+publishing to GitHub as well until older copies have updated.
 
 ### What automatic updates do
 
 Installed copies check about 90 seconds after starting and every four hours.
 A newer version downloads in the background, is checked against its SHA-512
-in `latest.yml`, and installs the next time static is closed. *Help > About
-static* shows the status, with *Check for updates* and *Restart to update*.
-Windows downloads only the changed parts of the installer when it can.
+in `latest.yml`, and installs the next time static is closed. **About
+Static**, at the bottom of the main menu, shows the status, with *Check for
+updates* and *Restart to update*. Windows downloads only the changed parts of
+the installer when it can; from GitHub, the installed version's block map is
+read from its own release.
 
 ## What the installers do
 

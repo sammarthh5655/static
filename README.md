@@ -22,19 +22,19 @@ If Windows blocks it completely with no **Run anyway** button, Smart App Control
 **Method 2: from the source code (works with Smart App Control)**
 
 1. Install [Node.js](https://nodejs.org) (the LTS version) and [Git](https://git-scm.com/download/win), accepting the default options.
-2. Open **PowerShell** and run:
+2. Open **Command Prompt** (search for "cmd" in the Start menu) and run:
 
-   ```powershell
+   ```bat
    git clone https://github.com/sammarthh5655/static.git
    cd static
-   npm install
+   npm ci
    npm start
    ```
 
-   `npm install` takes a few minutes the first time.
-3. To open static later without PowerShell, run `npm run shortcut` once in the same folder. It adds static to your desktop and Start menu.
+   `npm ci` takes a few minutes the first time.
+3. To open static later without Command Prompt, run `npm run shortcut` once in the same folder. It adds static to your desktop and Start menu.
 
-To update, open PowerShell in the `static` folder and run `git pull`, then `npm install`.
+To update, open Command Prompt in the `static` folder and run `git pull`, then `npm ci`.
 
 ### Mac (macOS 13 Ventura or later)
 
@@ -56,19 +56,19 @@ From then on, static opens normally. macOS asks this once because the app isn't 
    ```bash
    git clone https://github.com/sammarthh5655/static.git
    cd static
-   npm install
+   npm ci
    npm start
    ```
 
-4. To open static later without Terminal, run `npm run shortcut` once in the same folder. It adds a launcher to your Desktop.
+4. To start static later by double-clicking, run `npm run shortcut` once in the same folder. It puts `static.command` on your Desktop. Double-clicking it opens a Terminal window, which you can close once static has started.
 
-To update, run `git pull`, then `npm install`, in the `static` folder.
+To update, run `git pull`, then `npm ci`, in the `static` folder.
 
 ## Updating and uninstalling
 
 - **Windows installer:** static updates itself. New versions download in the background and install the next time you close static. **About Static**, at the bottom of the main menu, shows the status.
 - **Mac disk image:** download the new `static.dmg` and drag it into Applications again. Automatic updates on a Mac need an Apple-signed app.
-- **Uninstall on Windows:** *Settings > Apps > Installed apps > static > Uninstall*.
+- **Uninstall on Windows 11:** *Settings > Apps > Installed apps*, choose the **...** next to static, then **Uninstall**. On Windows 10 it's under *Settings > Apps > Apps & features*.
 - **Uninstall on a Mac:** drag static from Applications to the Bin.
 
 Uninstalling keeps your bookmarks, history and passwords, so reinstalling brings them back.

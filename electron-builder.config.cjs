@@ -95,8 +95,9 @@ module.exports = {
   afterPack: './scripts/after-pack.cjs',
   artifactName: '${productName}-${version}-${os}-${arch}.${ext}',
 
-  // Automatic updates come from the website, never GitHub. Without an
-  // address no update file is written and the app never checks.
+  // Automatic updates come from STATIC_UPDATE_URL: the latest GitHub
+  // Release when built by .github/workflows/release.yml, or a website folder.
+  // Without an address no update file is written and the app never checks.
   publish: updateUrl ? [{ provider: 'generic', url: updateUrl, channel: 'latest' }] : null,
 
   win: {

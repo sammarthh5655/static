@@ -63,6 +63,12 @@ class Updates {
     }
     const { autoUpdater } = require('electron-updater');
     this.updater = autoUpdater;
+    // Served from GitHub's "latest release" folder, the installed version's
+    // own block map is not there (it is in that version's release), so an
+    // update could never download only what changed. Point it at the release
+    // this copy came from.
+    const github = /url:\s*['"]?https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/releases\/latest\/download\/?/.exec(fs.readFileSync(feed, 'utf8'));
+    if (github) autoUpdater.previousBlockmapBaseUrlOverride = 'https://github.com/' + github[1] + '/' + github[2] + '/releases/download/v' + app.getVersion() + '/';
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowDowngrade = false;
@@ -129,10 +135,10 @@ class Updates {
   describe() {
     const text = {
       off: app.isPackaged
-        ? 'This build does not update itself. Download new versions from the static website.'
+        ? 'This build does not update itself. Download new versions from github.com/sammarthh5655/static/releases.'
         : 'Developer build: updates come from the source code.',
       incognito: 'Updates are checked and installed by your normal static windows.',
-      'unsigned-mac': 'Automatic updates need a signed Mac build. Download new versions from the static website.',
+      'unsigned-mac': 'Automatic updates need an Apple-signed Mac build. Download the new static.dmg from github.com/sammarthh5655/static/releases.',
       idle: 'static checks for updates automatically.',
       checking: 'Checking for updates…',
       downloading: `Downloading static ${this.version || ''}… ${this.progress}%`,
