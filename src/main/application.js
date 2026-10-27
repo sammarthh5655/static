@@ -67,6 +67,26 @@ const OWN_PAGES_URL = pathToFileURL(path.join(__dirname, '..', 'renderer', 'page
 const PLAIN_TEXT = ' Write plain text: no markdown, no asterisks, no headings.';
 
 /**
+ * What static tells websites it is.
+ *
+ * Electron's default user agent carries `static/0.2.1` and `Electron/44.7.0`.
+ * Sites match on those: Google's sign-in serves a different, older layout to
+ * a user agent it does not recognise, and refuses sign-in outright on some
+ * that say "Electron" ("this browser may not be secure"). The engine really
+ * IS the Chromium of that version, so claiming anything else would be the
+ * lie; what is removed here is only the two tokens that make a standards
+ * compliant Chromium look like an unknown app.
+ *
+ * Deliberately NOT a fixed, spoofed string: it keeps the real Chrome version
+ * from this build, so it stays honest and stays current with each upgrade.
+ */
+function browserUserAgent() {
+  return app.userAgentFallback
+    .replace(/ static\/[^\s]+/, '')
+    .replace(/ Electron\/[^\s]+/, '');
+}
+
+/**
  * The parts of a window that are its own. Reading `browser.tabs` (or any of
  * these) means the window in front, as it always meant the one window; code
  * that knows which window it is acting for says so instead (see AppWindow).
@@ -132,6 +152,8 @@ class BrowserApplication {
     // cookies, cache, storage and permissions vanish with the process.
     this.incognito = process.env.STATIC_INCOGNITO === '1';
     if (this.incognito) this.session = session.fromPartition('incognito');
+
+    this.session.setUserAgent(browserUserAgent());
 
     // Set when the browser was relaunched by a profile switch, so the picker
     // does not immediately reappear and trap the user in a loop.
