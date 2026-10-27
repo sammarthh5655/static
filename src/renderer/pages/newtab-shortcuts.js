@@ -205,10 +205,10 @@ function render(context) {
   const row = document.getElementById('frequent-row');
   const show = ctx.state().settings?.newTab?.showMostVisited !== false;
   const list = show ? entries() : [];
-  const custom = settings().mode === 'custom';
-  // A fresh profile shows nothing rather than a row of grey circles - but
-  // your own list always offers the + to add to it.
-  host.hidden = !show || (!list.length && !custom);
+  // Hidden only when shortcuts are switched off. A fresh profile has no
+  // history yet, and hiding the row then left no way to add a first
+  // shortcut - the + tile below is how anyone starts their own list.
+  host.hidden = !show;
   if (host.hidden) { row.replaceChildren(); return; }
 
   const tiles = list.map((entry, index) => {
@@ -240,9 +240,11 @@ function render(context) {
   });
 
   if (list.length < MAX_CUSTOM) {
+    // The tile is as narrow as the site tiles beside it, so the label has to
+    // fit in one short word rather than being clipped to "Add short...".
     const add = element('button', { class: 'frequent-item frequent-add', title: 'Add shortcut', onclick: () => openDialog() }, [
       element('span', { class: 'favicon-slot frequent-plus' }, [ctx.icon('plus', { size: 18 })]),
-      element('span', { class: 'frequent-name', text: 'Add shortcut' }),
+      element('span', { class: 'frequent-name', text: 'Add' }),
     ]);
     tiles.push(add);
   }

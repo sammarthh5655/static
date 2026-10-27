@@ -12,7 +12,11 @@
 const { invoke, onState, element, icon, timeAgo } = window.page;
 const security = window.passwordSecurity;
 
-let state = { count: 0, encryption: {}, unreadable: 0 };
+// `encryption.available` is undefined until main answers. That is not the
+// same as "unavailable", which would wrongly say passwords cannot be saved
+// on the first paint, so the page treats it as "assume fine, correct in a
+// moment" (see render).
+let state = { count: 0, encryption: {}, unreadable: 0, loaded: false };
 let entries = [];
 let query = '';
 /** id of the one entry currently revealed, if any. */
@@ -380,7 +384,9 @@ function render() {
   const active = content.contains(document.activeElement) ? document.activeElement : null;
   const caret = active && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
 
-  const available = state.encryption?.available;
+  // Before main has answered, assume encryption is fine: saying it is not
+  // would be a false alarm, and it is corrected a moment later either way.
+  const available = state.loaded ? state.encryption?.available : true;
   let cards;
   if (!available) {
     // No encryption: just the plain explanation, no tabs to offer.
@@ -422,8 +428,26 @@ shellApi = window.shell.mount({
   content,
 });
 
+// Draw the tabs and empty cards straight away. refresh() fills them in a
+// moment; without this the panel is blank until every IPC call has answered,
+// which on a cold start is long enough to look broken.
+render();
+
 async function refresh() {
-  state = (await invoke('passwords:state')) || state;
+  try {
+    await load();
+  } catch (error) {
+    // A failed load must not leave the page blank for good: draw what is
+    // known, with the reason, rather than an empty panel.
+    console.error('passwords: could not load', error);
+    content.replaceChildren(element('div', { class: 'panel-card' }, [
+      element('p', { class: 'muted', text: 'Passwords could not be loaded: ' + String(error?.message || error) }),
+    ]));
+  }
+}
+
+async function load() {
+  state = { ...((await invoke('passwords:state')) || state), loaded: true };
   await security.load();
   entries = security.state.locked ? [] : (await invoke('passwords:list', { query })) || [];
   // Checkup and Settings read the extras module's data, so keep it current -

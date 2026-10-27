@@ -128,7 +128,11 @@ function row(d) {
 
 function draw() {
   if (!open) return;
-  if (!open.list.isConnected) { open = null; return; }
+  // A redraw for a panel that has been taken off the page belongs to a bubble
+  // that is gone. The FIRST draw is different: the card is still being built
+  // and has not been put in the document yet, so `built` has to say so -
+  // testing isConnected alone threw the panel away before it ever appeared.
+  if (open.built && !open.list.isConnected) { open = null; return; }
   const all = Array.isArray(open.item.state?.()?.downloads) ? open.item.state().downloads : [];
   const now = Date.now();
   const recent = all.filter((d) => d.state === 'progressing' || now - (d.startedAt || 0) < RECENT_MS).slice(0, SHOWN);
@@ -150,8 +154,11 @@ function downloadsPanel(item, { close }) {
   head.append(all);
   const list = node('div', 'dl-list');
   card.append(head, list);
-  open = { list, item, close };
+  open = { list, item, close, built: false };
   draw();
+  // From here on the card is handed to the menu, so a later redraw can tell
+  // a live panel from one that has been closed.
+  open.built = true;
 
   // Opened by a download starting: it steps aside after a moment, unless
   // someone is reading it. The timer closes THIS panel only - if the panel
