@@ -106,6 +106,7 @@ function closeMenu() {
  */
 function popup(x, y, label, items) {
   closeMenu();
+  if (!ctx) return;
   const { element, icon } = ctx;
   menuNode = element('div', { class: 'nt-menu', role: 'menu', 'aria-label': label }, items.map((it) => {
     if (!it) return element('div', { class: 'nt-menu-line' });
@@ -155,6 +156,7 @@ document.addEventListener('scroll', closeMenu, true);
 function openDialog(index = -1, entry = null) {
   closeMenu();
   document.querySelector('.nt-dialog-veil')?.remove();
+  if (!ctx) return;
   const { element } = ctx;
   const name = element('input', { type: 'text', maxlength: '60', placeholder: 'YouTube', value: entry ? nameOf(entry) : '' });
   const address = element('input', { type: 'text', maxlength: '2048', placeholder: 'youtube.com', value: entry?.url || '', spellcheck: 'false' });
@@ -196,7 +198,8 @@ function openDialog(index = -1, entry = null) {
 /* ---- the row ------------------------------------------------------------------ */
 
 function render(context) {
-  ctx = context;
+  if (context) ctx = context;
+  if (!ctx) return;
   const { element, favicon, openUrl } = ctx;
   const host = document.getElementById('frequent');
   const row = document.getElementById('frequent-row');
@@ -246,6 +249,13 @@ function render(context) {
   row.replaceChildren(...tiles);
 }
 
-window.newtabShortcuts = { render, openDialog, popup, hostOf };
+/**
+ * Hand over the page's helpers once, at startup. The quick buttons and
+ * Customise can both open a menu before the shortcuts row has drawn, and
+ * neither should have to care which ran first.
+ */
+function init(context) { ctx = context; }
+
+window.newtabShortcuts = { init, render, openDialog, popup, hostOf };
 
 })();

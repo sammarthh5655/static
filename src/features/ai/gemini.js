@@ -241,7 +241,11 @@ function buildBody({ prompt, system, context, history, temperature, maxOutputTok
       ...(shape ? { thinkingConfig: shape } : {}),
     },
   };
-  if (system) body.systemInstruction = { parts: [{ text: clean(system, 8000) }] };
+  // The cap is a guard against a runaway instruction, not an API limit. It
+  // has to clear the browser guide (features/ai/knowledge.js), which is our
+  // own text and runs to a few thousand characters on its own; 8000 cut the
+  // end off it, taking the caller's own rules with it.
+  if (system) body.systemInstruction = { parts: [{ text: clean(system, 24000) }] };
   // Grounding: the model may run Google searches and answer from the results.
   // Only ever switched on by a caller in main, never by what a page sends.
   if (search) body.tools = [{ google_search: {} }];

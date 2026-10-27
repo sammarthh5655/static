@@ -20,6 +20,11 @@ const { invoke, onState, $, element, icon, favicon, openUrl } = window.page;
 let state = { settings: {}, ai: {}, modes: {} };
 let aiMode = false;
 let busy = false;
+
+// The shortcuts row and its menus (newtab-shortcuts.js) share this page's
+// helpers. Handed over before anything draws, because the quick buttons and
+// Customise can both open one of its menus before the row itself has drawn.
+window.newtabShortcuts.init({ state: () => state, element, favicon, icon, invoke, openUrl });
 let lastQuestion = '';
 
 /* ---- mode ----------------------------------------------------------------- */
@@ -577,7 +582,7 @@ function saveNewTab(patch) {
 
 function renderFrequent() {
   // Most visited, or your own shortcuts, with their menu (newtab-shortcuts.js).
-  window.newtabShortcuts.render({ state: () => state, element, favicon, icon, invoke, openUrl });
+  window.newtabShortcuts.render();
 }
 
 /* ---- widgets --------------------------------------------------------------- */

@@ -99,17 +99,19 @@ function row(d) {
   const done = d.state === 'completed';
   const going = d.state === 'progressing';
   const r = node(done ? 'button' : 'div', 'dl-row is-' + d.state);
+  const words = node('span', 'dl-words');
+  const statusLine = node('span', 'dl-status', status(d));
+  words.append(node('span', 'dl-name', d.name || 'Download'), statusLine);
   if (done) {
     r.type = 'button';
     r.title = 'Open ' + d.name;
     r.addEventListener('click', async () => {
       const result = await item.run('downloads:open', { id: d.id });
       if (result?.ok) open?.close();
-      else if (result?.error) words.lastChild.textContent = result.error;
+      // A file that has been moved or deleted says so on its own row.
+      else if (result?.error) statusLine.textContent = result.error;
     });
   }
-  const words = node('span', 'dl-words');
-  words.append(node('span', 'dl-name', d.name || 'Download'), node('span', 'dl-status', status(d)));
   if (going) {
     const bar = node('span', 'dl-bar' + (d.total > 0 ? '' : ' is-unknown'));
     const fill = node('span', 'dl-fill');
@@ -152,11 +154,14 @@ function downloadsPanel(item, { close }) {
   draw();
 
   // Opened by a download starting: it steps aside after a moment, unless
-  // someone is reading it.
+  // someone is reading it. The timer closes THIS panel only - if the panel
+  // has already gone, a late timer must not close whatever is open now.
   if (spec.auto) {
-    let timer = setTimeout(close, AUTO_CLOSE_MS);
+    const mine = open;
+    const closeIfStillMine = () => { if (open === mine) close(); };
+    let timer = setTimeout(closeIfStillMine, AUTO_CLOSE_MS);
     card.addEventListener('pointerenter', () => clearTimeout(timer));
-    card.addEventListener('pointerleave', () => { clearTimeout(timer); timer = setTimeout(close, 2000); });
+    card.addEventListener('pointerleave', () => { clearTimeout(timer); timer = setTimeout(closeIfStillMine, 2000); });
   }
   return card;
 }

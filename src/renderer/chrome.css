@@ -119,13 +119,15 @@ body.mac .window-controls { display: none; }
 body:not(.vertical-tabs) .titlebar { height: 40px; align-items: stretch; }
 body:not(.vertical-tabs) .titlebar-drag { display: none; }
 body:not(.vertical-tabs) .titlebar-left { align-self: center; }
-.titlebar .strip { flex: 1 1 auto; min-width: 0; }
-/* The bar drags the window, so everything in the strip you can click opts
-   out; the space above and beside the tabs still drags, as in Chrome. */
-.titlebar .strip .tab,
-.titlebar .strip .tab-group-chip,
-.titlebar .strip button { -webkit-app-region: no-drag; }
-body.tab-dragging .titlebar { -webkit-app-region: no-drag; }
+/* The title bar drags the window, and -webkit-app-region INHERITS, so the
+   strip and everything in it would drag too - the gaps between tabs included,
+   which swallows a tab drag. The strip opts out as a whole; `.strip-drag`,
+   its empty end, opts back in so there is still somewhere to grab the
+   window, exactly as in Chrome. */
+.titlebar .strip { flex: 1 1 auto; min-width: 0; -webkit-app-region: no-drag; }
+.titlebar .strip .strip-drag { -webkit-app-region: drag; }
+body.tab-dragging .titlebar,
+body.tab-dragging .titlebar .strip-drag { -webkit-app-region: no-drag; }
 
 /* ---- tab strip (40px) ---------------------------------------------------- */
 

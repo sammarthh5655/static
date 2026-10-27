@@ -349,7 +349,17 @@ function forgotScreen(onDone, onCancel) {
     let armed = false;
     go.addEventListener('click', async () => {
       if (!armed) { armed = true; go.textContent = 'Click again to erase everything'; return; }
-      await invoke('passwords:reset-vault').catch(() => {});
+      go.disabled = true;
+      const result = await invoke('passwords:reset-vault').catch((e) => ({ ok: false, error: errorText(e) }));
+      go.disabled = false;
+      // A refusal means there is still a way back in that keeps the data, so
+      // say so rather than closing as though the vault had been cleared.
+      if (!result?.ok) {
+        armed = false;
+        go.textContent = 'Clear the vault and start over';
+        error.textContent = result?.error || 'The vault could not be cleared.';
+        return;
+      }
       await load();
       onDone();
     });

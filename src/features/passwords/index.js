@@ -363,6 +363,12 @@ class Passwords {
    * the vault starts empty. The caller must confirm this destroys the data.
    */
   resetVault() {
+    // Only ever the way out of being locked out for good. With the vault
+    // open, or with a recovery key still to try, there is a way back in that
+    // keeps the data - and this would throw it away for nothing.
+    if (!this.data.lock) return { ok: false, error: 'There is no master password to reset.' };
+    if (this.key) return { ok: false, error: 'The vault is unlocked. Turn the master password off in Security instead - that keeps your logins.' };
+    if (this.data.lock.recovery) return { ok: false, error: 'This vault has a recovery key. Use it to reset your master password and keep your logins.' };
     this.data.entries = [];
     this.data.passkeys = [];
     this.data.lock = null;

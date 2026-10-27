@@ -105,23 +105,26 @@ const TOPICS = [
   ]],
 ];
 
-/** "New tab: Ctrl+T" for every action that has a key, from the live table. */
+/**
+ * The shortcuts worth putting in front of the model, as "New tab: Ctrl+T".
+ *
+ * Not all of them: the system instruction has a hard size limit (gemini.js
+ * trims it), and the whole table costs more of that budget than it is worth -
+ * a browser question is rarely about Ctrl+6. These are the ones people ask
+ * about; anything else is on browser://help.
+ */
+const KEY_SHORTCUTS = [
+  'tab:new', 'tab:close', 'tab:reopen', 'tab:search', 'window:new', 'window:incognito',
+  'address:focus', 'page:find', 'page:reload', 'page:reader', 'page:print',
+  'open:settings', 'open:history', 'open:downloads', 'open:bookmarks', 'bookmarks:toggle',
+  'open:extensions', 'sidebar:toggle', 'data:clear', 'menu:main',
+];
+
 function shortcutLines() {
-  const seen = new Map();
-  for (const a of ACCELERATORS) {
-    if (!seen.has(a.label)) seen.set(a.label, []);
-    const keys = seen.get(a.label);
-    if (!keys.includes(a.display) && keys.length < 2) keys.push(a.display);
-  }
-  // "Tab 1" to "Tab 8" read better as one line.
-  const first = seen.get('Tab 1')?.[0], last = seen.get('Tab 8')?.[0];
   const lines = [];
-  for (const [label, keys] of seen) {
-    if (/^Tab [1-8]$/.test(label)) {
-      if (label === 'Tab 1' && first && last) lines.push(`Tab 1 to 8: ${first} to ${last}`);
-      continue;
-    }
-    lines.push(`${label}: ${keys.join(' or ')}`);
+  for (const id of KEY_SHORTCUTS) {
+    const a = ACCEL.get(id);
+    if (a) lines.push(`${a.label}: ${a.display}`);
   }
   return lines;
 }
@@ -174,7 +177,13 @@ function isAboutStatic(question) {
 function withGuide(system, question, history) {
   const previous = Array.isArray(history) ? history.filter((t) => t?.role === 'user').slice(-1)[0]?.text : '';
   if (!isAboutStatic(question) && !isAboutStatic(previous)) return system;
-  return browserGuide() + '\n\nQuestions about static itself are answered from the guide, even when a page is provided as context.' + (system ? '\n\n' + system : '');
+  // The caller's own instruction goes FIRST. A system instruction has a size
+  // limit (gemini.js trims the end), and the caller's rules - "answer in
+  // plain text", how long to be - must survive that; losing the tail of the
+  // guide only costs a detail the model can say it is unsure of.
+  return (system ? system + '\n\n' : '')
+    + browserGuide()
+    + '\n\nQuestions about static itself are answered from the guide, even when a page is provided as context.';
 }
 
 module.exports = { browserGuide, isAboutStatic, withGuide, TOPICS };

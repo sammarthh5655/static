@@ -172,5 +172,7 @@ function settingsCards() {
 
 window.passwordExtras = { host, reload: load, loadData, checkupCard, settingsCards, draw };
 onState(() => {});
-load();
+// The page (passwords.js) loads after this file and fetches this data itself
+// before its first paint, so there is nothing to do here but wait: loading
+// again now would only draw into a host the page keeps hidden.
 })();
