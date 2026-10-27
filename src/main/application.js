@@ -52,7 +52,7 @@ const importer = require('../features/importer');
 const { Autofill, fillValues } = require('../features/autofill');
 const { kindOf, luhn } = require('../shared/autofill-fields');
 const os = require('node:os');
-const { AppWindow, PANEL_PAGES, chromeHeight, TITLEBAR_HEIGHT, TABSTRIP_HEIGHT, TOOLBAR_HEIGHT, BOOKMARKS_BAR_HEIGHT } = require('./window');
+const { AppWindow, PANEL_PAGES, chromeHeight, overlapsEnough, TITLEBAR_HEIGHT, TABSTRIP_HEIGHT, TOOLBAR_HEIGHT, BOOKMARKS_BAR_HEIGHT } = require('./window');
 const { STUDENT_TASKS, LEGAL_TASKS, LEGAL_DISCLAIMER, SHOPPING_SYSTEM, READ_PAGE } =
   require('../features/workspaces');
 
@@ -205,9 +205,15 @@ class BrowserApplication {
     // A browser that always opens centred at a fixed size ignores how the
     // window was actually being used.
     const saved = this.windowStore.data;
-    return saved.width && saved.height
-      ? { width: saved.width, height: saved.height, x: saved.x, y: saved.y }
-      : {};
+    if (!saved.width || !saved.height) return {};
+    const box = { width: saved.width, height: saved.height, x: saved.x, y: saved.y };
+    // A position saved on a screen this computer no longer has - a monitor
+    // unplugged, or a laptop away from its desk - would reopen the window
+    // where nobody can see it: it starts, and there is nothing on screen.
+    // Keep the size, which is still what the person chose, and let the
+    // window manager place it.
+    if (this.#onScreen(box)) return box;
+    return { width: saved.width, height: saved.height };
   }
 
   /** The windows still open, oldest first. */
@@ -1912,10 +1918,7 @@ class BrowserApplication {
     } : null;
     if (!box || box.width < 200 || box.height < 150) return null;
     try {
-      const area = screen.getDisplayMatching(box).workArea;
-      const overlap = Math.min(box.x + box.width, area.x + area.width) - Math.max(box.x, area.x);
-      const tall = Math.min(box.y + box.height, area.y + area.height) - Math.max(box.y, area.y);
-      return overlap > 120 && tall > 80 ? box : null;
+      return overlapsEnough(box, screen.getDisplayMatching(box).workArea) ? box : null;
     } catch { return null; }
   }
 

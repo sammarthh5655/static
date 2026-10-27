@@ -21,6 +21,20 @@ const BOOKMARKS_BAR_HEIGHT = 34;
 /** How much room the omnibox dropdown needs when it is open. */
 const SUGGESTIONS_HEIGHT = 340;
 
+/**
+ * Does `box` overlap `area` enough to be usable - enough of it on screen to
+ * see and to grab? Pure geometry, so it can be tested without a display.
+ *
+ * This is what stops a window reopening on a monitor that has been unplugged,
+ * where it starts but nobody can see it.
+ */
+function overlapsEnough(box, area, minX = 120, minY = 80) {
+  if (!box || !area) return false;
+  const wide = Math.min(box.x + box.width, area.x + area.width) - Math.max(box.x, area.x);
+  const tall = Math.min(box.y + box.height, area.y + area.height) - Math.max(box.y, area.y);
+  return wide > minX && tall > minY;
+}
+
 /** Total chrome height for a given settings snapshot. */
 function chromeHeight(settings) {
   // Tabs on top share the title bar's row, as in Chrome, so the bar is the
@@ -1361,6 +1375,6 @@ class AppWindow {
 }
 
 module.exports = {
-  AppWindow, chromeHeight, safeFavicon, PANEL_PAGES,
+  AppWindow, chromeHeight, safeFavicon, PANEL_PAGES, overlapsEnough,
   TITLEBAR_HEIGHT, TABSTRIP_HEIGHT, TOOLBAR_HEIGHT, BOOKMARKS_BAR_HEIGHT,
 };
